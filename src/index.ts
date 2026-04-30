@@ -3,11 +3,22 @@
 import { Command } from 'commander';
 
 import { loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
+import { initializeRepo } from './repo.js';
 
 export function createProgram(homeDir?: string): Command {
   const program = new Command()
     .name('syncskill')
     .description('Multi-device AI Agent Skill sync tool');
+
+  program
+    .command('init')
+    .description('Initialize the local syncskill repository')
+    .option('--skip-sources', 'Skip migrating skills from detected source directories')
+    .action(async (options: { skipSources?: boolean }) => {
+      await initializeRepo(homeDir ?? process.env.HOME ?? '', {
+        skipSources: Boolean(options.skipSources)
+      });
+    });
 
   const configCommand = program.command('config').description('Manage syncskill config');
 
