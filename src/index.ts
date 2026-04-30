@@ -3,10 +3,11 @@
 import { Command } from 'commander';
 
 import { loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
-import { scanSkills } from './linker.js';
+import { collectLinkStatus, linkConfiguredSkills, scanSkills, unlinkSkill } from './linker.js';
 import { initializeRepo } from './repo.js';
 
 export function createProgram(homeDir?: string): Command {
+  const resolvedHomeDir = homeDir ?? process.env.HOME ?? '';
   const program = new Command()
     .name('syncskill')
     .description('Multi-device AI Agent Skill sync tool');
@@ -16,7 +17,7 @@ export function createProgram(homeDir?: string): Command {
     .description('Initialize the local syncskill repository')
     .option('--skip-sources', 'Skip migrating skills from detected source directories')
     .action(async (options: { skipSources?: boolean }) => {
-      await initializeRepo(homeDir ?? process.env.HOME ?? '', {
+      await initializeRepo(resolvedHomeDir, {
         skipSources: Boolean(options.skipSources)
       });
     });
@@ -46,13 +47,48 @@ export function createProgram(homeDir?: string): Command {
     .description('Scan local skills and add missing links')
     .option('--all-agents', 'Link new skills to all configured agents')
     .action(async (options: { allAgents?: boolean }) => {
-      const addedSkills = await scanSkills(homeDir ?? process.env.HOME ?? '', {
+      const addedSkills = await scanSkills(resolvedHomeDir, {
         allAgents: Boolean(options.allAgents)
       });
 
       for (const skillName of addedSkills) {
         console.log(skillName);
       }
+    });
+
+  program
+    .command('link [skill]')
+    .description('Link configured skills into target agent directories')
+    .option('--all', 'Link all configured skills')
+    .option('--status', 'Show link status')
+    .option('--unlink <skill>', 'Remove links for one skill')
+    .action(async (skill: string | undefined, options: { all?: boolean; status?: boolean; unlink?: string }) => {
+      if (options.status) {
+        const statuses = await collectLinkStatus(resolvedHomeDir);
+
+        for (const status of statuses) {
+          console.log(`${status.skill}\t${status.agent}\t${status.state}`);
+        }
+
+        return;
+      }
+
+      if (typeof options.unlink === 'string') {
+        await unlinkSkill(resolvedHomeDir, options.unlink);
+        return;
+      }
+
+      if (options.all) {
+        await linkConfiguredSkills(resolvedHomeDir, { all: true });
+        return;
+      }
+
+      if (typeof skill === 'string') {
+        await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skill });
+        return;
+      }
+
+      throw new Error('link requires <skill>, --all, --status, or --unlink <skill>');
     });
 
   return program;
