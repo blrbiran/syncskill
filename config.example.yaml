@@ -1,0 +1,6 @@
+version: 1
+conflict_resolution: manual
+agents: {}
+links: {}
+servers: {}
+sources: {}
