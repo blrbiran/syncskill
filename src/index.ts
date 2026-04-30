@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 
 import { loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
+import { runConfigUi } from './config-ui.js';
 import { collectLinkStatus, linkConfiguredSkills, scanSkills, unlinkSkill } from './linker.js';
 import { initializeRepo } from './repo.js';
 
@@ -23,6 +24,10 @@ export function createProgram(homeDir?: string): Command {
     });
 
   const configCommand = program.command('config').description('Manage syncskill config');
+
+  configCommand.action(async () => {
+    await runConfigUi(resolvedHomeDir);
+  });
 
   configCommand
     .command('show')
