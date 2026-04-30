@@ -141,7 +141,7 @@ export function setConfigValue(
   dottedPath: string,
   value: unknown
 ): SyncSkillConfig {
-  const next = structuredClone(config) as Record<string, unknown>;
+  const next = structuredClone(config) as unknown as Record<string, unknown>;
   const segments = dottedPath.split('.');
   let cursor: Record<string, unknown> = next;
 
@@ -185,9 +185,15 @@ function normalizeAgents(value: unknown): Record<string, string> {
     return {};
   }
 
-  return Object.fromEntries(
-    Object.entries(value).filter(([, path]): path is string => typeof path === 'string')
-  );
+  const agents: Record<string, string> = {};
+
+  for (const [key, path] of Object.entries(value)) {
+    if (typeof path === 'string') {
+      agents[key] = path;
+    }
+  }
+
+  return agents;
 }
 
 function normalizeLinks(value: unknown): Record<string, string[]> {

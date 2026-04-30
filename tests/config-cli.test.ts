@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,6 +8,24 @@ import { createDefaultConfig, loadConfig, saveConfig } from '../src/config.js';
 import { createProgram } from '../src/index.js';
 
 describe('config CLI', () => {
+  it('init, scan, and link --status work together for one local skill', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
+    tempDirs.push(homeDir);
+
+    await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-sources'], { from: 'node' });
+
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'welcome'), { recursive: true });
+    await writeFile(join(homeDir, '.syncskill', 'skills', 'welcome', 'SKILL.md'), 'hello', 'utf8');
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan', '--all-agents'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--status'], { from: 'node' });
+
+    expect(consoleLog).toHaveBeenCalledWith('welcome\tclaude\tlinked');
+  });
+
   const tempDirs: string[] = [];
 
   afterEach(async () => {
