@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 
 import { loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
+import { scanSkills } from './linker.js';
 import { initializeRepo } from './repo.js';
 
 export function createProgram(homeDir?: string): Command {
@@ -38,6 +39,20 @@ export function createProgram(homeDir?: string): Command {
       const parsed = parseConfigValue(value);
       const next = setConfigValue(current, key, parsed);
       await saveConfig(next, homeDir);
+    });
+
+  program
+    .command('scan')
+    .description('Scan local skills and add missing links')
+    .option('--all-agents', 'Link new skills to all configured agents')
+    .action(async (options: { allAgents?: boolean }) => {
+      const addedSkills = await scanSkills(homeDir ?? process.env.HOME ?? '', {
+        allAgents: Boolean(options.allAgents)
+      });
+
+      for (const skillName of addedSkills) {
+        console.log(skillName);
+      }
     });
 
   return program;
