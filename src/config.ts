@@ -122,6 +122,44 @@ export async function saveConfig(config: SyncSkillConfig, homeDir = homedir()): 
   await writeFile(configFile, YAML.stringify(config), 'utf8');
 }
 
+export function parseConfigValue(raw: string): unknown {
+  const trimmed = raw.trim();
+
+  if (trimmed === '') {
+    return '';
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return raw;
+  }
+}
+
+export function setConfigValue(
+  config: SyncSkillConfig,
+  dottedPath: string,
+  value: unknown
+): SyncSkillConfig {
+  const next = structuredClone(config) as Record<string, unknown>;
+  const segments = dottedPath.split('.');
+  let cursor: Record<string, unknown> = next;
+
+  for (const segment of segments.slice(0, -1)) {
+    const current = cursor[segment];
+
+    if (!isRecord(current)) {
+      cursor[segment] = {};
+    }
+
+    cursor = cursor[segment] as Record<string, unknown>;
+  }
+
+  cursor[segments.at(-1) as string] = value;
+
+  return validateConfig(next);
+}
+
 export function expandTargetAgents(config: SyncSkillConfig, targets: string[]): string[] {
   if (targets.includes('*')) {
     return Object.keys(config.agents).sort();
