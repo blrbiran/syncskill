@@ -1,5 +1,8 @@
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+
+import YAML from 'yaml';
 
 export interface SyncPaths {
   syncDir: string;
@@ -9,6 +12,26 @@ export interface SyncPaths {
   tempDir: string;
   historyFile: string;
 }
+
+export type ConflictResolution = 'manual' | 'keep-local' | 'keep-remote';
+
+export interface SyncSkillConfig {
+  version: number;
+  conflict_resolution: ConflictResolution;
+  agents: Record<string, string>;
+  links: Record<string, string[]>;
+  servers: Record<string, unknown>;
+  sources: Record<string, unknown>;
+}
+
+const KNOWN_AGENT_DIRS = {
+  claude: '.claude/skills',
+  agents: '.agents/skills',
+  hermes: '.hermes/skills',
+  qwen: '.qwen/skills',
+  qoder: '.qoder/skills',
+  aone_copilot: '.aone_copilot/skills'
+} as const;
 
 export function getSyncDir(homeDir = homedir()): string {
   return join(homeDir, '.syncskill');
@@ -25,4 +48,116 @@ export function getSyncPaths(homeDir = homedir()): SyncPaths {
     tempDir: join(syncDir, '.tmp'),
     historyFile: join(syncDir, 'manifest_history.json')
   };
+}
+
+export async function detectAgents(homeDir = homedir()): Promise<Record<string, string>> {
+  const detected = await Promise.all(
+    Object.entries(KNOWN_AGENT_DIRS).map(async ([agent, relativePath]) => {
+      const fullPath = join(homeDir, relativePath);
+
+      try {
+        await access(fullPath);
+        return [agent, fullPath] as const;
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return Object.fromEntries(detected.filter((entry): entry is readonly [string, string] => entry !== null));
+}
+
+export function createDefaultConfig(homeDir = homedir(), agents: Record<string, string> = {}): SyncSkillConfig {
+  void homeDir;
+
+  return {
+    version: 1,
+    conflict_resolution: 'manual',
+    agents,
+    links: {},
+    servers: {},
+    sources: {}
+  };
+}
+
+export function validateConfig(value: unknown): SyncSkillConfig {
+  if (!isRecord(value)) {
+    throw new Error('Config must be an object');
+  }
+
+  if (!('version' in value)) {
+    throw new Error('Config is missing required key: version');
+  }
+
+  if (!('agents' in value)) {
+    throw new Error('Config is missing required key: agents');
+  }
+
+  if (!('links' in value) || value.links === undefined) {
+    throw new Error('Config is missing required key: links');
+  }
+
+  return {
+    version: value.version as number,
+    conflict_resolution: isConflictResolution(value.conflict_resolution)
+      ? value.conflict_resolution
+      : 'manual',
+    agents: normalizeAgents(value.agents),
+    links: normalizeLinks(value.links),
+    servers: isRecord(value.servers) ? value.servers : {},
+    sources: isRecord(value.sources) ? value.sources : {}
+  };
+}
+
+export async function loadConfig(homeDir = homedir()): Promise<SyncSkillConfig> {
+  const { configFile } = getSyncPaths(homeDir);
+  const raw = await readFile(configFile, 'utf8');
+
+  return validateConfig(YAML.parse(raw));
+}
+
+export async function saveConfig(config: SyncSkillConfig, homeDir = homedir()): Promise<void> {
+  const { syncDir, configFile } = getSyncPaths(homeDir);
+  await mkdir(syncDir, { recursive: true });
+  await writeFile(configFile, YAML.stringify(config), 'utf8');
+}
+
+export function expandTargetAgents(config: SyncSkillConfig, targets: string[]): string[] {
+  if (targets.includes('*')) {
+    return Object.keys(config.agents).sort();
+  }
+
+  return [...new Set(targets)].sort();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isConflictResolution(value: unknown): value is ConflictResolution {
+  return value === 'manual' || value === 'keep-local' || value === 'keep-remote';
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function normalizeAgents(value: unknown): Record<string, string> {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(([, path]): path is string => typeof path === 'string')
+  );
+}
+
+function normalizeLinks(value: unknown): Record<string, string[]> {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, targets]) => [key, normalizeStringArray(targets)])
+  );
 }
