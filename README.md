@@ -58,6 +58,28 @@ You can also invoke the built CLI as `syncskill` after building or wiring it int
 - `syncskill pull <server>`
 - `syncskill sync [--all | <server>]`
 
+## Verification
+
+Default required gate:
+
+```bash
+npm run test
+npm run build
+```
+
+Additional suites:
+
+```bash
+npm run test:integration
+npm run test:end2end
+```
+
+Built CLI sanity:
+
+```bash
+node dist/index.js --help
+```
+
 ## Docs
 
 - [Configuration Guide](docs/config-guide.md)

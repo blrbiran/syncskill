@@ -67,3 +67,25 @@ Typical remote flow:
 2. Run `syncskill push alpha` to publish local changes to one server.
 3. Run `syncskill pull alpha` to fetch remote changes into the local repository.
 4. Run `syncskill sync --all` to perform pull-then-push orchestration across all configured servers.
+
+## Verification
+
+Default required gate:
+
+```bash
+npm run test
+npm run build
+```
+
+Additional suites:
+
+```bash
+npm run test:integration
+npm run test:end2end
+```
+
+Built CLI sanity:
+
+```bash
+node dist/index.js --help
+```
