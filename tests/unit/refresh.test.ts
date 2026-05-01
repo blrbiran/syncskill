@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { saveConfig } from '../../src/config.js';
 import { getSyncPaths } from '../../src/config.js';
-import { saveServerManifest } from '../../src/manifest.js';
+import { createEmptyManifest, saveServerManifest } from '../../src/manifest.js';
 import {
   autoRefreshManifests,
   formatDiffLines,
@@ -17,6 +17,8 @@ import {
   shouldRefreshLocal,
   shouldRefreshRemote
 } from '../../src/refresh.js';
+import { rebuildRemoteManifestFromHashes } from '../../src/manifest.js';
+import * as transportModule from '../../src/transport.js';
 
 describe('refresh orchestration', () => {
   const tempDirs: string[] = [];
@@ -226,9 +228,28 @@ describe('refresh orchestration', () => {
     ]);
   });
 
-  it('refreshStoredManifests reconciles stored manifests without changing timestamps on remote-only refresh', async () => {
+  it('refreshStoredManifests rewrites stored manifests on remote-only refresh', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
     tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {
+              claude: '/srv/skills'
+            }
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
 
     await saveServerManifest(homeDir, {
       version: 1,
@@ -245,6 +266,21 @@ describe('refresh orchestration', () => {
       }
     });
 
+    vi.spyOn(transportModule, 'refreshRemoteManifestFromServer').mockResolvedValue({
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-03T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: '11111111111111111111111111111111',
+          remote_hash: '22222222222222222222222222222222',
+          recorded_hash: '11111111111111111111111111111111',
+          direction: 'pull',
+          status: 'remote-changed'
+        }
+      }
+    });
+
     const manifests = await refreshStoredManifests(homeDir, {
       local: false,
       remote: true,
@@ -255,14 +291,14 @@ describe('refresh orchestration', () => {
       {
         version: 1,
         server: 'alpha',
-        updated_at: '2026-05-01T00:00:00.000Z',
+        updated_at: '2026-05-03T00:00:00.000Z',
         skills: {
           welcome: {
             local_hash: '11111111111111111111111111111111',
-            remote_hash: '11111111111111111111111111111111',
+            remote_hash: '22222222222222222222222222222222',
             recorded_hash: '11111111111111111111111111111111',
-            direction: 'skip',
-            status: 'in-sync'
+            direction: 'pull',
+            status: 'remote-changed'
           }
         }
       }
@@ -407,6 +443,133 @@ describe('refresh orchestration', () => {
     expect(shouldRefreshRemote({ local: true })).toBe(false);
     expect(shouldRefreshRemote({ remote: true })).toBe(true);
     expect(shouldRefreshRemote({ local: true, remote: true })).toBe(true);
+  });
+
+  it('rebuildRemoteManifestFromHashes uses real remote hashes as source of truth', () => {
+    const manifest = createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z');
+    manifest.skills.docs = {
+      local_hash: null,
+      remote_hash: 'old-docs',
+      recorded_hash: 'old-docs',
+      direction: 'skip',
+      status: 'in-sync'
+    };
+    manifest.skills.stale = {
+      local_hash: null,
+      remote_hash: 'stale-hash',
+      recorded_hash: 'stale-hash',
+      direction: 'skip',
+      status: 'in-sync'
+    };
+
+    expect(
+      rebuildRemoteManifestFromHashes(
+        manifest,
+        {
+          docs: 'new-docs',
+          welcome: 'new-welcome'
+        },
+        '2026-05-02T00:00:00.000Z'
+      )
+    ).toEqual({
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-02T00:00:00.000Z',
+      skills: {
+        docs: {
+          local_hash: null,
+          remote_hash: 'new-docs',
+          recorded_hash: 'old-docs',
+          direction: 'pull',
+          status: 'remote-changed'
+        },
+        welcome: {
+          local_hash: null,
+          remote_hash: 'new-welcome',
+          recorded_hash: null,
+          direction: 'pull',
+          status: 'new'
+        }
+      }
+    });
+  });
+
+  it('refreshStoredManifests rewrites a selected remote manifest from real remote hashes', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {
+              claude: '/srv/skills'
+            }
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        stale: {
+          local_hash: null,
+          remote_hash: 'stale-hash',
+          recorded_hash: 'stale-hash',
+          direction: 'skip',
+          status: 'in-sync'
+        }
+      }
+    });
+
+    vi.spyOn(transportModule, 'refreshRemoteManifestFromServer').mockResolvedValue({
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-02T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: null,
+          remote_hash: 'welcome-hash',
+          recorded_hash: null,
+          direction: 'pull',
+          status: 'new'
+        }
+      }
+    });
+
+    const manifests = await refreshStoredManifests(homeDir, {
+      local: false,
+      remote: true,
+      server: 'alpha'
+    });
+
+    expect(manifests).toEqual([
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-02T00:00:00.000Z',
+        skills: {
+          welcome: {
+            local_hash: null,
+            remote_hash: 'welcome-hash',
+            recorded_hash: null,
+            direction: 'pull',
+            status: 'new'
+          }
+        }
+      }
+    ]);
+    await expect(loadTrackedManifests(homeDir, 'alpha')).resolves.toEqual(manifests);
   });
 
   it('formats status and diff lines from reconciled manifest data', () => {

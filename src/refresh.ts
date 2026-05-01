@@ -1,7 +1,7 @@
 import { mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { loadConfig, getSyncPaths } from './config.js';
+import { getConfiguredServer, loadConfig, getSyncPaths } from './config.js';
 import { getDiffRows, getStatusRows, reconcileManifest } from './conflict.js';
 import {
   loadServerManifest,
@@ -9,6 +9,7 @@ import {
   saveServerManifest,
   type ServerManifest
 } from './manifest.js';
+import { createTransportRuntime, refreshRemoteManifestFromServer } from './transport.js';
 
 export interface RefreshStoredManifestOptions {
   local?: boolean;
@@ -51,14 +52,24 @@ export async function refreshStoredManifests(
   const servers = await resolveTargetServers(homeDir, options.server);
   const manifests: ServerManifest[] = [];
 
+  const config = refreshRemote ? await loadConfig(homeDir) : null;
+
   for (const server of servers) {
     const loaded = refreshLocal
       ? await refreshLocalManifest(homeDir, server, updatedAt)
       : await loadServerManifest(homeDir, server);
-    const reconciled = reconcileManifest(loaded);
+    let reconciled = reconcileManifest(loaded);
 
     if (refreshRemote) {
-      // Reserved for remote refresh orchestration in a future milestone.
+      const refreshedRemote = await refreshRemoteManifestFromServer(
+        getConfiguredServer(config ?? await loadConfig(homeDir), server),
+        createTransportRuntime(),
+        reconciled,
+        updatedAt
+      );
+      await saveServerManifest(homeDir, refreshedRemote);
+      manifests.push(refreshedRemote);
+      continue;
     }
 
     await saveServerManifest(homeDir, reconciled);

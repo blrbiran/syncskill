@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -14,12 +15,12 @@ async function importReceiverModule() {
   return import(`${pathToFileURL(receiverPath).href}?t=${Date.now()}-${Math.random()}`);
 }
 
-async function withMockedHomeDir(homeDir: string, run: () => Promise<void>) {
+async function withMockedHomeDir<T>(homeDir: string, run: () => Promise<T>): Promise<T> {
   const originalHome = process.env.HOME;
   process.env.HOME = homeDir;
 
   try {
-    await run();
+    return await run();
   } finally {
     if (originalHome === undefined) {
       delete process.env.HOME;
@@ -29,17 +30,29 @@ async function withMockedHomeDir(homeDir: string, run: () => Promise<void>) {
   }
 }
 
-async function runReceiverApply(homeDir: string) {
-  await withMockedHomeDir(homeDir, async () => {
+async function runReceiverCommand(homeDir: string, command: string) {
+  return withMockedHomeDir(homeDir, async () => {
     const argv = process.argv.slice();
-    process.argv = ['node', receiverPath, 'apply'];
+    const stdoutWrite = process.stdout.write.bind(process.stdout);
+    let stdout = '';
+    process.argv = ['node', receiverPath, command];
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdout += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+      return true;
+    }) as typeof process.stdout.write;
 
     try {
       await importReceiverModule();
+      return stdout;
     } finally {
       process.argv = argv;
+      process.stdout.write = stdoutWrite;
     }
   });
+}
+
+async function runReceiverApply(homeDir: string) {
+  await runReceiverCommand(homeDir, 'apply');
 }
 
 function createReceiverManifest(updatedAt: string) {
@@ -51,8 +64,10 @@ import {
   deployReceiver,
   fetchRemoteManifest,
   pullSkillDirectory,
+  probeServerAccess,
   pushManifest,
   pushSkillDirectory,
+  refreshRemoteManifestFromServer,
   type TransportRuntime
 } from '../../src/transport.js';
 
@@ -320,6 +335,278 @@ describe('transport', () => {
     ).rejects.toBe(transferError);
 
     expect(runtime.exec).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshRemoteManifestFromServer reads remote manifest before rebuilding from receiver remote hashes', async () => {
+    const runtime = createRuntime({
+      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs manifest': JSON.stringify({
+        version: 1,
+        server: 'remote',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        skills: {
+          docs: {
+            local_hash: null,
+            remote_hash: 'old-docs',
+            recorded_hash: 'old-docs',
+            direction: 'skip',
+            status: 'in-sync'
+          },
+          stale: {
+            local_hash: null,
+            remote_hash: 'stale-hash',
+            recorded_hash: 'stale-hash',
+            direction: 'skip',
+            status: 'in-sync'
+          }
+        }
+      }),
+      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs scan-skills': JSON.stringify({
+        remote_hashes: {
+          docs: 'docs-hash',
+          welcome: 'welcome-hash'
+        }
+      })
+    });
+
+    const manifest = await refreshRemoteManifestFromServer(
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        remote_agents: {
+          claude: '/srv/skills'
+        }
+      },
+      runtime,
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        skills: {
+          docs: {
+            local_hash: 'local-docs',
+            remote_hash: 'local-old-docs',
+            recorded_hash: 'local-old-docs',
+            direction: 'push',
+            status: 'local-changed'
+          },
+          stale: {
+            local_hash: null,
+            remote_hash: 'stale-hash',
+            recorded_hash: 'stale-hash',
+            direction: 'skip',
+            status: 'in-sync'
+          }
+        }
+      },
+      '2026-05-02T00:00:00.000Z'
+    );
+
+    expect(manifest).toEqual({
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-02T00:00:00.000Z',
+      skills: {
+        docs: {
+          local_hash: 'local-docs',
+          remote_hash: 'docs-hash',
+          recorded_hash: 'old-docs',
+          direction: 'pull',
+          status: 'remote-changed'
+        },
+        welcome: {
+          local_hash: null,
+          remote_hash: 'welcome-hash',
+          recorded_hash: null,
+          direction: 'pull',
+          status: 'new'
+        }
+      }
+    });
+    expect(runtime.calls).toEqual(
+      expect.arrayContaining([
+        {
+          file: 'ssh',
+          args: ['alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'manifest']
+        },
+        {
+          file: 'ssh',
+          args: ['alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'scan-skills']
+        },
+        {
+          file: 'ssh',
+          args: ['alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'write-manifest'],
+          stdin: expect.stringContaining('"docs":')
+        }
+      ])
+    );
+  });
+
+  it('probeServerAccess reports transport, receiver, manifest, and remote agent checks', async () => {
+    const runtime = createRuntime({
+      'ssh alpha.example.com true': '',
+      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs manifest': JSON.stringify(createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z')),
+      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs probe-access': JSON.stringify({
+        checks: [
+          { check: 'manifest', ok: true, detail: 'manifest readable' },
+          { check: 'remote_agent:claude', ok: false, detail: 'missing: /srv/skills' }
+        ]
+      })
+    });
+
+    await expect(
+      probeServerAccess(
+        {
+          name: 'alpha',
+          host: 'alpha.example.com',
+          remote_agents: {
+            claude: '/srv/skills'
+          }
+        },
+        runtime
+      )
+    ).resolves.toEqual([
+      { check: 'transport', ok: true, detail: 'ssh ok' },
+      { check: 'receiver', ok: true, detail: 'receiver ok' },
+      { check: 'manifest', ok: true, detail: 'manifest readable' },
+      { check: 'remote_agent:claude', ok: false, detail: 'missing: /srv/skills' }
+    ]);
+  });
+
+  it('probeServerAccess reports receiver failures separately from transport', async () => {
+    const runtime = createRuntime();
+    runtime.exec = vi
+      .fn<TransportRuntime['exec']>()
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockRejectedValueOnce(new Error('receiver bootstrap failed'));
+
+    await expect(
+      probeServerAccess(
+        {
+          name: 'alpha',
+          host: 'alpha.example.com',
+          remote_agents: {
+            claude: '/srv/skills'
+          }
+        },
+        runtime
+      )
+    ).resolves.toEqual([
+      { check: 'transport', ok: true, detail: 'ssh ok' },
+      { check: 'receiver', ok: false, detail: 'receiver bootstrap failed' }
+    ]);
+  });
+
+  it('probeServerAccess reports manifest failures after receiver succeeds', async () => {
+    const runtime = createRuntime();
+    runtime.exec = vi
+      .fn<TransportRuntime['exec']>()
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockRejectedValueOnce(new Error('manifest unreadable'));
+
+    await expect(
+      probeServerAccess(
+        {
+          name: 'alpha',
+          host: 'alpha.example.com',
+          remote_agents: {
+            claude: '/srv/skills'
+          }
+        },
+        runtime
+      )
+    ).resolves.toEqual([
+      { check: 'transport', ok: true, detail: 'ssh ok' },
+      { check: 'receiver', ok: true, detail: 'receiver ok' },
+      { check: 'manifest', ok: false, detail: 'manifest unreadable' }
+    ]);
+  });
+
+  it('receiver scan-skills hashes configured remote agent roots', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+
+    const syncRoot = join(homeDir, '.syncskill');
+    const receiverConfigPath = join(syncRoot, 'receiver_config.json');
+    const manifestPath = join(syncRoot, 'manifest.json');
+    const agentDir = join(homeDir, 'agent-skills');
+
+    await mkdir(join(agentDir, 'welcome'), { recursive: true });
+    await writeFile(join(agentDir, 'welcome', 'SKILL.md'), '# welcome\n', 'utf8');
+    await mkdir(join(syncRoot), { recursive: true });
+    await writeFile(receiverConfigPath, `${JSON.stringify({ remote_agents: { claude: agentDir } }, null, 2)}\n`, 'utf8');
+    await writeFile(manifestPath, `${JSON.stringify(createReceiverManifest('2026-05-01T00:00:00.000Z'), null, 2)}\n`, 'utf8');
+
+    const output = await runReceiverCommand(homeDir, 'scan-skills');
+    const parsed = JSON.parse(output) as { remote_hashes: Record<string, string> };
+
+    expect(parsed.remote_hashes.welcome).toMatch(/^[a-f0-9]{32}$/);
+  });
+
+  it('receiver scan-skills fails when a configured remote agent root is missing', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+
+    const syncRoot = join(homeDir, '.syncskill');
+    const receiverConfigPath = join(syncRoot, 'receiver_config.json');
+
+    await mkdir(syncRoot, { recursive: true });
+    await writeFile(
+      receiverConfigPath,
+      `${JSON.stringify({ remote_agents: { claude: join(homeDir, 'missing-agent-root') } }, null, 2)}\n`,
+      'utf8'
+    );
+
+    await expect(runReceiverCommand(homeDir, 'scan-skills')).rejects.toThrow('Missing remote skill root for claude');
+  });
+
+  it('receiver import-skill rejects entries that escape the skill directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+
+    await expect(
+      withMockedHomeDir(homeDir, async () => {
+        const argv = process.argv.slice();
+        const stdin = process.stdin;
+        const stream = Readable.from([JSON.stringify({ '../escape.txt': Buffer.from('nope').toString('base64') })]);
+        Object.defineProperty(process, 'stdin', { value: stream, configurable: true });
+        process.argv = ['node', receiverPath, 'import-skill', 'welcome'];
+
+        try {
+          await importReceiverModule();
+        } finally {
+          process.argv = argv;
+          Object.defineProperty(process, 'stdin', { value: stdin, configurable: true });
+        }
+      })
+    ).rejects.toThrow('Invalid skill entry: ../escape.txt');
+  });
+
+  it('probeServerAccess reports probe-access parse failures as probe failures', async () => {
+    const runtime = createRuntime({
+      'ssh alpha.example.com true': '',
+      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs manifest': JSON.stringify(createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z')),
+      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs probe-access': '{broken-json'
+    });
+
+    await expect(
+      probeServerAccess(
+        {
+          name: 'alpha',
+          host: 'alpha.example.com',
+          remote_agents: {
+            claude: '/srv/skills'
+          }
+        },
+        runtime
+      )
+    ).resolves.toEqual([
+      { check: 'transport', ok: true, detail: 'ssh ok' },
+      { check: 'receiver', ok: true, detail: 'receiver ok' },
+      { check: 'probe', ok: false, detail: expect.stringContaining('JSON') }
+    ]);
   });
 
   it('receiver apply removes stale links that are no longer in the manifest', async () => {

@@ -102,7 +102,8 @@ describe('server CLI', () => {
 
     vi.spyOn(serverModule, 'probeServer').mockResolvedValue([
       { check: 'transport', ok: true, detail: 'ssh ok' },
-      { check: 'remote_skill_root', ok: false, detail: 'missing: /srv/skills' }
+      { check: 'receiver', ok: true, detail: 'receiver ok' },
+      { check: 'remote_agent:claude', ok: false, detail: 'missing: /srv/skills' }
     ]);
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
@@ -114,7 +115,8 @@ describe('server CLI', () => {
 
     expect(consoleLog.mock.calls).toEqual([
       ['transport\tok\tssh ok'],
-      ['remote_skill_root\tfail\tmissing: /srv/skills']
+      ['receiver\tok\treceiver ok'],
+      ['remote_agent:claude\tfail\tmissing: /srv/skills']
     ]);
   });
 });

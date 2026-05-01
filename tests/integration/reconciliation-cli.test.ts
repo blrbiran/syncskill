@@ -8,6 +8,7 @@ import { saveConfig } from '../../src/config.js';
 import { getSyncPaths } from '../../src/config.js';
 import { loadServerManifest, saveServerManifest } from '../../src/manifest.js';
 import * as refreshModule from '../../src/refresh.js';
+import * as transportModule from '../../src/transport.js';
 import { createProgram } from '../../src/index.js';
 
 describe('reconciliation CLI', () => {
@@ -130,6 +131,53 @@ describe('reconciliation CLI', () => {
     });
 
     expect(consoleLog.mock.calls).toEqual([['welcome\talpha\tpush\tlocal-changed']]);
+  });
+
+  it('refresh --remote --status <server> prints refreshed remote rows', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {
+              claude: '/srv/skills'
+            }
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    vi.spyOn(transportModule, 'refreshRemoteManifestFromServer').mockResolvedValue({
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-02T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: null,
+          remote_hash: 'remote-hash',
+          recorded_hash: null,
+          direction: 'pull',
+          status: 'new'
+        }
+      }
+    });
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'refresh', '--remote', '--status', 'alpha'], {
+      from: 'node'
+    });
+
+    expect(consoleLog.mock.calls).toEqual([['welcome\talpha\tpull\tnew']]);
   });
 
   it('status auto-refresh updates persisted manifests by default but not with --no-refresh', async () => {

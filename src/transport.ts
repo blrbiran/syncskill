@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { type ConfiguredServer } from './config.js';
-import { createEmptyManifest, type ServerManifest } from './manifest.js';
+import { createEmptyManifest, rebuildRemoteManifestFromHashes, type ServerManifest } from './manifest.js';
 
 export interface ServerProbeResult {
   check: string;
@@ -88,43 +88,114 @@ function buildRsyncArgs(server: ConfiguredServer, source: string, destination: s
   return ['-az', '--delete', '-e', sshParts.join(' '), source, destination];
 }
 
+export async function refreshRemoteManifestFromServer(
+  server: ConfiguredServer,
+  runtime: TransportRuntime,
+  currentManifest: ServerManifest,
+  updatedAt: string
+): Promise<ServerManifest> {
+  await deployReceiver(server, runtime);
+  const remoteManifest = await fetchRemoteManifest(server, runtime);
+  const result = await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'scan-skills']));
+  const parsed = JSON.parse(result.stdout || '{}') as {
+    remote_hashes?: Record<string, string>;
+  };
+  const skillNames = [...new Set([...Object.keys(currentManifest.skills), ...Object.keys(remoteManifest.skills)])].sort();
+
+  const corrected = rebuildRemoteManifestFromHashes(
+    {
+      ...createEmptyManifest(server.name),
+      ...remoteManifest,
+      server: server.name,
+      skills: Object.fromEntries(
+        skillNames.map((skill) => {
+          const localState = currentManifest.skills[skill];
+          const remoteState = remoteManifest.skills[skill];
+
+          return [
+            skill,
+            {
+              local_hash: localState?.local_hash ?? null,
+              remote_hash: remoteState?.remote_hash ?? localState?.remote_hash ?? null,
+              recorded_hash: remoteState?.recorded_hash ?? localState?.recorded_hash ?? null,
+              direction: remoteState?.direction ?? localState?.direction ?? 'skip',
+              status: remoteState?.status ?? localState?.status ?? 'in-sync'
+            }
+          ];
+        })
+      )
+    },
+    parsed.remote_hashes ?? {},
+    updatedAt
+  );
+
+  await pushManifest(server, corrected, runtime);
+  return corrected;
+}
+
 export async function probeServerAccess(
   server: ConfiguredServer,
   runtime: TransportRuntime = createTransportRuntime()
 ): Promise<ServerProbeResult[]> {
-  const checks: Array<Promise<ServerProbeResult>> = [
-    runtime
-      .exec('ssh', buildSshArgs(server, ['true']))
-      .then(() => ({ check: 'transport', ok: true, detail: 'ssh ok' }))
-      .catch((error: unknown) => ({
+  try {
+    await runtime.exec('ssh', buildSshArgs(server, ['true']));
+  } catch (error) {
+    return [
+      {
         check: 'transport',
         ok: false,
         detail: error instanceof Error ? error.message : String(error)
-      })),
-    runtime
-      .exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'manifest']))
-      .then(() => ({ check: 'manifest', ok: true, detail: 'manifest readable' }))
-      .catch((error: unknown) => ({
+      }
+    ];
+  }
+
+  try {
+    await deployReceiver(server, runtime);
+  } catch (error) {
+    return [
+      { check: 'transport', ok: true, detail: 'ssh ok' },
+      {
+        check: 'receiver',
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error)
+      }
+    ];
+  }
+
+  try {
+    await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'manifest']));
+  } catch (error) {
+    return [
+      { check: 'transport', ok: true, detail: 'ssh ok' },
+      { check: 'receiver', ok: true, detail: 'receiver ok' },
+      {
         check: 'manifest',
         ok: false,
         detail: error instanceof Error ? error.message : String(error)
-      }))
-  ];
-
-  for (const [agent, remotePath] of Object.entries(server.remote_agents).sort(([left], [right]) => left.localeCompare(right))) {
-    checks.push(
-      runtime
-        .exec('ssh', buildSshArgs(server, ['test', '-d', remotePath]))
-        .then(() => ({ check: `remote_agent:${agent}`, ok: true, detail: remotePath }))
-        .catch((error: unknown) => ({
-          check: `remote_agent:${agent}`,
-          ok: false,
-          detail: error instanceof Error ? error.message : String(error)
-        }))
-    );
+      }
+    ];
   }
 
-  return Promise.all(checks);
+  try {
+    const result = await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'probe-access']));
+    const parsed = JSON.parse(result.stdout || '{}') as { checks?: ServerProbeResult[] };
+
+    return [
+      { check: 'transport', ok: true, detail: 'ssh ok' },
+      { check: 'receiver', ok: true, detail: 'receiver ok' },
+      ...(parsed.checks ?? [])
+    ];
+  } catch (error) {
+    return [
+      { check: 'transport', ok: true, detail: 'ssh ok' },
+      { check: 'receiver', ok: true, detail: 'receiver ok' },
+      {
+        check: 'probe',
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error)
+      }
+    ];
+  }
 }
 
 export async function deployReceiver(server: ConfiguredServer, runtime: TransportRuntime): Promise<void> {

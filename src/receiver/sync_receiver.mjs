@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import process from 'node:process';
 
 const syncRoot = join(homedir(), '.syncskill');
@@ -91,9 +91,14 @@ async function importSkill(name) {
   await mkdir(targetDir, { recursive: true });
 
   for (const [relativePath, base64] of Object.entries(files)) {
-    const destination = resolve(targetDir, relativePath);
+    if (isAbsolute(relativePath)) {
+      throw new Error(`Invalid skill entry: ${relativePath}`);
+    }
 
-    if (!destination.startsWith(`${targetDir}/`) && destination !== targetDir) {
+    const destination = resolve(targetDir, relativePath);
+    const relativeDestination = relative(targetDir, destination);
+
+    if (relativeDestination === '..' || relativeDestination.startsWith('../') || relativeDestination.startsWith('..\\')) {
       throw new Error(`Invalid skill entry: ${relativePath}`);
     }
 
@@ -111,6 +116,69 @@ async function exportSkill(name) {
   }
 
   process.stdout.write(`${JSON.stringify(files)}\n`);
+}
+
+async function scanSkills() {
+  const config = await readJson(configFile, { remote_agents: {} });
+  const hashes = {};
+
+  for (const [agent, agentPath] of Object.entries(config.remote_agents ?? {})) {
+    if (typeof agentPath !== 'string') {
+      continue;
+    }
+
+    const resolvedPath = resolve(agentPath.replace(/^~(?=\/|$)/, homedir()));
+    const entries = await readdir(resolvedPath, { withFileTypes: true }).catch((error) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        throw new Error(`Missing remote skill root for ${agent}: ${agentPath}`);
+      }
+
+      throw error;
+    });
+    const skillEntries = entries.filter((entry) => entry.isDirectory()).sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of skillEntries) {
+      const skillDir = join(resolvedPath, entry.name);
+      hashes[entry.name] = await hashSkillDirectory(skillDir);
+    }
+  }
+
+  process.stdout.write(
+    `${JSON.stringify({
+      manifest: await readManifest(),
+      remote_hashes: hashes
+    })}\n`
+  );
+}
+
+async function probeAccess() {
+  const manifestExists = (await readJson(manifestFile, null)) !== null;
+  const config = await readJson(configFile, { remote_agents: {} });
+  const remoteAgentResults = [];
+
+  for (const [agent, agentPath] of Object.entries(config.remote_agents ?? {})) {
+    if (typeof agentPath !== 'string') {
+      continue;
+    }
+
+    const resolvedPath = resolve(agentPath.replace(/^~(?=\/|$)/, homedir()));
+
+    try {
+      await access(resolvedPath);
+      remoteAgentResults.push({ check: `remote_agent:${agent}`, ok: true, detail: agentPath });
+    } catch {
+      remoteAgentResults.push({ check: `remote_agent:${agent}`, ok: false, detail: `missing: ${agentPath}` });
+    }
+  }
+
+  process.stdout.write(
+    `${JSON.stringify({
+      checks: [
+        { check: 'manifest', ok: manifestExists, detail: manifestExists ? 'manifest readable' : `missing: ${manifestFile}` },
+        ...remoteAgentResults
+      ]
+    })}\n`
+  );
 }
 
 async function applyLinks() {
@@ -224,6 +292,10 @@ if (command === 'manifest') {
   await importSkill(arg);
 } else if (command === 'export-skill' && typeof arg === 'string') {
   await exportSkill(arg);
+} else if (command === 'scan-skills') {
+  await scanSkills();
+} else if (command === 'probe-access') {
+  await probeAccess();
 } else if (command === 'apply') {
   await applyLinks();
 } else {

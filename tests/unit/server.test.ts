@@ -33,8 +33,13 @@ describe('server helpers', () => {
     expect(
       formatProbeLines([
         { check: 'transport', ok: true, detail: 'ssh ok' },
-        { check: 'remote_skill_root', ok: false, detail: 'missing: /srv/skills' }
+        { check: 'receiver', ok: true, detail: 'receiver ok' },
+        { check: 'remote_agent:claude', ok: false, detail: 'missing: /srv/skills' }
       ])
-    ).toEqual(['transport\tok\tssh ok', 'remote_skill_root\tfail\tmissing: /srv/skills']);
+    ).toEqual([
+      'transport\tok\tssh ok',
+      'receiver\tok\treceiver ok',
+      'remote_agent:claude\tfail\tmissing: /srv/skills'
+    ]);
   });
 });

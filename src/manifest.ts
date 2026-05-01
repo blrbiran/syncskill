@@ -162,6 +162,35 @@ export function applyRemoteSnapshot(
   });
 }
 
+export function rebuildRemoteManifestFromHashes(
+  manifest: ServerManifest,
+  remoteHashes: Record<string, string>,
+  updatedAt: string
+): ServerManifest {
+  const skillNames = Object.keys(remoteHashes).sort();
+
+  return {
+    ...manifest,
+    updated_at: updatedAt,
+    skills: Object.fromEntries(
+      skillNames.map((skill) => {
+        const previous = manifest.skills[skill] ?? createEmptySkillState();
+        const remoteHash = remoteHashes[skill];
+
+        return [
+          skill,
+          {
+            ...previous,
+            remote_hash: remoteHash,
+            direction: 'pull',
+            status: previous.recorded_hash === null ? 'new' : previous.recorded_hash === remoteHash ? 'in-sync' : 'remote-changed'
+          }
+        ];
+      })
+    )
+  };
+}
+
 export function collectRemoteHistoryEntries(
   previous: ServerManifest,
   next: ServerManifest,
