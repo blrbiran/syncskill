@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import { access, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -31,10 +32,78 @@ async function createGitSourceFixture(homeDir: string): Promise<{ bareRepoDir: s
   return { bareRepoDir, workRepoDir };
 }
 
+async function createTarGzArchive(sourceDir: string, archiveFile: string): Promise<void> {
+  await execFileAsync('tar', ['-czf', archiveFile, '-C', sourceDir, '.']);
+}
+
+async function startArchiveServer(archiveFile: string): Promise<{ url: string; close: () => Promise<void> }> {
+  const archive = await readFile(archiveFile);
+
+  return startHttpServer((request, response) => {
+    if (request.url !== '/source.tar.gz') {
+      response.statusCode = 404;
+      response.end('not found');
+      return;
+    }
+
+    response.statusCode = 200;
+    response.setHeader('Content-Type', 'application/gzip');
+    response.setHeader('Content-Length', archive.byteLength);
+    response.end(archive);
+  });
+}
+
+async function startFailingArchiveServer(): Promise<{ url: string; close: () => Promise<void> }> {
+  return startHttpServer((request, response) => {
+    if (request.url !== '/source.tar.gz') {
+      response.statusCode = 404;
+      response.end('not found');
+      return;
+    }
+
+    response.statusCode = 500;
+    response.end('boom');
+  });
+}
+
+async function startHttpServer(
+  handler: Parameters<typeof createServer>[0]
+): Promise<{ url: string; close: () => Promise<void> }> {
+  const server = createServer(handler);
+
+  await new Promise<void>((resolve, reject) => {
+    server.listen(0, '127.0.0.1', () => resolve());
+    server.once('error', reject);
+  });
+
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('Failed to determine archive server address');
+  }
+
+  return {
+    url: `http://127.0.0.1:${address.port}/source.tar.gz`,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
 describe('source module', () => {
   const tempDirs: string[] = [];
+  const cleanups: Array<() => Promise<void>> = [];
 
   afterEach(async () => {
+    delete process.env.SYNCSKILL_TEST_FAIL_RENAME_TO;
+    await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
@@ -248,6 +317,79 @@ describe('source module', () => {
     });
   });
 
+  it('materializeSource downloads an http source archive, extracts checkout, and copies skills into the sync store', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const fixtureDir = join(homeDir, 'http-fixture');
+    const archiveFile = join(homeDir, 'http-source.tar.gz');
+    await mkdir(join(fixtureDir, 'source.store', 'alpha'), { recursive: true });
+    await writeFile(join(fixtureDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha http\n', 'utf8');
+    await createTarGzArchive(fixtureDir, archiveFile);
+
+    const server = await startArchiveServer(archiveFile);
+    cleanups.push(server.close);
+
+    const result = await materializeSource(
+      homeDir,
+      'http-source',
+      { type: 'http', url: server.url, store: 'source.store' },
+      '2026-05-01T02:30:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['alpha']);
+    await expect(readFile(join(homeDir, '.syncskill', '.sources', 'http-source', 'checkout', 'source.store', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe(
+      '# alpha http\n'
+    );
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha http\n');
+    await expect(loadSourceState(homeDir, 'http-source')).resolves.toEqual({
+      materialized_skills: ['alpha'],
+      updated_at: '2026-05-01T02:30:00.000Z'
+    });
+  });
+
+  it('materializeSource preserves the previous http checkout and state when a later download fails', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const fixtureDir = join(homeDir, 'http-fixture');
+    const archiveFile = join(homeDir, 'http-source.tar.gz');
+    await mkdir(join(fixtureDir, 'source.store', 'alpha'), { recursive: true });
+    await writeFile(join(fixtureDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha http\n', 'utf8');
+    await createTarGzArchive(fixtureDir, archiveFile);
+
+    const goodServer = await startArchiveServer(archiveFile);
+    cleanups.push(goodServer.close);
+
+    await materializeSource(
+      homeDir,
+      'http-source',
+      { type: 'http', url: goodServer.url, store: 'source.store' },
+      '2026-05-01T02:30:00.000Z'
+    );
+
+    const failingServer = await startFailingArchiveServer();
+    cleanups.push(failingServer.close);
+
+    await expect(
+      materializeSource(
+        homeDir,
+        'http-source',
+        { type: 'http', url: failingServer.url, store: 'source.store' },
+        '2026-05-01T02:31:00.000Z'
+      )
+    ).rejects.toThrow('Failed to download HTTP source archive: 500 Internal Server Error');
+
+    await expect(readFile(join(homeDir, '.syncskill', '.sources', 'http-source', 'checkout', 'source.store', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe(
+      '# alpha http\n'
+    );
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha http\n');
+    await expect(loadSourceState(homeDir, 'http-source')).resolves.toEqual({
+      materialized_skills: ['alpha'],
+      updated_at: '2026-05-01T02:30:00.000Z'
+    });
+  });
+
   it('updateSource refreshes an existing git-owned skill directory when the skill name stays the same', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
     tempDirs.push(homeDir);
@@ -290,6 +432,56 @@ describe('source module', () => {
     await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
       materialized_skills: ['alpha'],
       updated_at: '2026-05-01T03:00:00.000Z'
+    });
+  });
+
+  it('updateSource keeps the previous git-owned skill directory when replacing the copy fails', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: {
+          'git-source': { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' }
+        }
+      },
+      homeDir
+    );
+
+    await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v2\n', 'utf8');
+    await commitAll(workRepoDir, 'refresh alpha');
+    await git(['push', 'origin', 'main'], workRepoDir);
+
+    process.env.SYNCSKILL_TEST_FAIL_RENAME_TO = 'alpha';
+
+    await expect(updateSource(homeDir, 'git-source', '2026-05-01T03:00:00.000Z')).rejects.toThrow('simulated rename failure');
+
+    delete process.env.SYNCSKILL_TEST_FAIL_RENAME_TO;
+
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v1\n');
+    await expect(access(join(homeDir, '.syncskill', 'skills', 'alpha.next'))).rejects.toThrow();
+    await expect(access(join(homeDir, '.syncskill', 'skills', 'alpha.prev'))).rejects.toThrow();
+    await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
+      materialized_skills: ['alpha'],
+      updated_at: '2026-05-01T02:00:00.000Z'
     });
   });
 

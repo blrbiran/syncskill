@@ -1,7 +1,11 @@
-import { cp, lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import process from 'node:process';
+import { createWriteStream } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 
 import { getSyncPaths, loadConfig, saveConfig } from './config.js';
@@ -123,7 +127,7 @@ async function syncSource(
 
     if (source.type === 'local') {
       await recreateSymlink(sourceDir, targetDir);
-    } else if (source.type === 'git') {
+    } else if (source.type === 'git' || source.type === 'http') {
       await copySkillDirectory(sourceDir, targetDir);
     } else {
       throw new Error(`Source type not implemented: ${source.type}`);
@@ -195,7 +199,48 @@ async function prepareMaterializedRoot(homeDir: string, name: string, source: So
     return prepareGitMaterializedRoot(homeDir, name, source);
   }
 
+  if (source.type === 'http') {
+    return prepareHttpMaterializedRoot(homeDir, name, source);
+  }
+
   throw new Error(`Source type not implemented: ${source.type}`);
+}
+
+async function prepareHttpMaterializedRoot(homeDir: string, name: string, source: SourceDefinition): Promise<string> {
+  const checkoutDir = getHttpCheckoutDir(homeDir, name);
+  const runtimeDir = dirname(checkoutDir);
+  const stagingDir = join(runtimeDir, 'checkout.next');
+  const backupDir = join(runtimeDir, 'checkout.prev');
+  const archiveFile = join(runtimeDir, 'archive.tar.gz');
+
+  await rm(stagingDir, { recursive: true, force: true });
+  await rm(backupDir, { recursive: true, force: true });
+  await mkdir(stagingDir, { recursive: true });
+
+  try {
+    await downloadHttpArchive(source.url, archiveFile);
+    await extractTarGzArchive(archiveFile, stagingDir);
+
+    if (isAbsolute(source.store)) {
+      throw new Error('HTTP source store must be a relative path');
+    }
+
+    const materializedRoot = resolve(stagingDir, source.store);
+    const relativePath = relative(stagingDir, materializedRoot);
+
+    if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+      throw new Error('HTTP source store must stay within the checkout root');
+    }
+
+    await replaceCheckoutDirectory(checkoutDir, stagingDir, backupDir);
+    return resolve(checkoutDir, source.store);
+  } catch (error) {
+    await rm(stagingDir, { recursive: true, force: true });
+    throw error;
+  } finally {
+    await rm(archiveFile, { force: true });
+    await rm(backupDir, { recursive: true, force: true });
+  }
 }
 
 async function prepareGitMaterializedRoot(homeDir: string, name: string, source: SourceDefinition): Promise<string> {
@@ -224,6 +269,10 @@ async function prepareGitMaterializedRoot(homeDir: string, name: string, source:
 }
 
 function getGitCheckoutDir(homeDir: string, name: string): string {
+  return join(getSyncPaths(homeDir).syncDir, '.sources', name, 'checkout');
+}
+
+function getHttpCheckoutDir(homeDir: string, name: string): string {
   return join(getSyncPaths(homeDir).syncDir, '.sources', name, 'checkout');
 }
 
@@ -262,7 +311,7 @@ async function removeStaleSkills(
   for (const staleSkill of previousSkills.filter((skill) => !nextSkills.includes(skill))) {
     const targetDir = join(skillsDir, staleSkill);
 
-    if (sourceType === 'git') {
+    if (sourceType === 'git' || sourceType === 'http') {
       if (!(await pathExists(targetDir))) {
         continue;
       }
@@ -287,8 +336,35 @@ async function removeStaleSkills(
 }
 
 async function copySkillDirectory(sourceDir: string, targetDir: string): Promise<void> {
-  await rm(targetDir, { recursive: true, force: true });
-  await cp(sourceDir, targetDir, { recursive: true });
+  const parentDir = dirname(targetDir);
+  const targetName = relative(parentDir, targetDir);
+  const stagingDir = join(parentDir, `${targetName}.next`);
+  const backupDir = join(parentDir, `${targetName}.prev`);
+  const hadTarget = await pathExists(targetDir);
+
+  await rm(stagingDir, { recursive: true, force: true });
+  await rm(backupDir, { recursive: true, force: true });
+
+  try {
+    await cp(sourceDir, stagingDir, { recursive: true });
+
+    if (hadTarget) {
+      await renamePath(targetDir, backupDir);
+    }
+
+    try {
+      await renamePath(stagingDir, targetDir);
+    } catch (error) {
+      if (hadTarget && !(await pathExists(targetDir)) && (await pathExists(backupDir))) {
+        await rename(backupDir, targetDir);
+      }
+
+      throw error;
+    }
+  } finally {
+    await rm(stagingDir, { recursive: true, force: true });
+    await rm(backupDir, { recursive: true, force: true });
+  }
 }
 
 async function recreateSymlink(sourceDir: string, targetDir: string): Promise<void> {
@@ -318,7 +394,7 @@ async function assertMaterializationTargetsAvailable(
       continue;
     }
 
-    if (sourceType === 'git' && previousSkills.includes(skillName) && (await isReusableManagedGitTarget(targetDir))) {
+    if ((sourceType === 'git' || sourceType === 'http') && previousSkills.includes(skillName) && (await isReusableManagedGitTarget(targetDir))) {
       continue;
     }
 
@@ -368,6 +444,56 @@ async function isSymbolicLink(targetPath: string): Promise<boolean> {
     }
 
     throw error;
+  }
+}
+
+async function downloadHttpArchive(url: string, destinationFile: string): Promise<void> {
+  const response = await fetch(url);
+
+  if (!response.ok || response.body === null) {
+    throw new Error(`Failed to download HTTP source archive: ${response.status} ${response.statusText}`.trim());
+  }
+
+  try {
+    await pipeline(Readable.fromWeb(response.body), createWriteStream(destinationFile));
+  } catch (error) {
+    await rm(destinationFile, { force: true });
+    throw error;
+  }
+}
+
+async function replaceCheckoutDirectory(checkoutDir: string, stagingDir: string, backupDir: string): Promise<void> {
+  const hadCheckout = await pathExists(checkoutDir);
+
+  if (hadCheckout) {
+    await renamePath(checkoutDir, backupDir);
+  }
+
+  try {
+    await renamePath(stagingDir, checkoutDir);
+  } catch (error) {
+    if (hadCheckout && !(await pathExists(checkoutDir)) && (await pathExists(backupDir))) {
+      await renamePath(backupDir, checkoutDir);
+    }
+
+    throw error;
+  }
+}
+
+async function renamePath(sourcePath: string, destinationPath: string): Promise<void> {
+  if (process.env.SYNCSKILL_TEST_FAIL_RENAME_TO !== undefined && destinationPath.endsWith(process.env.SYNCSKILL_TEST_FAIL_RENAME_TO)) {
+    throw new Error('simulated rename failure');
+  }
+
+  await rename(sourcePath, destinationPath);
+}
+
+async function extractTarGzArchive(archiveFile: string, destinationDir: string): Promise<void> {
+  try {
+    await execFileAsync('tar', ['-xzf', archiveFile, '-C', destinationDir]);
+  } catch (error) {
+    const execError = error as Error & { stderr?: string };
+    throw new Error(execError.stderr?.trim() || execError.message);
   }
 }
 
