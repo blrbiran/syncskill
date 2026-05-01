@@ -1,0 +1,439 @@
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { saveConfig } from '../src/config.js';
+import { getSyncPaths } from '../src/config.js';
+import { saveServerManifest } from '../src/manifest.js';
+import {
+  autoRefreshManifests,
+  formatDiffLines,
+  formatStatusLines,
+  listTrackedServers,
+  loadTrackedManifests,
+  refreshStoredManifests
+} from '../src/refresh.js';
+
+describe('refresh orchestration', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('listTrackedServers returns the sorted union of configured and stored server names', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          beta: {},
+          alpha: {}
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const { manifestsDir } = getSyncPaths(homeDir);
+    await mkdir(manifestsDir, { recursive: true });
+    await writeFile(join(manifestsDir, 'charlie.json'), '{}\n', 'utf8');
+    await writeFile(join(manifestsDir, 'alpha.json'), '{}\n', 'utf8');
+    await writeFile(join(manifestsDir, 'ignore.txt'), 'nope\n', 'utf8');
+
+    await expect(listTrackedServers(homeDir)).resolves.toEqual(['alpha', 'beta', 'charlie']);
+  });
+
+  it('refreshStoredManifests recomputes local hashes for every tracked server by default', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          beta: {},
+          alpha: {}
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const { skillsDir } = getSyncPaths(homeDir);
+    await mkdir(join(skillsDir, 'welcome'), { recursive: true });
+    await writeFile(join(skillsDir, 'welcome', 'SKILL.md'), '# welcome\n', 'utf8');
+
+    const updatedAt = '2026-05-01T12:00:00.000Z';
+    const manifests = await refreshStoredManifests(homeDir, { now: updatedAt });
+
+    expect(manifests.map((manifest) => manifest.server)).toEqual(['alpha', 'beta']);
+    expect(manifests.every((manifest) => manifest.updated_at === updatedAt)).toBe(true);
+    expect(manifests.map((manifest) => manifest.skills.welcome.local_hash)).toEqual([expect.any(String), expect.any(String)]);
+
+    const manifestFiles = (await readdir(getSyncPaths(homeDir).manifestsDir)).sort();
+    expect(manifestFiles).toEqual(['alpha.json', 'beta.json']);
+  });
+
+  it('autoRefreshManifests warns instead of throwing when refresh fails', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {}
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await mkdir(getSyncPaths(homeDir).manifestsDir, { recursive: true });
+    await writeFile(join(getSyncPaths(homeDir).manifestsDir, 'alpha.json'), '{broken-json\n', 'utf8');
+
+    await expect(autoRefreshManifests(homeDir, true)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('WARNING: auto refresh failed:'));
+  });
+
+  it('loadTrackedManifests loads reconciled manifests for all tracked servers', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          beta: {}
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: '11111111111111111111111111111111',
+          remote_hash: '11111111111111111111111111111111',
+          recorded_hash: '11111111111111111111111111111111',
+          direction: 'push',
+          status: 'new'
+        }
+      }
+    });
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'beta',
+      updated_at: '2026-05-02T00:00:00.000Z',
+      skills: {}
+    });
+
+    const manifests = await loadTrackedManifests(homeDir);
+
+    expect(manifests).toEqual([
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        skills: {
+          welcome: {
+            local_hash: '11111111111111111111111111111111',
+            remote_hash: '11111111111111111111111111111111',
+            recorded_hash: '11111111111111111111111111111111',
+            direction: 'skip',
+            status: 'in-sync'
+          }
+        }
+      },
+      {
+        version: 1,
+        server: 'beta',
+        updated_at: '2026-05-02T00:00:00.000Z',
+        skills: {}
+      }
+    ]);
+  });
+
+  it('loadTrackedManifests loads reconciled manifests for a selected server', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
+    tempDirs.push(homeDir);
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: '11111111111111111111111111111111',
+          remote_hash: '11111111111111111111111111111111',
+          recorded_hash: '11111111111111111111111111111111',
+          direction: 'push',
+          status: 'new'
+        }
+      }
+    });
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'beta',
+      updated_at: '2026-05-02T00:00:00.000Z',
+      skills: {}
+    });
+
+    const manifests = await loadTrackedManifests(homeDir, 'alpha');
+
+    expect(manifests).toEqual([
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        skills: {
+          welcome: {
+            local_hash: '11111111111111111111111111111111',
+            remote_hash: '11111111111111111111111111111111',
+            recorded_hash: '11111111111111111111111111111111',
+            direction: 'skip',
+            status: 'in-sync'
+          }
+        }
+      }
+    ]);
+  });
+
+  it('refreshStoredManifests reconciles stored manifests without changing timestamps on remote-only refresh', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
+    tempDirs.push(homeDir);
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: '11111111111111111111111111111111',
+          remote_hash: '11111111111111111111111111111111',
+          recorded_hash: '11111111111111111111111111111111',
+          direction: 'push',
+          status: 'new'
+        }
+      }
+    });
+
+    const manifests = await refreshStoredManifests(homeDir, {
+      local: false,
+      remote: true,
+      now: '2026-05-03T00:00:00.000Z'
+    });
+
+    expect(manifests).toEqual([
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        skills: {
+          welcome: {
+            local_hash: '11111111111111111111111111111111',
+            remote_hash: '11111111111111111111111111111111',
+            recorded_hash: '11111111111111111111111111111111',
+            direction: 'skip',
+            status: 'in-sync'
+          }
+        }
+      }
+    ]);
+
+    await expect(loadTrackedManifests(homeDir, 'alpha')).resolves.toEqual(manifests);
+  });
+
+  it('refreshStoredManifests defaults to local refresh when both flags are explicitly false', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {}
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: null,
+          remote_hash: '11111111111111111111111111111111',
+          recorded_hash: '11111111111111111111111111111111',
+          direction: 'pull',
+          status: 'remote-changed'
+        }
+      }
+    });
+
+    const { skillsDir } = getSyncPaths(homeDir);
+    await mkdir(join(skillsDir, 'welcome'), { recursive: true });
+    await writeFile(join(skillsDir, 'welcome', 'SKILL.md'), '# welcome\n', 'utf8');
+
+    const updatedAt = '2026-05-05T00:00:00.000Z';
+    const manifests = await refreshStoredManifests(homeDir, {
+      local: false,
+      remote: false,
+      now: updatedAt
+    });
+
+    expect(manifests).toEqual([
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: updatedAt,
+        skills: {
+          welcome: {
+            local_hash: expect.any(String),
+            remote_hash: '11111111111111111111111111111111',
+            recorded_hash: '11111111111111111111111111111111',
+            direction: 'push',
+            status: 'local-changed'
+          }
+        }
+      }
+    ]);
+    expect(manifests[0]?.skills.welcome.local_hash).not.toBeNull();
+  });
+
+  it('refreshStoredManifests targets a single server when requested', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {},
+          beta: {}
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const { skillsDir } = getSyncPaths(homeDir);
+    await mkdir(join(skillsDir, 'welcome'), { recursive: true });
+    await writeFile(join(skillsDir, 'welcome', 'SKILL.md'), '# welcome\n', 'utf8');
+
+    const updatedAt = '2026-05-04T00:00:00.000Z';
+    const manifests = await refreshStoredManifests(homeDir, { server: 'beta', now: updatedAt });
+
+    expect(manifests.map((manifest) => manifest.server)).toEqual(['beta']);
+    expect(manifests[0]?.updated_at).toBe(updatedAt);
+    await expect(loadTrackedManifests(homeDir)).resolves.toEqual([
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: expect.any(String),
+        skills: {}
+      },
+      {
+        version: 1,
+        server: 'beta',
+        updated_at: updatedAt,
+        skills: {
+          welcome: {
+            local_hash: expect.any(String),
+            remote_hash: null,
+            recorded_hash: null,
+            direction: 'push',
+            status: 'new'
+          }
+        }
+      }
+    ]);
+  });
+
+  it('autoRefreshManifests does nothing when disabled', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
+    tempDirs.push(homeDir);
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(autoRefreshManifests(homeDir, false)).resolves.toBeUndefined();
+    await expect(listTrackedServers(homeDir)).resolves.toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('formats status and diff lines from reconciled manifest data', () => {
+    const manifest = {
+      version: 1 as const,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        same: {
+          local_hash: '111',
+          remote_hash: '111',
+          recorded_hash: '111',
+          direction: 'skip' as const,
+          status: 'in-sync' as const
+        },
+        pushy: {
+          local_hash: '222',
+          remote_hash: '111',
+          recorded_hash: '111',
+          direction: 'push' as const,
+          status: 'local-changed' as const
+        },
+        pully: {
+          local_hash: null,
+          remote_hash: '333',
+          recorded_hash: null,
+          direction: 'pull' as const,
+          status: 'new' as const
+        }
+      }
+    };
+
+    expect(formatStatusLines([manifest])).toEqual([
+      'pully\talpha\tpull\tnew',
+      'pushy\talpha\tpush\tlocal-changed',
+      'same\talpha\tskip\tin-sync'
+    ]);
+
+    expect(formatDiffLines(manifest)).toEqual([
+      'pully\tpull\t-\t333\t-',
+      'pushy\tpush\t222\t111\t111'
+    ]);
+  });
+});
