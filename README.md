@@ -2,19 +2,22 @@
 
 `syncskill` is a CLI for organizing AI agent skills in a local `~/.syncskill/` repository, linking them into agent-specific skill directories, and reconciling local state with remote servers.
 
-## Install
+## Install from source
 
 ```bash
 npm install
 npm run build
+npm link
+syncskill --help
 ```
 
-## Build and run
+## Run the built entrypoint directly
 
 ```bash
-npm run build
 node dist/index.js --help
 ```
+
+If you prefer not to `npm link`, you can run the built CLI directly from `dist/`.
 
 ## Quick start
 
@@ -45,6 +48,17 @@ You can also invoke the built CLI as `syncskill` after building or wiring it int
 - `syncskill diff <server>`
 - `syncskill resolve <skill> --take local|remote`
 - `syncskill refresh [--local | --remote | --status] [server]`
+
+### Remote lifecycle
+
+- `syncskill server list`
+- `syncskill server show <name>`
+- `syncskill server probe <name>`
+- `syncskill refresh --remote --status <server>`
+
+Use `refresh --remote` when you want reconciliation to reflect the real remote skill tree without pulling remote skill contents into the local repository.
+Use `pull` when you want to copy remote skill contents into the local repository.
+Use `server show` and `server probe` to inspect the configured `host`, `user`, `port`, `identity_file`, and `remote_agents` paths before mutating sync operations.
 
 ### Sources
 
@@ -81,6 +95,8 @@ node dist/index.js --help
 ```
 
 ## Docs
+
+For remote workflow details, see the usage and configuration guides.
 
 - [Configuration Guide](docs/config-guide.md)
 - [Usage Guide](docs/usage-guide.md)

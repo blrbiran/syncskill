@@ -49,7 +49,26 @@ Recommended flow:
 1. Run `syncskill status` to see all tracked server rows.
 2. Run `syncskill diff alpha` to focus on one server.
 3. If a skill is in conflict, run `syncskill resolve <skill> --take local` or `syncskill resolve <skill> --take remote`.
-4. Run `syncskill refresh --status alpha` when you want to refresh stored local manifest state before reviewing again. Remote refresh remains future work in the current implementation.
+4. Run `syncskill refresh --status alpha` when you want to refresh stored local manifest state before reviewing again.
+
+## Remote lifecycle workflow
+
+Use the remote lifecycle commands when you want to inspect server wiring or refresh reconciliation state from the real remote skill tree without pulling skill contents into the local repository.
+
+```bash
+syncskill server list
+syncskill server show alpha
+syncskill server probe alpha
+syncskill refresh --remote --status alpha
+```
+
+Recommended flow:
+
+1. Run `syncskill server list` to see the configured remote targets.
+2. Run `syncskill server show alpha` to inspect `host`, `user`, `port`, `identity_file`, and configured `remote_agents` roots.
+3. Run `syncskill server probe alpha` before the first sync or after changing remote paths.
+4. Run `syncskill refresh --remote --status alpha` when you want reconciliation to reflect the real remote skill tree without pulling content into the local repo.
+5. Run `syncskill pull alpha` when you want to materialize remote skill contents locally.
 
 ## Remote sync workflow
 
@@ -64,9 +83,26 @@ syncskill sync --all
 Typical remote flow:
 
 1. Configure one or more servers in `~/.syncskill/config.yaml`.
-2. Run `syncskill push alpha` to publish local changes to one server.
-3. Run `syncskill pull alpha` to fetch remote changes into the local repository.
-4. Run `syncskill sync --all` to perform pull-then-push orchestration across all configured servers.
+2. Run `syncskill server probe alpha` to confirm transport, receiver, manifest, probe, and remote agent path health.
+3. Run `syncskill refresh --remote --status alpha` to update remote manifest state from the live remote directories.
+4. Run `syncskill push alpha` to publish local changes to one server.
+5. Run `syncskill pull alpha` to fetch remote changes into the local repository.
+6. Run `syncskill sync --all` to perform pull-then-push orchestration across all configured servers.
+
+## Install from source
+
+```bash
+npm install
+npm run build
+npm link
+syncskill --help
+```
+
+You can also skip `npm link` and run the built entrypoint directly:
+
+```bash
+node dist/index.js --help
+```
 
 ## Verification
 
@@ -89,3 +125,4 @@ Built CLI sanity:
 ```bash
 node dist/index.js --help
 ```
+

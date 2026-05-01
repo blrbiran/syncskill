@@ -93,7 +93,7 @@ links:
 
 ### `servers`
 
-Defines named remote sync targets used by `diff`, `push`, `pull`, and `sync`.
+Defines named remote sync targets used by `diff`, `push`, `pull`, `sync`, `server show`, `server probe`, and `refresh --remote`.
 
 Each server entry supports:
 
@@ -113,6 +113,44 @@ servers:
     remote_agents:
       claude: /home/alice/.claude/skills
 ```
+
+Remote lifecycle notes:
+
+- `server show <name>` prints the configured `host`, optional `user`, optional `port`, optional `identity_file`, and each configured `remote_agents` path.
+- `server probe <name>` validates transport reachability, receiver availability, manifest access, and the configured remote agent roots.
+- `refresh --remote <server>` scans the configured `remote_agents` roots and rebuilds remote manifest state from the real remote skill directories.
+- If a configured remote agent root path does not exist, `refresh --remote` fails instead of treating the remote skill tree as empty.
+
+Typical example:
+
+```bash
+syncskill server show alpha
+syncskill server probe alpha
+syncskill refresh --remote --status alpha
+```
+
+`server show` and `server probe` use the configured `host`, optional `user`, optional `port`, optional `identity_file`, and `remote_agents` paths.
+`refresh --remote` scans the configured remote agent roots to rebuild remote manifest state.
+
+## Source install notes
+
+To install from source during local development:
+
+```bash
+npm install
+npm run build
+npm link
+syncskill --help
+```
+
+You can also run the built entrypoint directly:
+
+```bash
+node dist/index.js --help
+```
+
+Use `npm link` when you want a shell-level `syncskill` command during local iteration.
+Use `node dist/index.js --help` when you want to validate the built artifact without linking it into your PATH.
 
 ### `sources`
 
