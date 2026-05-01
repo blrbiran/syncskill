@@ -3,6 +3,7 @@ import { lstat, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import { getSyncPaths } from './config.js';
+import { reconcileManifest } from './conflict.js';
 
 export async function listLocalSkillNames(homeDir: string): Promise<string[]> {
   const { skillsDir } = getSyncPaths(homeDir);
@@ -133,6 +134,114 @@ export async function saveManifestHistory(homeDir: string, history: ManifestHist
   const { historyFile, syncDir } = getSyncPaths(homeDir);
   await mkdir(syncDir, { recursive: true });
   await writeFile(historyFile, `${JSON.stringify(history, null, 2)}\n`, 'utf8');
+}
+
+export function applyRemoteSnapshot(
+  manifest: ServerManifest,
+  remoteHashes: Record<string, string>,
+  updatedAt: string
+): ServerManifest {
+  const skillNames = [...new Set([...Object.keys(manifest.skills), ...Object.keys(remoteHashes)])].sort();
+
+  return reconcileManifest({
+    ...manifest,
+    updated_at: updatedAt,
+    skills: Object.fromEntries(
+      skillNames.map((skill) => {
+        const previous = manifest.skills[skill] ?? createEmptySkillState();
+
+        return [
+          skill,
+          {
+            ...previous,
+            remote_hash: remoteHashes[skill] ?? null
+          }
+        ];
+      })
+    )
+  });
+}
+
+export function collectRemoteHistoryEntries(
+  previous: ServerManifest,
+  next: ServerManifest,
+  updatedAt: string
+): ManifestHistoryEntry[] {
+  const skillNames = [...new Set([...Object.keys(previous.skills), ...Object.keys(next.skills)])].sort();
+
+  return skillNames.flatMap((skill) => {
+    const before = previous.skills[skill]?.remote_hash ?? null;
+    const after = next.skills[skill]?.remote_hash ?? null;
+
+    if (before === after) {
+      return [];
+    }
+
+    return [
+      {
+        skill,
+        server: next.server,
+        old_hash: before,
+        new_hash: after,
+        direction: 'remote',
+        updated_at: updatedAt
+      }
+    ];
+  });
+}
+
+export function finalizePushedSkills(
+  manifest: ServerManifest,
+  skills: string[],
+  updatedAt: string
+): ServerManifest {
+  return reconcileManifest({
+    ...manifest,
+    updated_at: updatedAt,
+    skills: Object.fromEntries(
+      Object.entries(manifest.skills).map(([skill, state]) => {
+        if (!skills.includes(skill) || state.local_hash === null) {
+          return [skill, state];
+        }
+
+        return [
+          skill,
+          {
+            ...state,
+            remote_hash: state.local_hash,
+            recorded_hash: state.local_hash
+          }
+        ];
+      })
+    )
+  });
+}
+
+export function finalizePulledSkills(
+  manifest: ServerManifest,
+  skills: string[],
+  updatedAt: string
+): ServerManifest {
+  return reconcileManifest({
+    ...manifest,
+    updated_at: updatedAt,
+    skills: Object.fromEntries(
+      Object.entries(manifest.skills).map(([skill, state]) => {
+        if (!skills.includes(skill) || state.remote_hash === null) {
+          return [skill, state];
+        }
+
+        return [
+          skill,
+          {
+            ...state,
+            local_hash: state.remote_hash,
+            recorded_hash: state.remote_hash
+          }
+        ];
+      })
+    )
+  });
 }
 
 export async function refreshLocalManifest(

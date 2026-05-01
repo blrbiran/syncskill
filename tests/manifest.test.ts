@@ -6,8 +6,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { getSyncPaths } from '../src/config.js';
 import {
+  applyRemoteSnapshot,
   buildLocalSkillHashes,
+  collectRemoteHistoryEntries,
   createEmptyManifest,
+  finalizePulledSkills,
+  finalizePushedSkills,
   hashSkillDirectory,
   loadManifestHistory,
   loadServerManifest,
@@ -153,5 +157,137 @@ describe('manifest hashing', () => {
         updated_at: '2026-05-01T01:00:00.000Z'
       }
     ]);
+  });
+
+  it('applyRemoteSnapshot merges remote hashes into an existing manifest', () => {
+    const previous = {
+      ...createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z'),
+      skills: {
+        welcome: {
+          local_hash: 'local-1',
+          remote_hash: 'remote-1',
+          recorded_hash: 'remote-1',
+          direction: 'push',
+          status: 'local-changed'
+        }
+      }
+    };
+
+    expect(
+      applyRemoteSnapshot(previous, { welcome: 'remote-2', docs: 'remote-3' }, '2026-05-01T01:00:00.000Z')
+    ).toEqual({
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T01:00:00.000Z',
+      skills: {
+        docs: {
+          local_hash: null,
+          remote_hash: 'remote-3',
+          recorded_hash: null,
+          direction: 'pull',
+          status: 'new'
+        },
+        welcome: {
+          local_hash: 'local-1',
+          remote_hash: 'remote-2',
+          recorded_hash: 'remote-1',
+          direction: 'conflict',
+          status: 'conflict'
+        }
+      }
+    });
+  });
+
+  it('collectRemoteHistoryEntries records only actual remote hash changes', () => {
+    const previous = {
+      ...createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z'),
+      skills: {
+        welcome: {
+          local_hash: 'local-1',
+          remote_hash: 'remote-1',
+          recorded_hash: 'remote-1',
+          direction: 'skip',
+          status: 'in-sync'
+        }
+      }
+    };
+    const next = applyRemoteSnapshot(previous, { welcome: 'remote-2', docs: 'remote-3' }, '2026-05-01T01:00:00.000Z');
+
+    expect(collectRemoteHistoryEntries(previous, next, '2026-05-01T01:00:00.000Z')).toEqual([
+      {
+        skill: 'docs',
+        server: 'alpha',
+        old_hash: null,
+        new_hash: 'remote-3',
+        direction: 'remote',
+        updated_at: '2026-05-01T01:00:00.000Z'
+      },
+      {
+        skill: 'welcome',
+        server: 'alpha',
+        old_hash: 'remote-1',
+        new_hash: 'remote-2',
+        direction: 'remote',
+        updated_at: '2026-05-01T01:00:00.000Z'
+      }
+    ]);
+  });
+
+  it('finalizePushedSkills promotes local hashes to the shared baseline', () => {
+    const manifest = finalizePushedSkills(
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-01T01:00:00.000Z',
+        skills: {
+          welcome: {
+            local_hash: 'local-2',
+            remote_hash: 'remote-1',
+            recorded_hash: 'remote-1',
+            direction: 'push',
+            status: 'local-changed'
+          }
+        }
+      },
+      ['welcome'],
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    expect(manifest.skills.welcome).toEqual({
+      local_hash: 'local-2',
+      remote_hash: 'local-2',
+      recorded_hash: 'local-2',
+      direction: 'skip',
+      status: 'in-sync'
+    });
+  });
+
+  it('finalizePulledSkills promotes remote hashes to the shared baseline', () => {
+    const manifest = finalizePulledSkills(
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-01T01:00:00.000Z',
+        skills: {
+          welcome: {
+            local_hash: 'local-1',
+            remote_hash: 'remote-2',
+            recorded_hash: 'local-1',
+            direction: 'pull',
+            status: 'remote-changed'
+          }
+        }
+      },
+      ['welcome'],
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    expect(manifest.skills.welcome).toEqual({
+      local_hash: 'remote-2',
+      remote_hash: 'remote-2',
+      recorded_hash: 'remote-2',
+      direction: 'skip',
+      status: 'in-sync'
+    });
   });
 });

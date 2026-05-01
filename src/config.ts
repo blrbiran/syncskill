@@ -24,6 +24,15 @@ export interface SyncSkillConfig {
   sources: Record<string, unknown>;
 }
 
+export interface ConfiguredServer {
+  name: string;
+  host: string;
+  user?: string;
+  port?: number;
+  identity_file?: string;
+  remote_agents: Record<string, string>;
+}
+
 const KNOWN_AGENT_DIRS = {
   claude: '.claude/skills',
   agents: '.agents/skills',
@@ -166,6 +175,31 @@ export function expandTargetAgents(config: SyncSkillConfig, targets: string[]): 
   }
 
   return [...new Set(targets)].sort();
+}
+
+export function getConfiguredServer(config: SyncSkillConfig, name: string): ConfiguredServer {
+  const raw = config.servers[name];
+
+  if (raw === undefined) {
+    throw new Error(`Server not found: ${name}`);
+  }
+
+  if (!isRecord(raw) || typeof raw.host !== 'string') {
+    throw new Error(`Server config is invalid: ${name}`);
+  }
+
+  return {
+    name,
+    host: raw.host,
+    ...(typeof raw.user === 'string' ? { user: raw.user } : {}),
+    ...(typeof raw.port === 'number' ? { port: raw.port } : {}),
+    ...(typeof raw.identity_file === 'string' ? { identity_file: raw.identity_file } : {}),
+    remote_agents: isRecord(raw.remote_agents)
+      ? Object.fromEntries(
+          Object.entries(raw.remote_agents).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+        )
+      : {}
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -8,6 +8,7 @@ import {
   createDefaultConfig,
   detectAgents,
   expandTargetAgents,
+  getConfiguredServer,
   getSyncDir,
   getSyncPaths,
   loadConfig,
@@ -163,5 +164,47 @@ describe('expandTargetAgents', () => {
 
     expect(expandTargetAgents(config, ['*'])).toEqual(['aone_copilot', 'claude', 'qwen']);
     expect(expandTargetAgents(config, ['qwen', 'claude', 'qwen'])).toEqual(['claude', 'qwen']);
+  });
+});
+
+describe('getConfiguredServer', () => {
+  it('normalizes host, auth fields, and remote agent mappings', () => {
+    const config = validateConfig({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: {},
+      servers: {
+        alpha: {
+          host: 'alpha.example.com',
+          user: 'deploy',
+          port: 2222,
+          identity_file: '/Users/demo/.ssh/id_syncskill',
+          remote_agents: {
+            claude: '~/.claude/skills',
+            qoder: '~/.qoder/skills',
+            broken: 123
+          }
+        },
+        broken: {
+          user: 'deploy'
+        }
+      },
+      sources: {}
+    });
+
+    expect(getConfiguredServer(config, 'alpha')).toEqual({
+      name: 'alpha',
+      host: 'alpha.example.com',
+      user: 'deploy',
+      port: 2222,
+      identity_file: '/Users/demo/.ssh/id_syncskill',
+      remote_agents: {
+        claude: '~/.claude/skills',
+        qoder: '~/.qoder/skills'
+      }
+    });
+    expect(() => getConfiguredServer(config, 'broken')).toThrow('Server config is invalid: broken');
+    expect(() => getConfiguredServer(config, 'missing')).toThrow('Server not found: missing');
   });
 });
