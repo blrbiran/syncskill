@@ -2,7 +2,7 @@ import { lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } fro
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
-import { getSyncPaths, loadConfig } from './config.js';
+import { getSyncPaths, loadConfig, saveConfig } from './config.js';
 
 export type SourceType = 'local' | 'git' | 'http';
 
@@ -28,6 +28,34 @@ export async function listSources(homeDir = homedir()): Promise<SourceEntry[]> {
   return Object.entries(config.sources)
     .flatMap(([name, value]) => normalizeSourceEntry(name, value))
     .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export async function addSource(homeDir = homedir(), name: string, source: SourceDefinition): Promise<void> {
+  const config = await loadConfig(homeDir);
+  const previousSource = config.sources[name];
+  config.sources[name] = source;
+  await saveConfig(config, homeDir);
+
+  if (source.type !== 'local') {
+    return;
+  }
+
+  try {
+    await materializeSource(homeDir, name, source);
+  } catch (error) {
+    if (previousSource === undefined) {
+      delete config.sources[name];
+    } else {
+      config.sources[name] = previousSource;
+    }
+
+    await saveConfig(config, homeDir);
+    throw error;
+  }
+}
+
+export function formatSourceListLines(sources: SourceEntry[]): string[] {
+  return sources.map((source) => `${source.name}\t${source.type}\t${source.url}\t${source.store}`);
 }
 
 export async function loadSourceState(homeDir = homedir(), name: string): Promise<SourceState | null> {
@@ -60,6 +88,7 @@ export async function materializeSource(
   const materializedSkills = await listSkillDirectories(materializedRoot);
 
   await mkdir(skillsDir, { recursive: true });
+  await assertMaterializationTargetsAvailable(skillsDir, materializedRoot, materializedSkills);
   await removeStaleSkills(skillsDir, materializedRoot, previousState?.materialized_skills ?? [], materializedSkills);
 
   for (const skill of materializedSkills) {
@@ -177,6 +206,26 @@ async function recreateSymlink(sourceDir: string, targetDir: string): Promise<vo
   await symlink(sourceDir, targetDir, 'dir');
 }
 
+async function assertMaterializationTargetsAvailable(
+  skillsDir: string,
+  materializedRoot: string,
+  skillNames: string[]
+): Promise<void> {
+  for (const skillName of skillNames) {
+    const targetDir = join(skillsDir, skillName);
+    const expectedTarget = join(materializedRoot, skillName);
+    const currentTarget = await readlinkIfMatches(targetDir);
+
+    if (currentTarget === expectedTarget) {
+      continue;
+    }
+
+    if (currentTarget !== null || (await pathExists(targetDir))) {
+      throw new Error(`Skill path is already occupied: ${skillName}`);
+    }
+  }
+}
+
 async function readlinkIfMatches(targetDir: string): Promise<string | null> {
   try {
     const stats = await lstat(targetDir);
@@ -189,6 +238,19 @@ async function readlinkIfMatches(targetDir: string): Promise<string | null> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null;
+    }
+
+    throw error;
+  }
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await lstat(targetPath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
     }
 
     throw error;

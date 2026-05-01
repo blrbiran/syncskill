@@ -16,6 +16,7 @@ import {
   loadTrackedManifests,
   refreshStoredManifests
 } from './refresh.js';
+import { addSource, formatSourceListLines, listSources, SourceType } from './source.js';
 
 function shouldSkipAutoRefresh(command: Command): boolean {
   const commandPath: string[] = [];
@@ -128,6 +129,45 @@ export function createProgram(homeDir?: string): Command {
       }
 
       throw new Error('link requires <skill>, --all, --status, or --unlink <skill>');
+    });
+
+  const sourceCommand = program.command('source').description('Manage configured sources');
+
+  sourceCommand
+    .command('add <name>')
+    .description('Add a source and materialize it immediately')
+    .requiredOption(
+      '--type <type>',
+      'Source type',
+      (value: string) => {
+        if (value === 'local' || value === 'git' || value === 'http') {
+          return value as SourceType;
+        }
+
+        throw new InvalidArgumentError('Expected local, git, or http');
+      }
+    )
+    .requiredOption('--url <url>', 'Source URL')
+    .requiredOption('--store <store>', 'Materialized store path')
+    .option('--ref <ref>', 'Source revision')
+    .action(async (name: string, options: { type: SourceType; url: string; store: string; ref?: string }) => {
+      const source = {
+        type: options.type,
+        url: options.url,
+        store: options.store,
+        ...(typeof options.ref === 'string' ? { ref: options.ref } : {})
+      };
+
+      await addSource(resolvedHomeDir, name, source);
+    });
+
+  sourceCommand
+    .command('list')
+    .description('List configured sources')
+    .action(async () => {
+      for (const line of formatSourceListLines(await listSources(resolvedHomeDir))) {
+        console.log(line);
+      }
     });
 
   program
