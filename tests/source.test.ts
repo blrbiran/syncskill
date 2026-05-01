@@ -1,11 +1,35 @@
 import { access, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { saveConfig } from '../src/config.js';
-import { listSources, loadSourceState, materializeSource } from '../src/source.js';
+import { listSources, loadSourceState, materializeSource, updateSource } from '../src/source.js';
+
+const execFileAsync = promisify(execFile);
+
+async function git(args: string[], cwd?: string): Promise<void> {
+  await execFileAsync('git', cwd === undefined ? args : ['-C', cwd, ...args]);
+}
+
+async function commitAll(repoDir: string, message: string): Promise<void> {
+  await git(['add', '.'], repoDir);
+  await git(['-c', 'user.name=Test User', '-c', 'user.email=test@example.com', 'commit', '-m', message], repoDir);
+}
+
+async function createGitSourceFixture(homeDir: string): Promise<{ bareRepoDir: string; workRepoDir: string }> {
+  const bareRepoDir = join(homeDir, 'remote.git');
+  const workRepoDir = join(homeDir, 'work');
+
+  await git(['init', '--bare', bareRepoDir]);
+  await git(['clone', bareRepoDir, workRepoDir]);
+  await git(['branch', '-M', 'main'], workRepoDir);
+
+  return { bareRepoDir, workRepoDir };
+}
 
 describe('source module', () => {
   const tempDirs: string[] = [];
@@ -196,5 +220,147 @@ describe('source module', () => {
     await expect(
       materializeSource(homeDir, 'shared', { type: 'local', url: sourceRoot, store: '../outside' }, '2026-05-01T00:00:00.000Z')
     ).rejects.toThrow('Local source store must stay within the source root');
+  });
+
+  it('materializeSource clones a git source and copies skill files into the sync store', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    const result = await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['alpha']);
+    await expect(access(join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout', '.git'))).resolves.toBeUndefined();
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v1\n');
+    await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
+      materialized_skills: ['alpha'],
+      updated_at: '2026-05-01T02:00:00.000Z'
+    });
+  });
+
+  it('updateSource refreshes an existing git-owned skill directory when the skill name stays the same', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: {
+          'git-source': { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' }
+        }
+      },
+      homeDir
+    );
+
+    await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v2\n', 'utf8');
+    await commitAll(workRepoDir, 'refresh alpha');
+    await git(['push', 'origin', 'main'], workRepoDir);
+
+    const result = await updateSource(homeDir, 'git-source', '2026-05-01T03:00:00.000Z');
+
+    expect(result.materialized_skills).toEqual(['alpha']);
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v2\n');
+    await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
+      materialized_skills: ['alpha'],
+      updated_at: '2026-05-01T03:00:00.000Z'
+    });
+  });
+
+  it('materializeSource rejects a git source when a target skill path is occupied by an unmanaged directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), '# occupied\n', 'utf8');
+
+    await expect(
+      materializeSource(
+        homeDir,
+        'git-source',
+        { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+        '2026-05-01T02:00:00.000Z'
+      )
+    ).rejects.toThrow('Skill path is already occupied: alpha');
+  });
+
+  it('updateSource refreshes a git source checkout, removes stale skills, and keeps new ones', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: {
+          'git-source': { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' }
+        }
+      },
+      homeDir
+    );
+
+    await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    await rm(join(workRepoDir, 'source.store', 'alpha'), { recursive: true, force: true });
+    await mkdir(join(workRepoDir, 'source.store', 'beta'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.store', 'beta', 'SKILL.md'), '# beta v2\n', 'utf8');
+    await commitAll(workRepoDir, 'update source');
+    await git(['push', 'origin', 'main'], workRepoDir);
+
+    const result = await updateSource(homeDir, 'git-source', '2026-05-01T03:00:00.000Z');
+
+    expect(result.materialized_skills).toEqual(['beta']);
+    await expect(access(join(homeDir, '.syncskill', 'skills', 'alpha'))).rejects.toThrow();
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'beta', 'SKILL.md'), 'utf8')).resolves.toBe('# beta v2\n');
+    await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
+      materialized_skills: ['beta'],
+      updated_at: '2026-05-01T03:00:00.000Z'
+    });
   });
 });

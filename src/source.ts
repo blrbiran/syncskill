@@ -1,8 +1,12 @@
-import { lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 import { getSyncPaths, loadConfig, saveConfig } from './config.js';
+
+const execFileAsync = promisify(execFile);
 
 export type SourceType = 'local' | 'git' | 'http';
 
@@ -78,21 +82,52 @@ export async function materializeSource(
   source: SourceDefinition,
   updatedAt = new Date().toISOString()
 ): Promise<SourceState> {
-  if (source.type !== 'local') {
-    throw new Error(`Source type not implemented: ${source.type}`);
+  return syncSource(homeDir, name, source, updatedAt);
+}
+
+export async function updateSource(
+  homeDir = homedir(),
+  name: string,
+  updatedAt = new Date().toISOString()
+): Promise<SourceState> {
+  const config = await loadConfig(homeDir);
+  const source = normalizeSourceEntry(name, config.sources[name])[0];
+
+  if (source === undefined) {
+    throw new Error(`Source not found: ${name}`);
   }
 
-  const materializedRoot = getLocalMaterializedRoot(source);
+  return syncSource(homeDir, name, source, updatedAt);
+}
+
+async function syncSource(
+  homeDir: string,
+  name: string,
+  source: SourceDefinition,
+  updatedAt: string
+): Promise<SourceState> {
+  const materializedRoot = await prepareMaterializedRoot(homeDir, name, source);
   const previousState = await loadSourceState(homeDir, name);
   const { skillsDir } = getSyncPaths(homeDir);
   const materializedSkills = await listSkillDirectories(materializedRoot);
 
+  const previousSkills = previousState?.materialized_skills ?? [];
+
   await mkdir(skillsDir, { recursive: true });
-  await assertMaterializationTargetsAvailable(skillsDir, materializedRoot, materializedSkills);
-  await removeStaleSkills(skillsDir, materializedRoot, previousState?.materialized_skills ?? [], materializedSkills);
+  await assertMaterializationTargetsAvailable(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type);
+  await removeStaleSkills(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type);
 
   for (const skill of materializedSkills) {
-    await recreateSymlink(join(materializedRoot, skill), join(skillsDir, skill));
+    const sourceDir = join(materializedRoot, skill);
+    const targetDir = join(skillsDir, skill);
+
+    if (source.type === 'local') {
+      await recreateSymlink(sourceDir, targetDir);
+    } else if (source.type === 'git') {
+      await copySkillDirectory(sourceDir, targetDir);
+    } else {
+      throw new Error(`Source type not implemented: ${source.type}`);
+    }
   }
 
   const nextState: SourceState = {
@@ -151,6 +186,47 @@ async function saveSourceState(homeDir: string, name: string, state: SourceState
   await writeFile(stateFile, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
 }
 
+async function prepareMaterializedRoot(homeDir: string, name: string, source: SourceDefinition): Promise<string> {
+  if (source.type === 'local') {
+    return getLocalMaterializedRoot(source);
+  }
+
+  if (source.type === 'git') {
+    return prepareGitMaterializedRoot(homeDir, name, source);
+  }
+
+  throw new Error(`Source type not implemented: ${source.type}`);
+}
+
+async function prepareGitMaterializedRoot(homeDir: string, name: string, source: SourceDefinition): Promise<string> {
+  const checkoutDir = getGitCheckoutDir(homeDir, name);
+
+  if (!(await pathExists(checkoutDir))) {
+    await mkdir(dirname(checkoutDir), { recursive: true });
+    await runGit(['clone', source.url, checkoutDir]);
+  }
+
+  await runGit(['-C', checkoutDir, 'fetch', '--tags', 'origin', source.ref ?? 'HEAD']);
+  await runGit(['-C', checkoutDir, 'reset', '--hard', 'FETCH_HEAD']);
+
+  if (isAbsolute(source.store)) {
+    throw new Error('Git source store must be a relative path');
+  }
+
+  const materializedRoot = resolve(checkoutDir, source.store);
+  const relativePath = relative(checkoutDir, materializedRoot);
+
+  if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+    throw new Error('Git source store must stay within the checkout root');
+  }
+
+  return materializedRoot;
+}
+
+function getGitCheckoutDir(homeDir: string, name: string): string {
+  return join(getSyncPaths(homeDir).syncDir, '.sources', name, 'checkout');
+}
+
 function getLocalMaterializedRoot(source: SourceDefinition): string {
   if (isAbsolute(source.store)) {
     throw new Error('Local source store must be a relative path');
@@ -180,10 +256,25 @@ async function removeStaleSkills(
   skillsDir: string,
   materializedRoot: string,
   previousSkills: string[],
-  nextSkills: string[]
+  nextSkills: string[],
+  sourceType: SourceType
 ): Promise<void> {
   for (const staleSkill of previousSkills.filter((skill) => !nextSkills.includes(skill))) {
     const targetDir = join(skillsDir, staleSkill);
+
+    if (sourceType === 'git') {
+      if (!(await pathExists(targetDir))) {
+        continue;
+      }
+
+      if (await isSymbolicLink(targetDir)) {
+        continue;
+      }
+
+      await rm(targetDir, { recursive: true, force: true });
+      continue;
+    }
+
     const expectedTarget = join(materializedRoot, staleSkill);
     const currentTarget = await readlinkIfMatches(targetDir);
 
@@ -193,6 +284,11 @@ async function removeStaleSkills(
 
     await rm(targetDir, { recursive: true, force: true });
   }
+}
+
+async function copySkillDirectory(sourceDir: string, targetDir: string): Promise<void> {
+  await rm(targetDir, { recursive: true, force: true });
+  await cp(sourceDir, targetDir, { recursive: true });
 }
 
 async function recreateSymlink(sourceDir: string, targetDir: string): Promise<void> {
@@ -209,7 +305,9 @@ async function recreateSymlink(sourceDir: string, targetDir: string): Promise<vo
 async function assertMaterializationTargetsAvailable(
   skillsDir: string,
   materializedRoot: string,
-  skillNames: string[]
+  previousSkills: string[],
+  skillNames: string[],
+  sourceType: SourceType
 ): Promise<void> {
   for (const skillName of skillNames) {
     const targetDir = join(skillsDir, skillName);
@@ -220,9 +318,26 @@ async function assertMaterializationTargetsAvailable(
       continue;
     }
 
+    if (sourceType === 'git' && previousSkills.includes(skillName) && (await isReusableManagedGitTarget(targetDir))) {
+      continue;
+    }
+
     if (currentTarget !== null || (await pathExists(targetDir))) {
       throw new Error(`Skill path is already occupied: ${skillName}`);
     }
+  }
+}
+
+async function isReusableManagedGitTarget(targetPath: string): Promise<boolean> {
+  try {
+    const stats = await lstat(targetPath);
+    return stats.isDirectory() && !stats.isSymbolicLink();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+
+    throw error;
   }
 }
 
@@ -241,6 +356,27 @@ async function readlinkIfMatches(targetDir: string): Promise<string | null> {
     }
 
     throw error;
+  }
+}
+
+async function isSymbolicLink(targetPath: string): Promise<boolean> {
+  try {
+    return (await lstat(targetPath)).isSymbolicLink();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+async function runGit(args: string[]): Promise<void> {
+  try {
+    await execFileAsync('git', args);
+  } catch (error) {
+    const execError = error as Error & { stderr?: string };
+    throw new Error(execError.stderr?.trim() || execError.message);
   }
 }
 
