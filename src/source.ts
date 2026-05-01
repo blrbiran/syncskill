@@ -30,6 +30,10 @@ export interface SourceState {
   updated_at: string;
 }
 
+interface SkillOwnershipState {
+  owners: Record<string, string>;
+}
+
 export async function listSources(homeDir = homedir()): Promise<SourceEntry[]> {
   const config = await loadConfig(homeDir);
 
@@ -104,6 +108,17 @@ export async function updateSource(
   return syncSource(homeDir, name, source, updatedAt);
 }
 
+export async function updateAllSources(homeDir = homedir(), updatedAt = new Date().toISOString()): Promise<SourceState[]> {
+  const sources = await listSources(homeDir);
+  const states: SourceState[] = [];
+
+  for (const source of sources) {
+    states.push(await updateSource(homeDir, source.name, updatedAt));
+  }
+
+  return states;
+}
+
 async function syncSource(
   homeDir: string,
   name: string,
@@ -112,14 +127,16 @@ async function syncSource(
 ): Promise<SourceState> {
   const materializedRoot = await prepareMaterializedRoot(homeDir, name, source);
   const previousState = await loadSourceState(homeDir, name);
+  const ownershipState = await loadSkillOwnershipState(homeDir);
   const { skillsDir } = getSyncPaths(homeDir);
   const materializedSkills = await listSkillDirectories(materializedRoot);
 
   const previousSkills = previousState?.materialized_skills ?? [];
+  const nextOwnership = structuredClone(ownershipState) as SkillOwnershipState;
 
   await mkdir(skillsDir, { recursive: true });
-  await assertMaterializationTargetsAvailable(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type);
-  await removeStaleSkills(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type);
+  await assertMaterializationTargetsAvailable(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type, name, ownershipState);
+  await removeStaleSkills(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type, name, nextOwnership);
 
   for (const skill of materializedSkills) {
     const sourceDir = join(materializedRoot, skill);
@@ -132,6 +149,8 @@ async function syncSource(
     } else {
       throw new Error(`Source type not implemented: ${source.type}`);
     }
+
+    nextOwnership.owners[skill] = name;
   }
 
   const nextState: SourceState = {
@@ -140,6 +159,7 @@ async function syncSource(
   };
 
   await saveSourceState(homeDir, name, nextState);
+  await saveSkillOwnershipState(homeDir, nextOwnership);
   return nextState;
 }
 
@@ -184,10 +204,51 @@ function getSourceStateFile(homeDir: string, name: string): string {
   return join(getSyncPaths(homeDir).syncDir, '.sources', name, 'state.json');
 }
 
+function getSkillOwnershipStateFile(homeDir: string): string {
+  return join(getSyncPaths(homeDir).syncDir, '.sources', 'skills.json');
+}
+
+async function loadSkillOwnershipState(homeDir: string): Promise<SkillOwnershipState> {
+  const stateFile = getSkillOwnershipStateFile(homeDir);
+
+  try {
+    const value = JSON.parse(await readFile(stateFile, 'utf8'));
+    return normalizeSkillOwnershipState(value);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { owners: {} };
+    }
+
+    throw error;
+  }
+}
+
+async function saveSkillOwnershipState(homeDir: string, state: SkillOwnershipState): Promise<void> {
+  const stateFile = getSkillOwnershipStateFile(homeDir);
+  await mkdir(dirname(stateFile), { recursive: true });
+  await writeFile(stateFile, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+}
+
 async function saveSourceState(homeDir: string, name: string, state: SourceState): Promise<void> {
   const stateFile = getSourceStateFile(homeDir, name);
   await mkdir(join(getSyncPaths(homeDir).syncDir, '.sources', name), { recursive: true });
   await writeFile(stateFile, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+}
+
+function normalizeSkillOwnershipState(value: unknown): SkillOwnershipState {
+  if (!isRecord(value) || !isRecord(value.owners)) {
+    return { owners: {} };
+  }
+
+  const owners: Record<string, string> = {};
+
+  for (const [skill, owner] of Object.entries(value.owners)) {
+    if (typeof owner === 'string') {
+      owners[skill] = owner;
+    }
+  }
+
+  return { owners };
 }
 
 async function prepareMaterializedRoot(homeDir: string, name: string, source: SourceDefinition): Promise<string> {
@@ -306,13 +367,20 @@ async function removeStaleSkills(
   materializedRoot: string,
   previousSkills: string[],
   nextSkills: string[],
-  sourceType: SourceType
+  sourceType: SourceType,
+  sourceName: string,
+  ownershipState: SkillOwnershipState
 ): Promise<void> {
   for (const staleSkill of previousSkills.filter((skill) => !nextSkills.includes(skill))) {
+    if (ownershipState.owners[staleSkill] !== sourceName) {
+      continue;
+    }
+
     const targetDir = join(skillsDir, staleSkill);
 
     if (sourceType === 'git' || sourceType === 'http') {
       if (!(await pathExists(targetDir))) {
+        delete ownershipState.owners[staleSkill];
         continue;
       }
 
@@ -321,6 +389,7 @@ async function removeStaleSkills(
       }
 
       await rm(targetDir, { recursive: true, force: true });
+      delete ownershipState.owners[staleSkill];
       continue;
     }
 
@@ -332,6 +401,7 @@ async function removeStaleSkills(
     }
 
     await rm(targetDir, { recursive: true, force: true });
+    delete ownershipState.owners[staleSkill];
   }
 }
 
@@ -383,7 +453,9 @@ async function assertMaterializationTargetsAvailable(
   materializedRoot: string,
   previousSkills: string[],
   skillNames: string[],
-  sourceType: SourceType
+  sourceType: SourceType,
+  sourceName: string,
+  ownershipState: SkillOwnershipState
 ): Promise<void> {
   for (const skillName of skillNames) {
     const targetDir = join(skillsDir, skillName);
@@ -394,7 +466,12 @@ async function assertMaterializationTargetsAvailable(
       continue;
     }
 
-    if ((sourceType === 'git' || sourceType === 'http') && previousSkills.includes(skillName) && (await isReusableManagedGitTarget(targetDir))) {
+    if (
+      (sourceType === 'git' || sourceType === 'http') &&
+      previousSkills.includes(skillName) &&
+      ownershipState.owners[skillName] === sourceName &&
+      (await isReusableManagedCopiedTarget(targetDir))
+    ) {
       continue;
     }
 
@@ -404,7 +481,7 @@ async function assertMaterializationTargetsAvailable(
   }
 }
 
-async function isReusableManagedGitTarget(targetPath: string): Promise<boolean> {
+async function isReusableManagedCopiedTarget(targetPath: string): Promise<boolean> {
   try {
     const stats = await lstat(targetPath);
     return stats.isDirectory() && !stats.isSymbolicLink();
@@ -455,7 +532,7 @@ async function downloadHttpArchive(url: string, destinationFile: string): Promis
   }
 
   try {
-    await pipeline(Readable.fromWeb(response.body), createWriteStream(destinationFile));
+    await pipeline(Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(destinationFile));
   } catch (error) {
     await rm(destinationFile, { force: true });
     throw error;

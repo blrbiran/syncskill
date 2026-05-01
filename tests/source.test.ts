@@ -555,4 +555,61 @@ describe('source module', () => {
       updated_at: '2026-05-01T03:00:00.000Z'
     });
   });
+
+  it('updateSource does not remove a colliding skill currently owned by another source', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const sharedRoot = join(homeDir, 'shared');
+    await mkdir(join(sharedRoot, 'alpha'), { recursive: true });
+    await writeFile(join(sharedRoot, 'alpha', 'SKILL.md'), '# local alpha\n', 'utf8');
+
+    await materializeSource(
+      homeDir,
+      'local-source',
+      { type: 'local', url: sharedRoot, store: '.' },
+      '2026-05-01T00:00:00.000Z'
+    );
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# git alpha\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: {
+          'git-source': { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' }
+        }
+      },
+      homeDir
+    );
+
+    await expect(
+      materializeSource(
+        homeDir,
+        'git-source',
+        { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+        '2026-05-01T02:00:00.000Z'
+      )
+    ).rejects.toThrow('Skill path is already occupied: alpha');
+
+    await rm(join(workRepoDir, 'source.store', 'alpha'), { recursive: true, force: true });
+    await mkdir(join(workRepoDir, 'source.store', 'beta'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.store', 'beta', 'SKILL.md'), '# git beta\n', 'utf8');
+    await commitAll(workRepoDir, 'replace alpha with beta');
+    await git(['push', 'origin', 'main'], workRepoDir);
+
+    const result = await updateSource(homeDir, 'git-source', '2026-05-01T03:00:00.000Z');
+
+    expect(result.materialized_skills).toEqual(['beta']);
+    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'alpha'))).resolves.toBe(join(sharedRoot, 'alpha'));
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'beta', 'SKILL.md'), 'utf8')).resolves.toBe('# git beta\n');
+  });
 });

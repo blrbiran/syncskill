@@ -16,7 +16,7 @@ import {
   loadTrackedManifests,
   refreshStoredManifests
 } from './refresh.js';
-import { addSource, formatSourceListLines, listSources, SourceType } from './source.js';
+import { addSource, formatSourceListLines, listSources, SourceType, updateAllSources, updateSource } from './source.js';
 
 function shouldSkipAutoRefresh(command: Command): boolean {
   const commandPath: string[] = [];
@@ -168,6 +168,19 @@ export function createProgram(homeDir?: string): Command {
       for (const line of formatSourceListLines(await listSources(resolvedHomeDir))) {
         console.log(line);
       }
+    });
+
+  sourceCommand
+    .command('update [name]')
+    .description('Update one source or all configured sources')
+    .option('--all', 'Update all configured sources')
+    .action(async (name: string | undefined, options: { all?: boolean }) => {
+      if (options.all || name === undefined) {
+        await updateAllSources(resolvedHomeDir);
+        return;
+      }
+
+      await updateSource(resolvedHomeDir, name);
     });
 
   program

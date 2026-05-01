@@ -1,12 +1,36 @@
-import { access, mkdir, mkdtemp, readlink, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../src/config.js';
 import { createProgram } from '../src/index.js';
 import { loadSourceState } from '../src/source.js';
+
+const execFileAsync = promisify(execFile);
+
+async function git(args: string[], cwd?: string): Promise<void> {
+  await execFileAsync('git', cwd === undefined ? args : ['-C', cwd, ...args]);
+}
+
+async function commitAll(repoDir: string, message: string): Promise<void> {
+  await git(['add', '.'], repoDir);
+  await git(['-c', 'user.name=Test User', '-c', 'user.email=test@example.com', 'commit', '-m', message], repoDir);
+}
+
+async function createGitSourceFixture(homeDir: string): Promise<{ bareRepoDir: string; workRepoDir: string }> {
+  const bareRepoDir = join(homeDir, 'remote.git');
+  const workRepoDir = join(homeDir, 'work');
+
+  await git(['init', '--bare', bareRepoDir]);
+  await git(['clone', bareRepoDir, workRepoDir]);
+  await git(['branch', '-M', 'main'], workRepoDir);
+
+  return { bareRepoDir, workRepoDir };
+}
 
 describe('source CLI', () => {
   const tempDirs: string[] = [];
@@ -126,6 +150,113 @@ describe('source CLI', () => {
     ).rejects.toThrow('Skill path is already occupied: alpha');
 
     await expect(loadConfig(homeDir)).resolves.toMatchObject({ sources: {} });
+  });
+
+  it('source update <name> refreshes one configured git source', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-cli-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+    await createProgram(homeDir).parseAsync(
+      [
+        'node',
+        'syncskill',
+        'source',
+        'add',
+        'team',
+        '--type',
+        'git',
+        '--url',
+        bareRepoDir,
+        '--store',
+        'source.store',
+        '--ref',
+        'main'
+      ],
+      { from: 'node' }
+    );
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'source', 'update', 'team'], { from: 'node' });
+
+    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v2\n', 'utf8');
+    await commitAll(workRepoDir, 'refresh alpha');
+    await git(['push', 'origin', 'main'], workRepoDir);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'source', 'update', 'team'], { from: 'node' });
+
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v2\n');
+    await expect(loadSourceState(homeDir, 'team')).resolves.toEqual({
+      materialized_skills: ['alpha'],
+      updated_at: expect.any(String)
+    });
+  });
+
+  it('source update --all refreshes all configured sources', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    const sourceAlpha = join(homeDir, 'source-alpha');
+    const sourceBeta = join(homeDir, 'source-beta');
+    await mkdir(join(sourceAlpha, 'skills', 'alpha'), { recursive: true });
+    await mkdir(join(sourceBeta, 'bundle', 'beta'), { recursive: true });
+    await writeFile(join(sourceAlpha, 'skills', 'alpha', 'SKILL.md'), '# alpha\n', 'utf8');
+    await writeFile(join(sourceBeta, 'bundle', 'beta', 'SKILL.md'), '# beta\n', 'utf8');
+
+    await createProgram(homeDir).parseAsync(
+      [
+        'node',
+        'syncskill',
+        'source',
+        'add',
+        'alpha-source',
+        '--type',
+        'local',
+        '--url',
+        sourceAlpha,
+        '--store',
+        'skills'
+      ],
+      { from: 'node' }
+    );
+    await createProgram(homeDir).parseAsync(
+      [
+        'node',
+        'syncskill',
+        'source',
+        'add',
+        'beta-source',
+        '--type',
+        'local',
+        '--url',
+        sourceBeta,
+        '--store',
+        'bundle'
+      ],
+      { from: 'node' }
+    );
+
+    await rm(join(homeDir, '.syncskill', 'skills', 'alpha'), { recursive: true, force: true });
+    await rm(join(homeDir, '.syncskill', 'skills', 'beta'), { recursive: true, force: true });
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'source', 'update', '--all'], { from: 'node' });
+
+    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'alpha'))).resolves.toBe(join(sourceAlpha, 'skills', 'alpha'));
+    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'beta'))).resolves.toBe(join(sourceBeta, 'bundle', 'beta'));
+    await expect(loadSourceState(homeDir, 'alpha-source')).resolves.toEqual({
+      materialized_skills: ['alpha'],
+      updated_at: expect.any(String)
+    });
+    await expect(loadSourceState(homeDir, 'beta-source')).resolves.toEqual({
+      materialized_skills: ['beta'],
+      updated_at: expect.any(String)
+    });
   });
 
   it('source list prints configured sources in sorted order', async () => {
