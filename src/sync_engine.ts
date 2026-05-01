@@ -46,6 +46,19 @@ export interface PullResult {
   manifest: ServerManifest;
 }
 
+export interface SyncStepResult {
+  server: string;
+  direction: 'pull' | 'push';
+  skills: string[];
+  conflicted_skills: string[];
+}
+
+export interface SyncResult {
+  server: string;
+  pull: PullResult;
+  push: PushResult;
+}
+
 export async function pushToServers(homeDir: string, servers?: string[], options: SyncEngineOptions = {}): Promise<PushResult[]> {
   const config = await loadConfig(homeDir);
   const targetServers = resolveTargetServers(config, servers);
@@ -118,6 +131,38 @@ export async function pullFromServer(homeDir: string, serverName: string, option
     conflicted_skills: conflictedSkills,
     manifest: finalizedManifest
   };
+}
+
+export async function syncServers(homeDir: string, servers?: string[], options: SyncEngineOptions = {}): Promise<SyncResult[]> {
+  const config = await loadConfig(homeDir);
+  const targetServers = resolveTargetServers(config, servers);
+  const pulls: PullResult[] = [];
+
+  for (const serverName of targetServers) {
+    pulls.push(await pullFromServer(homeDir, serverName, options));
+  }
+
+  const pushes = await pushToServers(homeDir, targetServers, options);
+
+  return targetServers.map((serverName) => {
+    const pull = pulls.find((result) => result.server === serverName);
+    const push = pushes.find((result) => result.server === serverName);
+
+    if (!pull || !push) {
+      throw new Error(`Missing sync result for server: ${serverName}`);
+    }
+
+    return {
+      server: serverName,
+      pull,
+      push
+    };
+  });
+}
+
+export async function syncServer(homeDir: string, serverName: string, options: SyncEngineOptions = {}): Promise<SyncResult> {
+  const [result] = await syncServers(homeDir, [serverName], options);
+  return result;
 }
 
 async function prepareManifest(

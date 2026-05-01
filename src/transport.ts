@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -19,11 +19,42 @@ export interface TransportRuntime {
 export function createTransportRuntime(): TransportRuntime {
   return {
     async exec(file, args, options = {}) {
-      const result = await execFileAsync(file, args, options.stdin === undefined ? {} : { input: options.stdin });
-      return {
-        stdout: result.stdout,
-        stderr: result.stderr
-      };
+      if (options.stdin === undefined) {
+        const result = await execFileAsync(file, args, { encoding: 'utf8' });
+        return {
+          stdout: result.stdout,
+          stderr: result.stderr
+        };
+      }
+
+      return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+        const child = spawn(file, args, {
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout.setEncoding('utf8');
+        child.stderr.setEncoding('utf8');
+        child.stdout.on('data', (chunk: string) => {
+          stdout += chunk;
+        });
+        child.stderr.on('data', (chunk: string) => {
+          stderr += chunk;
+        });
+        child.on('error', reject);
+        child.on('close', (code) => {
+          if (code === 0) {
+            resolve({ stdout, stderr });
+            return;
+          }
+
+          reject(new Error(`${file} exited with code ${code ?? 'unknown'}${stderr === '' ? '' : `: ${stderr}`}`));
+        });
+
+        child.stdin.end(options.stdin);
+      });
     }
   };
 }

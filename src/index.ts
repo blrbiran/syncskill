@@ -17,6 +17,7 @@ import {
   refreshStoredManifests
 } from './refresh.js';
 import { addSource, formatSourceListLines, listSources, SourceType, updateAllSources, updateSource } from './source.js';
+import { pullFromServer, pushToServers, syncServers, type PullResult, type PushResult } from './sync_engine.js';
 
 function shouldSkipAutoRefresh(command: Command): boolean {
   const commandPath: string[] = [];
@@ -32,6 +33,26 @@ function shouldSkipAutoRefresh(command: Command): boolean {
   }
 
   return ['init', 'config', 'config show', 'config set', 'refresh'].includes(commandPath.join(' '));
+}
+
+function formatPullRows(result: PullResult): string[] {
+  return [
+    ...result.pulled_skills.map((skill: string) => `${skill}\t${result.server}\tpull\tin-sync`),
+    ...result.conflicted_skills.map((skill: string) => `${skill}\t${result.server}\tconflict\tconflict`)
+  ];
+}
+
+function formatPushRows(result: PushResult): string[] {
+  return [
+    ...result.pushed_skills.map((skill: string) => `${skill}\t${result.server}\tpush\tin-sync`),
+    ...result.conflicted_skills.map((skill: string) => `${skill}\t${result.server}\tconflict\tconflict`)
+  ];
+}
+
+function formatSkillRows(action: 'pull', result: PullResult): string[];
+function formatSkillRows(action: 'push', result: PushResult): string[];
+function formatSkillRows(action: 'pull' | 'push', result: PullResult | PushResult): string[] {
+  return action === 'pull' ? formatPullRows(result as PullResult) : formatPushRows(result as PushResult);
 }
 
 export function createProgram(homeDir?: string): Command {
@@ -267,6 +288,53 @@ export function createProgram(homeDir?: string): Command {
 
       if (!resolved) {
         throw new Error(`No tracked conflict found for skill: ${skill}`);
+      }
+    });
+
+  program
+    .command('push [server]')
+    .description('Push local skill changes to one server or all configured servers')
+    .option('--all', 'Push to all configured servers')
+    .action(async (server: string | undefined, options: { all?: boolean }) => {
+      const servers = options.all || server === undefined ? undefined : [server];
+      const results = await pushToServers(resolvedHomeDir, servers);
+
+      for (const result of results) {
+        for (const line of formatSkillRows('push', result)) {
+          console.log(line);
+        }
+      }
+    });
+
+  program
+    .command('pull <server>')
+    .description('Pull remote skill changes from one server')
+    .action(async (server: string) => {
+      const result = await pullFromServer(resolvedHomeDir, server);
+
+      for (const line of formatSkillRows('pull', result)) {
+        console.log(line);
+      }
+    });
+
+  program
+    .command('sync [server]')
+    .description('Pull then push changes for one server or all configured servers')
+    .option('--all', 'Sync all configured servers')
+    .action(async (server: string | undefined, options: { all?: boolean }) => {
+      const servers = options.all || server === undefined ? undefined : [server];
+      const results = await syncServers(resolvedHomeDir, servers);
+
+      for (const result of results) {
+        for (const line of formatSkillRows('pull', result.pull)) {
+          console.log(line);
+        }
+      }
+
+      for (const result of results) {
+        for (const line of formatSkillRows('push', result.push)) {
+          console.log(line);
+        }
       }
     });
 
