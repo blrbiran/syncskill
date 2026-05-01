@@ -31,7 +31,7 @@ Typical loop:
 1. Add or edit a skill under `~/.syncskill/skills/`.
 2. Run `syncskill scan --all-agents` to register newly discovered skills.
 3. Run `syncskill link --all` or `syncskill link <skill>` to publish links into agent directories.
-4. Use `syncskill source add`, `syncskill source update`, and `syncskill source list` when part of your skill tree is materialized from local, git, or http sources. Run `syncskill source update` with no name to refresh every configured source, or pass a source name to refresh just one.
+4. Use `syncskill source add`, `syncskill source update`, and `syncskill source list` when part of your skill tree is materialized from local, git, or http sources. Run `syncskill source update` with no name to update every configured source, or pass a source name to update just one.
 
 ## Reconciliation workflow
 
@@ -49,7 +49,7 @@ Recommended flow:
 1. Run `syncskill status` to see all tracked server rows.
 2. Run `syncskill diff alpha` to focus on one server.
 3. If a skill is in conflict, run `syncskill resolve <skill> --take local` or `syncskill resolve <skill> --take remote`.
-4. Run `syncskill refresh --status alpha` when you want to refresh stored local and remote manifest state before reviewing again.
+4. Run `syncskill refresh --status alpha` when you want to refresh stored local manifest state before reviewing again. Remote refresh remains future work in the current implementation.
 
 ## Remote sync workflow
 

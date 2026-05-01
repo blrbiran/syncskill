@@ -41,6 +41,10 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('syncskill diff alpha');
     expect(usageGuide).toContain('syncskill source update');
     expect(usageGuide).toContain('syncskill source update vendor-docs');
+    expect(usageGuide).toContain('Run `syncskill source update` with no name to update every configured source, or pass a source name to update just one.');
+    expect(usageGuide).toContain('syncskill refresh --status alpha');
+    expect(usageGuide).toContain('refresh stored local manifest state before reviewing again');
+    expect(usageGuide).not.toContain('refresh stored local and remote manifest state before reviewing again');
     expect(usageGuide).toContain('syncskill sync --all');
 
     expect(designGuide).toContain('# Design Guide');

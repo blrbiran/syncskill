@@ -28,7 +28,7 @@ Owns configured source definitions, source materialization, source state trackin
 
 ### `src/transport.ts`
 
-Owns SSH and rsync transport primitives, remote receiver deployment, remote manifest exchange, and remote skill import/export fallback behavior.
+Owns SSH and rsync transport primitives, remote receiver deployment, remote manifest exchange, and receiver fallback coordination for remote skill import/export behavior. The receiver-side command implementation itself still lives in `src/receiver/sync_receiver.mjs`.
 
 ### `src/sync_engine.ts`
 
