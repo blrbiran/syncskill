@@ -10,7 +10,8 @@
 ## 实施流程
 - 对于非琐碎功能或 milestone，先写 plan doc，再开始实现。
 - plan doc 放在 `docs/superpowers/plans/YYYY-MM-DD-<topic>.md`。
-- 对已有 plan 的实现，默认使用 subagent-driven 方法按 task 推进；只有用户明确选择其他方式时才偏离。
+- 对已有 plan 的实现，默认使用 subagent-driven 方法按 task 推进。
+- 只有用户明确选择其他执行方式时，才切换出 subagent-driven 方法。
 - 除非被明确阻塞，否则连续推进，不要频繁停下来等待确认。
 
 ## Git 工作方式
