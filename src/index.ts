@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
-import { Command } from 'commander';
+import { Command, InvalidArgumentError } from 'commander';
 
+import { applyResolution, reconcileManifest } from './conflict.js';
 import { loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
 import { runConfigUi } from './config-ui.js';
 import { collectLinkStatus, linkConfiguredSkills, scanSkills, unlinkSkill } from './linker.js';
+import { loadServerManifest, saveServerManifest } from './manifest.js';
 import { initializeRepo } from './repo.js';
-import { formatDiffLines, formatStatusLines, loadTrackedManifests } from './refresh.js';
+import { formatDiffLines, formatStatusLines, listTrackedServers, loadTrackedManifests } from './refresh.js';
 
 export function createProgram(homeDir?: string): Command {
   const resolvedHomeDir = homeDir ?? process.env.HOME ?? '';
@@ -120,6 +122,47 @@ export function createProgram(homeDir?: string): Command {
 
       for (const line of formatDiffLines(manifest)) {
         console.log(line);
+      }
+    });
+
+  program
+    .command('resolve <skill>')
+    .description('Resolve one tracked conflict by choosing local or remote state')
+    .requiredOption(
+      '--take <side>',
+      'Choose which side to keep',
+      (value: string) => {
+        if (value === 'local' || value === 'remote') {
+          return value;
+        }
+
+        throw new InvalidArgumentError('Expected local or remote');
+      }
+    )
+    .action(async (skill: string, options: { take: 'local' | 'remote' }) => {
+      const servers = await listTrackedServers(resolvedHomeDir);
+      const updatedAt = new Date().toISOString();
+      let resolved = false;
+
+      for (const server of servers) {
+        const manifest = await loadServerManifest(resolvedHomeDir, server);
+        const reconciled = reconcileManifest(manifest);
+        const current = reconciled.skills[skill];
+
+        if (!current || current.direction !== 'conflict') {
+          continue;
+        }
+
+        const updatedManifest = applyResolution(reconciled, skill, options.take, updatedAt);
+        await saveServerManifest(resolvedHomeDir, updatedManifest);
+
+        const updatedSkill = updatedManifest.skills[skill];
+        console.log(`${skill}\t${server}\t${updatedSkill.direction}\t${updatedSkill.status}`);
+        resolved = true;
+      }
+
+      if (!resolved) {
+        throw new Error(`No tracked conflict found for skill: ${skill}`);
       }
     });
 
