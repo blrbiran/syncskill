@@ -6,6 +6,12 @@ import { promisify } from 'node:util';
 import { type ConfiguredServer } from './config.js';
 import { createEmptyManifest, type ServerManifest } from './manifest.js';
 
+export interface ServerProbeResult {
+  check: string;
+  ok: boolean;
+  detail: string;
+}
+
 const execFileAsync = promisify(execFile);
 const REMOTE_ROOT = '~/.syncskill';
 const REMOTE_RECEIVER = `${REMOTE_ROOT}/sync_receiver.mjs`;
@@ -80,6 +86,45 @@ function buildRsyncArgs(server: ConfiguredServer, source: string, destination: s
   ];
 
   return ['-az', '--delete', '-e', sshParts.join(' '), source, destination];
+}
+
+export async function probeServerAccess(
+  server: ConfiguredServer,
+  runtime: TransportRuntime = createTransportRuntime()
+): Promise<ServerProbeResult[]> {
+  const checks: Array<Promise<ServerProbeResult>> = [
+    runtime
+      .exec('ssh', buildSshArgs(server, ['true']))
+      .then(() => ({ check: 'transport', ok: true, detail: 'ssh ok' }))
+      .catch((error: unknown) => ({
+        check: 'transport',
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error)
+      })),
+    runtime
+      .exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'manifest']))
+      .then(() => ({ check: 'manifest', ok: true, detail: 'manifest readable' }))
+      .catch((error: unknown) => ({
+        check: 'manifest',
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error)
+      }))
+  ];
+
+  for (const [agent, remotePath] of Object.entries(server.remote_agents).sort(([left], [right]) => left.localeCompare(right))) {
+    checks.push(
+      runtime
+        .exec('ssh', buildSshArgs(server, ['test', '-d', remotePath]))
+        .then(() => ({ check: `remote_agent:${agent}`, ok: true, detail: remotePath }))
+        .catch((error: unknown) => ({
+          check: `remote_agent:${agent}`,
+          ok: false,
+          detail: error instanceof Error ? error.message : String(error)
+        }))
+    );
+  }
+
+  return Promise.all(checks);
 }
 
 export async function deployReceiver(server: ConfiguredServer, runtime: TransportRuntime): Promise<void> {

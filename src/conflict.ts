@@ -61,7 +61,7 @@ export function reconcileManifest(manifest: ServerManifest): ServerManifest {
       .map(([skill, state]) => {
         const classification = classifySkillDelta(state.local_hash, state.remote_hash, state.recorded_hash);
 
-        return [skill, { ...state, ...classification } satisfies ManifestSkillState];
+        return [skill, ({ ...state, ...classification } satisfies ManifestSkillState)];
       })
   );
 

@@ -7,6 +7,7 @@ import { loadConfig, parseConfigValue, saveConfig, setConfigValue } from './conf
 import { runConfigUi } from './config-ui.js';
 import { collectLinkStatus, linkConfiguredSkills, scanSkills, unlinkSkill } from './linker.js';
 import { loadServerManifest, saveServerManifest } from './manifest.js';
+import { formatProbeLines, formatServerListLines, formatServerShowLines, listServers, probeServer, showServer } from './server.js';
 import { initializeRepo } from './repo.js';
 import {
   autoRefreshManifests,
@@ -202,6 +203,41 @@ export function createProgram(homeDir?: string): Command {
       }
 
       await updateSource(resolvedHomeDir, name);
+    });
+
+  const serverCommand = program.command('server').description('Inspect configured remote servers');
+
+  serverCommand
+    .command('list')
+    .description('List configured remote servers')
+    .action(async () => {
+      for (const line of formatServerListLines(await listServers(resolvedHomeDir))) {
+        console.log(line);
+      }
+    });
+
+  serverCommand
+    .command('show <name>')
+    .description('Show configured details for one remote server')
+    .action(async (name: string) => {
+      for (const line of formatServerShowLines(await showServer(resolvedHomeDir, name))) {
+        console.log(line);
+      }
+    });
+
+  serverCommand
+    .command('probe <name>')
+    .description('Probe remote access for one configured server')
+    .action(async (name: string) => {
+      const results = await probeServer(resolvedHomeDir, name);
+
+      for (const line of formatProbeLines(results)) {
+        console.log(line);
+      }
+
+      if (results.some((result) => !result.ok)) {
+        throw new Error(`Server probe failed: ${name}`);
+      }
     });
 
   program
