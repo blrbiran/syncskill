@@ -8,13 +8,44 @@ import { runConfigUi } from './config-ui.js';
 import { collectLinkStatus, linkConfiguredSkills, scanSkills, unlinkSkill } from './linker.js';
 import { loadServerManifest, saveServerManifest } from './manifest.js';
 import { initializeRepo } from './repo.js';
-import { formatDiffLines, formatStatusLines, listTrackedServers, loadTrackedManifests } from './refresh.js';
+import {
+  autoRefreshManifests,
+  formatDiffLines,
+  formatStatusLines,
+  listTrackedServers,
+  loadTrackedManifests,
+  refreshStoredManifests
+} from './refresh.js';
+
+function shouldSkipAutoRefresh(command: Command): boolean {
+  const commandPath: string[] = [];
+  let current: Command | null = command;
+
+  while (current && current.parent) {
+    commandPath.unshift(current.name());
+    current = current.parent;
+
+    if (!current.parent) {
+      break;
+    }
+  }
+
+  return ['init', 'config', 'config show', 'config set', 'refresh'].includes(commandPath.join(' '));
+}
 
 export function createProgram(homeDir?: string): Command {
   const resolvedHomeDir = homeDir ?? process.env.HOME ?? '';
   const program = new Command()
     .name('syncskill')
-    .description('Multi-device AI Agent Skill sync tool');
+    .description('Multi-device AI Agent Skill sync tool')
+    .option('--no-refresh', 'Skip automatic manifest refresh before commands')
+    .hook('preAction', async (_thisCommand, actionCommand) => {
+      if (shouldSkipAutoRefresh(actionCommand)) {
+        return;
+      }
+
+      await autoRefreshManifests(resolvedHomeDir, program.opts<{ refresh: boolean }>().refresh);
+    });
 
   program
     .command('init')
@@ -97,6 +128,26 @@ export function createProgram(homeDir?: string): Command {
       }
 
       throw new Error('link requires <skill>, --all, --status, or --unlink <skill>');
+    });
+
+  program
+    .command('refresh [server]')
+    .description('Refresh tracked manifests from local and remote sources')
+    .option('--local', 'Refresh local manifest state')
+    .option('--remote', 'Refresh remote manifest state')
+    .option('--status', 'Show refreshed status rows')
+    .action(async (server: string | undefined, options: { local?: boolean; remote?: boolean; status?: boolean }) => {
+      const manifests = await refreshStoredManifests(resolvedHomeDir, {
+        local: Boolean(options.local),
+        remote: Boolean(options.remote),
+        server
+      });
+
+      if (options.status) {
+        for (const line of formatStatusLines(manifests)) {
+          console.log(line);
+        }
+      }
     });
 
   program

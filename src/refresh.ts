@@ -33,11 +33,20 @@ export async function loadTrackedManifests(homeDir: string, server?: string): Pr
   return manifests.sort((left, right) => left.server.localeCompare(right.server));
 }
 
+export function shouldRefreshLocal(options: RefreshStoredManifestOptions): boolean {
+  return options.local === true || options.remote !== true;
+}
+
+export function shouldRefreshRemote(options: RefreshStoredManifestOptions): boolean {
+  return options.remote === true;
+}
+
 export async function refreshStoredManifests(
   homeDir: string,
   options: RefreshStoredManifestOptions = {}
 ): Promise<ServerManifest[]> {
-  const refreshLocal = options.local === true || (options.local !== true && options.remote !== true);
+  const refreshLocal = shouldRefreshLocal(options);
+  const refreshRemote = shouldRefreshRemote(options);
   const updatedAt = options.now ?? new Date().toISOString();
   const servers = await resolveTargetServers(homeDir, options.server);
   const manifests: ServerManifest[] = [];
@@ -47,6 +56,10 @@ export async function refreshStoredManifests(
       ? await refreshLocalManifest(homeDir, server, updatedAt)
       : await loadServerManifest(homeDir, server);
     const reconciled = reconcileManifest(loaded);
+
+    if (refreshRemote) {
+      // Reserved for remote refresh orchestration in a future milestone.
+    }
 
     await saveServerManifest(homeDir, reconciled);
     manifests.push(reconciled);

@@ -13,7 +13,9 @@ import {
   formatStatusLines,
   listTrackedServers,
   loadTrackedManifests,
-  refreshStoredManifests
+  refreshStoredManifests,
+  shouldRefreshLocal,
+  shouldRefreshRemote
 } from '../src/refresh.js';
 
 describe('refresh orchestration', () => {
@@ -393,6 +395,18 @@ describe('refresh orchestration', () => {
     await expect(autoRefreshManifests(homeDir, false)).resolves.toBeUndefined();
     await expect(listTrackedServers(homeDir)).resolves.toEqual([]);
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('interprets local and remote refresh options consistently', () => {
+    expect(shouldRefreshLocal({ local: true })).toBe(true);
+    expect(shouldRefreshLocal({ remote: true })).toBe(false);
+    expect(shouldRefreshLocal({ local: false, remote: false })).toBe(true);
+    expect(shouldRefreshLocal({})).toBe(true);
+
+    expect(shouldRefreshRemote({})).toBe(false);
+    expect(shouldRefreshRemote({ local: true })).toBe(false);
+    expect(shouldRefreshRemote({ remote: true })).toBe(true);
+    expect(shouldRefreshRemote({ local: true, remote: true })).toBe(true);
   });
 
   it('formats status and diff lines from reconciled manifest data', () => {
