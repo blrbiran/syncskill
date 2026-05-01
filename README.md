@@ -49,7 +49,7 @@ You can also invoke the built CLI as `syncskill` after building or wiring it int
 ### Sources
 
 - `syncskill source add <name> --type <local|git|http> --url <url> --store <store> [--ref <ref>]`
-- `syncskill source update [name]`
+- `syncskill source update [name]` (omit `name` to update all configured sources)
 - `syncskill source list`
 
 ### Remote sync

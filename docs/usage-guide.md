@@ -22,7 +22,8 @@ syncskill scan --all-agents
 syncskill link --status
 syncskill link welcome
 syncskill source list
-syncskill source update --all
+syncskill source update
+syncskill source update vendor-docs
 ```
 
 Typical loop:
@@ -30,7 +31,7 @@ Typical loop:
 1. Add or edit a skill under `~/.syncskill/skills/`.
 2. Run `syncskill scan --all-agents` to register newly discovered skills.
 3. Run `syncskill link --all` or `syncskill link <skill>` to publish links into agent directories.
-4. Use `syncskill source add`, `syncskill source update`, and `syncskill source list` when part of your skill tree is materialized from local, git, or http sources.
+4. Use `syncskill source add`, `syncskill source update`, and `syncskill source list` when part of your skill tree is materialized from local, git, or http sources. Run `syncskill source update` with no name to refresh every configured source, or pass a source name to refresh just one.
 
 ## Reconciliation workflow
 

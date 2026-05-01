@@ -39,6 +39,8 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('syncskill init');
     expect(usageGuide).toContain('syncskill status');
     expect(usageGuide).toContain('syncskill diff alpha');
+    expect(usageGuide).toContain('syncskill source update');
+    expect(usageGuide).toContain('syncskill source update vendor-docs');
     expect(usageGuide).toContain('syncskill sync --all');
 
     expect(designGuide).toContain('# Design Guide');
