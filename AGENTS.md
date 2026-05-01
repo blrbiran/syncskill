@@ -32,8 +32,9 @@
 - 新增测试前，先明确其所属层级。
 - 默认必须通过 `unit test`。
 - 可构建改动必须通过 `npm run build`。
-- `integration test` 和 `end2end test` 不属于默认 gate。
-- 只有两种情况才运行 `integration test` 或 `end2end test`：用户明确要求；或当前 plan / 验收步骤明确要求。
+- `integration test` 不属于每个 task 的默认 gate，但每个 milestone 合入 `main` 前必须通过。
+- `end2end test` 不属于默认 gate。
+- 只有两种情况才运行 `end2end test`：用户明确要求；或当前 plan / 验收步骤明确要求。
 
 ## 输出与收尾
 - 汇报时说明改了什么、验证了什么、下一步是什么。
