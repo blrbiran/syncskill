@@ -7,8 +7,8 @@ import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { saveConfig } from '../src/config.js';
-import { listSources, loadSourceState, materializeSource, updateSource } from '../src/source.js';
+import { saveConfig } from '../../src/config.js';
+import { listSources, loadSourceState, materializeSource, updateSource } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
 

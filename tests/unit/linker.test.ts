@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { saveConfig } from '../src/config.js';
-import { ensureLinkedDirectory, linkConfiguredSkills, unlinkSkill } from '../src/linker.js';
+import { saveConfig } from '../../src/config.js';
+import { ensureLinkedDirectory, linkConfiguredSkills, unlinkSkill } from '../../src/linker.js';
 
 describe('linker', () => {
   const tempDirs: string[] = [];
@@ -121,7 +121,7 @@ describe('linker', () => {
       };
     });
 
-    const { ensureLinkedDirectory: mockedEnsureLinkedDirectory } = await import('../src/linker.js');
+    const { ensureLinkedDirectory: mockedEnsureLinkedDirectory } = await import('../../src/linker.js');
 
     const state = await mockedEnsureLinkedDirectory(sourceDir, targetDir);
 

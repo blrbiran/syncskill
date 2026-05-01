@@ -4,11 +4,11 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { saveConfig } from '../src/config.js';
-import { getSyncPaths } from '../src/config.js';
-import { loadServerManifest, saveServerManifest } from '../src/manifest.js';
-import * as refreshModule from '../src/refresh.js';
-import { createProgram } from '../src/index.js';
+import { saveConfig } from '../../src/config.js';
+import { getSyncPaths } from '../../src/config.js';
+import { loadServerManifest, saveServerManifest } from '../../src/manifest.js';
+import * as refreshModule from '../../src/refresh.js';
+import { createProgram } from '../../src/index.js';
 
 describe('reconciliation CLI', () => {
   const tempDirs: string[] = [];

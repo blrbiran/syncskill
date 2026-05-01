@@ -6,9 +6,9 @@ import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createDefaultConfig, loadConfig, saveConfig } from '../src/config.js';
-import { createProgram } from '../src/index.js';
-import { loadSourceState } from '../src/source.js';
+import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
+import { createProgram } from '../../src/index.js';
+import { loadSourceState } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
 

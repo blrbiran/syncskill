@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createDefaultConfig, loadConfig, saveConfig } from '../src/config.js';
-import { scanSkills } from '../src/linker.js';
+import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
+import { scanSkills } from '../../src/linker.js';
 
 describe('scanSkills', () => {
   const tempDirs: string[] = [];

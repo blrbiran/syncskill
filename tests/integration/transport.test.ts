@@ -5,10 +5,10 @@ import { pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { saveConfig } from '../src/config.js';
-import { createEmptyManifest } from '../src/manifest.js';
+import { saveConfig } from '../../src/config.js';
+import { createEmptyManifest } from '../../src/manifest.js';
 
-const receiverPath = new URL('../src/receiver/sync_receiver.mjs', import.meta.url).pathname;
+const receiverPath = new URL('../../src/receiver/sync_receiver.mjs', import.meta.url).pathname;
 
 async function importReceiverModule() {
   return import(`${pathToFileURL(receiverPath).href}?t=${Date.now()}-${Math.random()}`);
@@ -54,7 +54,7 @@ import {
   pushManifest,
   pushSkillDirectory,
   type TransportRuntime
-} from '../src/transport.js';
+} from '../../src/transport.js';
 
 function createRuntime(stdoutByCommand: Record<string, string> = {}): TransportRuntime & {
   calls: Array<{ file: string; args: string[]; stdin?: string }>;

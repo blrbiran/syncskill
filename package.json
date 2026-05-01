@@ -9,7 +9,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx src/index.ts",
-    "test": "vitest run",
+    "test": "vitest run tests/unit",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:end2end": "vitest run tests/end2end",
     "test:watch": "vitest"
   },
   "dependencies": {

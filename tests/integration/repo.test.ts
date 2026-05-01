@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { loadConfig } from '../src/config.js';
-import { initializeRepo } from '../src/repo.js';
+import { loadConfig } from '../../src/config.js';
+import { initializeRepo } from '../../src/repo.js';
 
 describe('initializeRepo', () => {
   const tempDirs: string[] = [];

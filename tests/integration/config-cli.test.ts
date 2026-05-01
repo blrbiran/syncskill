@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createDefaultConfig, loadConfig, saveConfig } from '../src/config.js';
-import { createProgram } from '../src/index.js';
+import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
+import { createProgram } from '../../src/index.js';
 
 describe('config CLI', () => {
   it('init, scan, and link --status work together for one local skill', async () => {

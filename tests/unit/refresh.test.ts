@@ -4,9 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { saveConfig } from '../src/config.js';
-import { getSyncPaths } from '../src/config.js';
-import { saveServerManifest } from '../src/manifest.js';
+import { saveConfig } from '../../src/config.js';
+import { getSyncPaths } from '../../src/config.js';
+import { saveServerManifest } from '../../src/manifest.js';
 import {
   autoRefreshManifests,
   formatDiffLines,
@@ -16,7 +16,7 @@ import {
   refreshStoredManifests,
   shouldRefreshLocal,
   shouldRefreshRemote
-} from '../src/refresh.js';
+} from '../../src/refresh.js';
 
 describe('refresh orchestration', () => {
   const tempDirs: string[] = [];

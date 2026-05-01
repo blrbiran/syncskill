@@ -4,9 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createDefaultConfig, loadConfig, saveConfig } from '../src/config.js';
-import type { PromptApi } from '../src/config-ui.js';
-import { runConfigUi } from '../src/config-ui.js';
+import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
+import type { PromptApi } from '../../src/config-ui.js';
+import { runConfigUi } from '../../src/config-ui.js';
 
 class PromptStub implements PromptApi {
   constructor(private readonly answers: unknown[]) {}

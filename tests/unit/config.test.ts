@@ -14,7 +14,7 @@ import {
   loadConfig,
   saveConfig,
   validateConfig
-} from '../src/config.js';
+} from '../../src/config.js';
 
 describe('config path helpers', () => {
   it('returns the sync directory for a home directory', () => {

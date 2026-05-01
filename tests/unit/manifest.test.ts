@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { getSyncPaths } from '../src/config.js';
+import { getSyncPaths } from '../../src/config.js';
 import {
   applyRemoteSnapshot,
   buildLocalSkillHashes,
@@ -18,7 +18,7 @@ import {
   refreshLocalManifest,
   saveManifestHistory,
   saveServerManifest
-} from '../src/manifest.js';
+} from '../../src/manifest.js';
 
 describe('manifest hashing', () => {
   const tempDirs: string[] = [];
