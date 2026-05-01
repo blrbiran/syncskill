@@ -1,10 +1,52 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { saveConfig } from '../src/config.js';
 import { createEmptyManifest } from '../src/manifest.js';
+
+const receiverPath = new URL('../src/receiver/sync_receiver.mjs', import.meta.url).pathname;
+
+async function importReceiverModule() {
+  return import(`${pathToFileURL(receiverPath).href}?t=${Date.now()}-${Math.random()}`);
+}
+
+async function withMockedHomeDir(homeDir: string, run: () => Promise<void>) {
+  const originalHome = process.env.HOME;
+  process.env.HOME = homeDir;
+
+  try {
+    await run();
+  } finally {
+    if (originalHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = originalHome;
+    }
+  }
+}
+
+async function runReceiverApply(homeDir: string) {
+  await withMockedHomeDir(homeDir, async () => {
+    const argv = process.argv.slice();
+    process.argv = ['node', receiverPath, 'apply'];
+
+    try {
+      await importReceiverModule();
+    } finally {
+      process.argv = argv;
+    }
+  });
+}
+
+function createReceiverManifest(updatedAt: string) {
+  return createEmptyManifest('remote', updatedAt);
+}
+
+
 import {
   deployReceiver,
   fetchRemoteManifest,
@@ -278,5 +320,52 @@ describe('transport', () => {
     ).rejects.toBe(transferError);
 
     expect(runtime.exec).toHaveBeenCalledTimes(1);
+  });
+
+  it('receiver apply removes stale links that are no longer in the manifest', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    const syncRoot = join(homeDir, '.syncskill');
+    const skillsDir = join(syncRoot, 'skills');
+    const receiverConfigPath = join(syncRoot, 'receiver_config.json');
+    const manifestPath = join(syncRoot, 'manifest.json');
+    const agentDir = join(homeDir, 'agent-skills');
+
+    await mkdir(join(skillsDir, 'welcome'), { recursive: true });
+    await writeFile(join(skillsDir, 'welcome', 'SKILL.md'), '# welcome\n', 'utf8');
+    await mkdir(join(skillsDir, 'stale'), { recursive: true });
+    await writeFile(join(skillsDir, 'stale', 'SKILL.md'), '# stale\n', 'utf8');
+    await mkdir(agentDir, { recursive: true });
+    await symlink(join(skillsDir, 'stale'), join(agentDir, 'stale'), 'dir');
+
+    const manifest = createReceiverManifest('2026-05-01T00:00:00.000Z');
+    manifest.skills.welcome = {
+      local_hash: null,
+      remote_hash: 'placeholder',
+      recorded_hash: 'placeholder',
+      direction: 'skip',
+      status: 'in-sync'
+    };
+
+    await writeFile(receiverConfigPath, `${JSON.stringify({ remote_agents: { claude: agentDir } }, null, 2)}\n`, 'utf8');
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+    await runReceiverApply(homeDir);
+
+    await expect(readFile(join(agentDir, 'welcome', 'SKILL.md'), 'utf8')).resolves.toBe('# welcome\n');
+    await expect(readFile(join(agentDir, 'stale', 'SKILL.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

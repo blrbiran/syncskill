@@ -76,7 +76,7 @@ export async function pushToServers(homeDir: string, servers?: string[], options
       await pushSkillDirectory(server, join(getSkillsDir(homeDir), skill), skill, runtime);
     }
 
-    const finalizedManifest = finalizePushedSkills(manifest, pushedSkills, updated.updatedAt);
+    const finalizedManifest = finalizeDeletedSkills(finalizePushedSkills(manifest, pushedSkills, updated.updatedAt), pushedSkills, updated.updatedAt);
     await pushManifest(server, finalizedManifest, runtime);
     await persistManifestState(homeDir, updated.previousManifest, finalizedManifest, updated.updatedAt);
 
@@ -298,4 +298,27 @@ function resolveTargetServers(
 
 function getSkillsDir(homeDir: string): string {
   return join(homeDir, '.syncskill', 'skills');
+}
+
+function finalizeDeletedSkills(manifest: ServerManifest, skills: string[], updatedAt: string): ServerManifest {
+  return reconcileManifest({
+    ...manifest,
+    updated_at: updatedAt,
+    skills: Object.fromEntries(
+      Object.entries(manifest.skills).map(([skill, state]) => {
+        if (!skills.includes(skill) || state.local_hash !== null || state.recorded_hash !== null) {
+          return [skill, state];
+        }
+
+        return [
+          skill,
+          {
+            ...state,
+            remote_hash: null,
+            recorded_hash: null
+          }
+        ];
+      })
+    )
+  });
 }

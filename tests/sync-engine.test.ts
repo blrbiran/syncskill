@@ -174,6 +174,73 @@ describe('sync engine orchestration', () => {
     expect(manifest.skills.welcome.recorded_hash).toBe(manifest.skills.welcome.remote_hash);
   });
 
+  it('pushToServers deletes remote-only leftovers without uploading missing local directories', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        skills: {
+          welcome: {
+            local_hash: null,
+            remote_hash: 'remote-version',
+            recorded_hash: 'remote-version',
+            direction: 'skip',
+            status: 'in-sync'
+          }
+        }
+      })
+    });
+
+    const [result] = await pushToServers(homeDir, ['alpha'], {
+      runtime,
+      now: '2026-05-01T02:30:00.000Z'
+    });
+
+    expect(result).toMatchObject({
+      server: 'alpha',
+      pushed_skills: [],
+      conflicted_skills: []
+    });
+    expect(runtime.calls.some((call) => call.file === 'rsync')).toBe(false);
+    expect(runtime.calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: 'ssh',
+          args: expect.arrayContaining(['alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'write-manifest'])
+        })
+      ])
+    );
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.includes('rm'))).toBe(false);
+
+    const manifest = await loadServerManifest(homeDir, 'alpha');
+    expect(manifest.skills.welcome.local_hash).toBeNull();
+    expect(manifest.skills.welcome.remote_hash).toBe('remote-version');
+    expect(manifest.skills.welcome.recorded_hash).toBeNull();
+    expect(manifest.skills.welcome.direction).toBe('pull');
+    expect(manifest.skills.welcome.status).toBe('new');
+  });
+
   it('pushToServers leaves conflicts untouched for manual policy', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
     tempDirs.push(homeDir);

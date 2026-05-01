@@ -117,6 +117,7 @@ async function applyLinks() {
   const manifest = await readManifest();
   const config = await readJson(configFile, { remote_agents: {} });
   const skillNames = Object.keys(manifest.skills).sort();
+  const expectedSkills = new Set(skillNames);
 
   for (const agentDir of Object.values(config.remote_agents ?? {})) {
     if (typeof agentDir !== 'string') {
@@ -125,6 +126,12 @@ async function applyLinks() {
 
     const resolvedAgentDir = resolve(agentDir.replace(/^~(?=\/|$)/, homedir()));
     await mkdir(resolvedAgentDir, { recursive: true });
+
+    for (const entry of await readdir(resolvedAgentDir, { withFileTypes: true })) {
+      if (!expectedSkills.has(entry.name)) {
+        await rm(join(resolvedAgentDir, entry.name), { recursive: true, force: true });
+      }
+    }
 
     for (const skill of skillNames) {
       const sourceDir = join(skillsDir, skill);
@@ -144,15 +151,49 @@ async function applyLinks() {
     }
   }
 
+  for (const entry of await readdir(skillsDir, { withFileTypes: true }).catch(() => [])) {
+    if (!expectedSkills.has(entry.name)) {
+      await rm(join(skillsDir, entry.name), { recursive: true, force: true });
+    }
+  }
+
+  for (const skill of skillNames) {
+    await mkdir(join(skillsDir, skill), { recursive: true });
+  }
+
+  await Promise.all(
+    skillNames
+      .filter((skill) => manifest.skills[skill]?.remote_hash === null)
+      .map((skill) => rm(join(skillsDir, skill), { recursive: true, force: true }))
+  );
+
+  const existingSkillNames = (await readdir(skillsDir, { withFileTypes: true }).catch(() => []))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+
+  const nextSkillNames = skillNames.filter((skill) => existingSkillNames.includes(skill));
+
+  const nextManifestSkills = Object.fromEntries(
+    nextSkillNames.map((skill) => [skill, manifest.skills[skill]])
+  );
+
   const nextManifest = {
     ...manifest,
+    skills: nextManifestSkills
+  };
+
+  const finalizedSkillNames = Object.keys(nextManifest.skills).sort();
+
+  const finalizedManifest = {
+    ...nextManifest,
     updated_at: new Date().toISOString(),
     skills: Object.fromEntries(
       await Promise.all(
-        skillNames.map(async (skill) => {
+        finalizedSkillNames.map(async (skill) => {
           const sourceDir = join(skillsDir, skill);
           const remoteHash = await hashSkillDirectory(sourceDir);
-          const previous = manifest.skills[skill] ?? {};
+          const previous = nextManifest.skills[skill] ?? {};
 
           return [
             skill,
@@ -169,8 +210,8 @@ async function applyLinks() {
     )
   };
 
-  await writeFile(manifestFile, `${JSON.stringify(nextManifest, null, 2)}\n`, 'utf8');
-  process.stdout.write(`${JSON.stringify(nextManifest)}\n`);
+  await writeFile(manifestFile, `${JSON.stringify(finalizedManifest, null, 2)}\n`, 'utf8');
+  process.stdout.write(`${JSON.stringify(finalizedManifest)}\n`);
 }
 
 const [command, arg] = process.argv.slice(2);
