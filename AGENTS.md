@@ -10,7 +10,7 @@
 ## 实施流程
 - 对于非琐碎功能或 milestone，先写 plan doc，再开始实现。
 - plan doc 放在 `docs/superpowers/plans/YYYY-MM-DD-<topic>.md`。
-- 实现时优先按 task 推进；适合拆分的工作优先使用 subagent。
+- 对已有 plan 的实现，默认使用 subagent-driven 方法按 task 推进；只有用户明确选择其他方式时才偏离。
 - 除非被明确阻塞，否则连续推进，不要频繁停下来等待确认。
 
 ## Git 工作方式
@@ -27,12 +27,12 @@
 - 保持实现安全，避免引入命令注入、路径穿越、XSS、SQL 注入等问题。
 
 ## 验证要求
-- 测试按三层组织：`unit test`、`integration test`、`end2end test`。
-- 默认必须通过的是 `unit test`；`integration test` 与 `end2end test` 按需求单独运行和验收。
-- 完成改动后，至少运行与改动直接相关的测试。
-- 可构建的改动在结束前运行 `npm run build`。
-- 如果是 CLI 或端到端流程改动，优先补最小回归测试覆盖主路径。
-- 新增测试时优先明确其所属层级，避免把高成本场景混入默认 gate。
+- 测试目录按 `tests/unit`、`tests/integration`、`tests/end2end` 三层组织。
+- 新增测试前，先明确其所属层级。
+- 默认必须通过 `unit test`。
+- 可构建改动必须通过 `npm run build`。
+- `integration test` 和 `end2end test` 不属于默认 gate。
+- 只有两种情况才运行 `integration test` 或 `end2end test`：用户明确要求；或当前 plan / 验收步骤明确要求。
 
 ## 输出与收尾
 - 汇报时说明改了什么、验证了什么、下一步是什么。
