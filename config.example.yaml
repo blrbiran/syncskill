@@ -1,6 +1,17 @@
 version: 1
 conflict_resolution: manual
-agents: {}
-links: {}
-servers: {}
-sources: {}
+agents:
+  claude: ~/.claude/skills
+links:
+  welcome:
+    - claude
+servers:
+  alpha:
+    host: alpha.example.com
+    remote_agents:
+      claude: ~/.claude/skills
+sources:
+  docs:
+    type: git
+    url: https://example.com/skills.git
+    store: vendor/docs

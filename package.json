@@ -1,7 +1,7 @@
 {
   "name": "syncskill",
   "version": "0.1.0",
-  "private": true,
+  "description": "Multi-device AI Agent Skill sync tool",
   "type": "module",
   "bin": {
     "syncskill": "dist/index.js"
