@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, readdir, readFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import { getSyncPaths } from './config.js';
@@ -29,6 +29,38 @@ export async function hashSkillDirectory(skillDir: string): Promise<string> {
   return hash.digest('hex');
 }
 
+export type ManifestDirection = 'push' | 'pull' | 'skip' | 'conflict';
+export type ManifestStatus = 'in-sync' | 'local-changed' | 'remote-changed' | 'conflict' | 'new';
+
+export interface ManifestSkillState {
+  local_hash: string | null;
+  remote_hash: string | null;
+  recorded_hash: string | null;
+  direction: ManifestDirection;
+  status: ManifestStatus;
+}
+
+export interface ServerManifest {
+  version: 1;
+  server: string;
+  updated_at: string;
+  skills: Record<string, ManifestSkillState>;
+}
+
+export interface ManifestHistoryEntry {
+  skill: string;
+  server: string;
+  old_hash: string | null;
+  new_hash: string | null;
+  direction: 'local' | 'remote';
+  updated_at: string;
+}
+
+export interface ManifestHistory {
+  version: 1;
+  entries: ManifestHistoryEntry[];
+}
+
 export async function buildLocalSkillHashes(homeDir: string): Promise<Record<string, string>> {
   const { skillsDir } = getSyncPaths(homeDir);
   const skillNames = await listLocalSkillNames(homeDir);
@@ -37,6 +69,176 @@ export async function buildLocalSkillHashes(homeDir: string): Promise<Record<str
   );
 
   return Object.fromEntries(entries);
+}
+
+export function createEmptyManifest(server: string, updatedAt = nowIso()): ServerManifest {
+  return {
+    version: 1,
+    server,
+    updated_at: updatedAt,
+    skills: {}
+  };
+}
+
+export async function loadServerManifest(homeDir: string, server: string): Promise<ServerManifest> {
+  const { manifestsDir } = getSyncPaths(homeDir);
+  const manifestFile = join(manifestsDir, `${server}.json`);
+
+  try {
+    const raw = JSON.parse(await readFile(manifestFile, 'utf8')) as Partial<ServerManifest>;
+
+    return {
+      version: 1,
+      server,
+      updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : nowIso(),
+      skills: Object.fromEntries(
+        Object.entries(raw.skills ?? {}).map(([skill, state]) => [skill, normalizeSkillState(state)])
+      )
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return createEmptyManifest(server);
+    }
+
+    throw error;
+  }
+}
+
+export async function saveServerManifest(homeDir: string, manifest: ServerManifest): Promise<void> {
+  const { manifestsDir } = getSyncPaths(homeDir);
+  await mkdir(manifestsDir, { recursive: true });
+  await writeFile(join(manifestsDir, `${manifest.server}.json`), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+}
+
+export async function loadManifestHistory(homeDir: string): Promise<ManifestHistory> {
+  const { historyFile } = getSyncPaths(homeDir);
+
+  try {
+    const raw = JSON.parse(await readFile(historyFile, 'utf8')) as Partial<ManifestHistory>;
+
+    return {
+      version: 1,
+      entries: Array.isArray(raw.entries) ? raw.entries.flatMap(normalizeHistoryEntry) : []
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { version: 1, entries: [] };
+    }
+
+    throw error;
+  }
+}
+
+export async function saveManifestHistory(homeDir: string, history: ManifestHistory): Promise<void> {
+  const { historyFile, syncDir } = getSyncPaths(homeDir);
+  await mkdir(syncDir, { recursive: true });
+  await writeFile(historyFile, `${JSON.stringify(history, null, 2)}\n`, 'utf8');
+}
+
+export async function refreshLocalManifest(
+  homeDir: string,
+  server: string,
+  updatedAt = nowIso()
+): Promise<ServerManifest> {
+  const manifest = await loadServerManifest(homeDir, server);
+  const history = await loadManifestHistory(homeDir);
+  const localHashes = await buildLocalSkillHashes(homeDir);
+  const skillNames = [...new Set([...Object.keys(manifest.skills), ...Object.keys(localHashes)])].sort();
+  const nextSkills: Record<string, ManifestSkillState> = {};
+
+  for (const skill of skillNames) {
+    const previous = manifest.skills[skill] ?? createEmptySkillState();
+    const nextLocalHash = localHashes[skill] ?? null;
+
+    if (previous.local_hash !== null && previous.local_hash !== nextLocalHash) {
+      history.entries.push({
+        skill,
+        server: 'local',
+        old_hash: previous.local_hash,
+        new_hash: nextLocalHash,
+        direction: 'local',
+        updated_at: updatedAt
+      });
+    }
+
+    nextSkills[skill] = {
+      ...previous,
+      local_hash: nextLocalHash
+    };
+  }
+
+  const nextManifest: ServerManifest = {
+    ...manifest,
+    updated_at: updatedAt,
+    skills: nextSkills
+  };
+
+  await saveServerManifest(homeDir, nextManifest);
+  await saveManifestHistory(homeDir, history);
+
+  return nextManifest;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function createEmptySkillState(): ManifestSkillState {
+  return {
+    local_hash: null,
+    remote_hash: null,
+    recorded_hash: null,
+    direction: 'skip',
+    status: 'in-sync'
+  };
+}
+
+function normalizeSkillState(value: unknown): ManifestSkillState {
+  const state = (value ?? {}) as Partial<ManifestSkillState>;
+
+  return {
+    local_hash: typeof state.local_hash === 'string' ? state.local_hash : null,
+    remote_hash: typeof state.remote_hash === 'string' ? state.remote_hash : null,
+    recorded_hash: typeof state.recorded_hash === 'string' ? state.recorded_hash : null,
+    direction: state.direction === 'push' || state.direction === 'pull' || state.direction === 'conflict' ? state.direction : 'skip',
+    status:
+      state.status === 'local-changed' ||
+      state.status === 'remote-changed' ||
+      state.status === 'conflict' ||
+      state.status === 'new'
+        ? state.status
+        : 'in-sync'
+  };
+}
+
+function normalizeHistoryEntry(value: unknown): ManifestHistoryEntry[] {
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const direction = value.direction === 'local' || value.direction === 'remote' ? value.direction : null;
+  const skill = typeof value.skill === 'string' ? value.skill : null;
+  const server = typeof value.server === 'string' ? value.server : null;
+  const updatedAt = typeof value.updated_at === 'string' ? value.updated_at : null;
+
+  if (direction === null || skill === null || server === null || updatedAt === null) {
+    return [];
+  }
+
+  return [
+    {
+      skill,
+      server,
+      old_hash: typeof value.old_hash === 'string' ? value.old_hash : null,
+      new_hash: typeof value.new_hash === 'string' ? value.new_hash : null,
+      direction,
+      updated_at: updatedAt
+    }
+  ];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 interface FileEntry {
