@@ -6,6 +6,7 @@ import { loadConfig, parseConfigValue, saveConfig, setConfigValue } from './conf
 import { runConfigUi } from './config-ui.js';
 import { collectLinkStatus, linkConfiguredSkills, scanSkills, unlinkSkill } from './linker.js';
 import { initializeRepo } from './repo.js';
+import { formatDiffLines, formatStatusLines, loadTrackedManifests } from './refresh.js';
 
 export function createProgram(homeDir?: string): Command {
   const resolvedHomeDir = homeDir ?? process.env.HOME ?? '';
@@ -94,6 +95,32 @@ export function createProgram(homeDir?: string): Command {
       }
 
       throw new Error('link requires <skill>, --all, --status, or --unlink <skill>');
+    });
+
+  program
+    .command('status')
+    .description('Show reconciliation status for all tracked manifests')
+    .action(async () => {
+      const manifests = await loadTrackedManifests(resolvedHomeDir);
+
+      for (const line of formatStatusLines(manifests)) {
+        console.log(line);
+      }
+    });
+
+  program
+    .command('diff <server>')
+    .description('Show pending reconciliation rows for one server')
+    .action(async (server: string) => {
+      const [manifest] = await loadTrackedManifests(resolvedHomeDir, server);
+
+      if (!manifest) {
+        return;
+      }
+
+      for (const line of formatDiffLines(manifest)) {
+        console.log(line);
+      }
     });
 
   return program;
