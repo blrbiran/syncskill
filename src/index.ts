@@ -4,7 +4,7 @@ import { Command, InvalidArgumentError } from 'commander';
 
 import { applyResolution, reconcileManifest } from './conflict.js';
 import { loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
-import { runConfigUi } from './config-ui.js';
+import { createPromptApi, runConfigUi } from './config-ui.js';
 import { collectLinkStatus, linkConfiguredSkills, scanSkills, unlinkSkill } from './linker.js';
 import { loadServerManifest, saveServerManifest } from './manifest.js';
 import { formatProbeLines, formatServerListLines, formatServerShowLines, listServers, probeServer, showServer } from './server.js';
@@ -33,7 +33,17 @@ function shouldSkipAutoRefresh(command: Command): boolean {
     }
   }
 
-  return ['init', 'config', 'config show', 'config set', 'refresh'].includes(commandPath.join(' '));
+  const skipCommands = [
+    'init',
+    'config',
+    'config show',
+    'config set',
+    'config link',
+    'config server',
+    'config remote',
+    'refresh'
+  ];
+  return skipCommands.includes(commandPath.join(' '));
 }
 
 function formatPullRows(result: PullResult): string[] {
@@ -102,6 +112,27 @@ export function createProgram(homeDir?: string): Command {
       const parsed = parseConfigValue(value);
       const next = setConfigValue(current, key, parsed);
       await saveConfig(next, homeDir);
+    });
+
+  configCommand
+    .command('link')
+    .description('Edit skill → agent links (matrix editor)')
+    .action(async () => {
+      await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'link' });
+    });
+
+  configCommand
+    .command('server')
+    .description('Manage remote servers')
+    .action(async () => {
+      await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'server' });
+    });
+
+  configCommand
+    .command('remote')
+    .description('Edit skill → server sync mapping (matrix editor)')
+    .action(async () => {
+      await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'remote' });
     });
 
   program
