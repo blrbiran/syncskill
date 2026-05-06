@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
 import type { PromptApi } from '../../src/config-ui.js';
-import { runConfigUi, safeSelect, applyMatrixToLinks, editServers } from '../../src/config-ui.js';
+import { runConfigUi, safeSelect, applyMatrixToLinks, editServers, applyMatrixToRemote } from '../../src/config-ui.js';
 import { ExitPromptError } from '@inquirer/core';
 import type { SyncSkillConfig } from '../../src/config.js';
 
@@ -321,5 +321,69 @@ describe('editServers', () => {
     await editServers(config, prompts);
 
     expect(config.servers['old-server']).toBeUndefined();
+  });
+});
+
+describe('applyMatrixToRemote', () => {
+  it('updates server skills.include from matrix selection', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '~/.claude/skills' },
+      links: { 'skill-a': ['*'], 'skill-b': ['*'] },
+      servers: {
+        server1: { host: 'a.com', remote_agents: {} },
+        server2: { host: 'b.com', remote_agents: {} }
+      },
+      sources: {}
+    };
+
+    applyMatrixToRemote(config, {
+      cancelled: false,
+      selected: { 'skill-a': ['server1', 'server2'], 'skill-b': ['server1'] }
+    });
+
+    expect((config.servers.server1 as Record<string, unknown>).skills).toEqual({ include: ['skill-a', 'skill-b'] });
+    expect((config.servers.server2 as Record<string, unknown>).skills).toEqual({ include: ['skill-a'] });
+  });
+
+  it('removes skills from server when no skills selected', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: {},
+      servers: {
+        server1: { host: 'a.com', remote_agents: {}, skills: { include: ['old-skill'] } }
+      },
+      sources: {}
+    };
+
+    applyMatrixToRemote(config, {
+      cancelled: false,
+      selected: {}
+    });
+
+    expect((config.servers.server1 as Record<string, unknown>).skills).toBeUndefined();
+  });
+
+  it('does not modify config when cancelled', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: {},
+      servers: {
+        server1: { host: 'a.com', remote_agents: {}, skills: { include: ['existing'] } }
+      },
+      sources: {}
+    };
+
+    applyMatrixToRemote(config, {
+      cancelled: true,
+      selected: {}
+    });
+
+    expect((config.servers.server1 as Record<string, unknown>).skills).toEqual({ include: ['existing'] });
   });
 });

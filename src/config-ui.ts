@@ -318,6 +318,72 @@ export async function editServers(config: SyncSkillConfig, prompts: PromptApi): 
   }
 }
 
+export function applyMatrixToRemote(config: SyncSkillConfig, result: MatrixEditorResult): void {
+  if (result.cancelled) {
+    return;
+  }
+
+  const serverSkills: Record<string, string[]> = {};
+
+  for (const [skill, servers] of Object.entries(result.selected)) {
+    for (const server of servers) {
+      if (!serverSkills[server]) {
+        serverSkills[server] = [];
+      }
+      serverSkills[server].push(skill);
+    }
+  }
+
+  for (const serverName of Object.keys(config.servers)) {
+    const server = config.servers[serverName] as Record<string, unknown>;
+    const skills = serverSkills[serverName]?.sort() ?? [];
+
+    if (skills.length > 0) {
+      server.skills = { include: skills };
+    } else {
+      delete server.skills;
+    }
+  }
+}
+
+export async function editRemoteMatrix(config: SyncSkillConfig, homeDir: string): Promise<MatrixEditorResult> {
+  const skills = await listLocalSkills(homeDir);
+  const servers = Object.keys(config.servers).sort();
+
+  const selected: Record<string, string[]> = {};
+
+  for (const skill of skills) {
+    selected[skill] = [];
+    for (const serverName of servers) {
+      const server = config.servers[serverName] as Record<string, unknown>;
+      const serverSkills = server.skills as { include?: string[] } | undefined;
+      if (serverSkills?.include?.includes(skill)) {
+        selected[skill].push(serverName);
+      }
+    }
+  }
+
+  const matrixEditor = createMatrixEditor();
+  return matrixEditor({
+    title: 'Skills → Server Sync Mapping',
+    rows: skills,
+    columns: servers,
+    selected
+  });
+}
+
+export async function editRemote(config: SyncSkillConfig, homeDir: string): Promise<void> {
+  const servers = Object.keys(config.servers);
+
+  if (servers.length === 0) {
+    console.log('No servers configured. Add servers first with "config server".');
+    return;
+  }
+
+  const result = await editRemoteMatrix(config, homeDir);
+  applyMatrixToRemote(config, result);
+}
+
 export async function runConfigUi(homeDir: string, prompts: PromptApi = createPromptApi()): Promise<void> {
   const config = await loadConfig(homeDir);
 
