@@ -408,8 +408,20 @@ export function createProgram(homeDir?: string): Command {
   return program;
 }
 
+import { fileURLToPath } from 'node:url';
+import { realpathSync } from 'node:fs';
+
 const entryArg = process.argv[1];
 
-if (typeof entryArg === 'string' && import.meta.url.endsWith(entryArg)) {
-  createProgram().parse(process.argv);
+if (typeof entryArg === 'string') {
+  try {
+    const thisFile = fileURLToPath(import.meta.url);
+    const entryFile = realpathSync(entryArg);
+
+    if (thisFile === entryFile) {
+      createProgram().parse(process.argv);
+    }
+  } catch {
+    // Ignore errors from realpath (e.g., file not found)
+  }
 }

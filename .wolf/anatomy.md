@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-06T15:43:45.840Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-06T15:52:26.158Z
 > Files: 68 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -52,7 +52,7 @@
 - `config-ui.ts` — Exports PromptApi, createPromptApi, SafeSelectResult, safeSelect + 11 more (~3952 tok)
 - `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 11 more (~1842 tok)
 - `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 3 more (~926 tok)
-- `index.ts` — Exports createProgram (~3899 tok)
+- `index.ts` — Exports createProgram (~3976 tok)
 - `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, listLocalSkills + 5 more (~1183 tok)
 - `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3315 tok)
 - `matrix-editor.ts` — Exports MatrixEditorConfig, MatrixEditorResult, renderMatrixLine, createMatrixEditor (~1502 tok)
