@@ -6,7 +6,7 @@
 
 ## 1. 概述
 
-`syncskill` 核心用途：管理多 AI Agent（Claude/Hermes/Qoder 等）的 Skill 文件，在本地开发机和远程服务器之间双向同步。
+将 `syncskill` 命令行工具，核心用途：管理多 AI Agent（Claude/Hermes/Qoder 等）的 Skill 文件，在本地开发机和远程服务器之间双向同步。
 
 **设计约束**：
 - 兼容 Node 20+
@@ -79,11 +79,17 @@ syncskill/
 | `diff <server>` | 显示待同步变更 |
 | `resolve <skill> --take local|remote` | 解决冲突 |
 | `refresh [--local | --remote | --status] [server]` | 刷新 manifest |
-| `config [section]` | 交互式编辑配置文件 |
+| `config [section]` | 交互式编辑配置文件（主菜单） |
 | `config show` | 打印当前配置 |
 | `config set <key> <value>` | 设置单个配置项 |
+| `config link` | 直接进入 Link 矩阵编辑器（skills × agents） |
+| `config server` | 直接进入服务器管理菜单 |
+| `config remote` | 直接进入远程配置矩阵（skills × servers） |
+| `config link` | 直接进入 Link 矩阵编辑器（skills × agents） |
+| `config server` | 直接进入服务器管理菜单 |
+| `config remote` | 直接进入远程配置矩阵（skills × servers） |
 
-全局参数：`--no-refresh` 跳过自动刷新。所有命令（除 `init` 和 `config`）执行前自动调用 `autoRefreshManifests()` 钩子。
+全局参数：`--no-refresh` 跳过自动刷新。所有命令（除 `init` 和 `config`）执行前自动调用 `autoRefreshManifests()` 钩子。`config link`、`config server`、`config remote` 三个子命令也跳过自动刷新。
 
 ### 3.2 `config.ts` — 配置加载与验证
 
@@ -101,30 +107,90 @@ syncskill/
 
 ### 3.3 `config-ui.ts` — 交互式配置编辑
 
-使用 `@inquirer/prompts` 实现 TUI（终端用户界面）交互式编辑配置。
+使用 `@inquirer/prompts` + `@inquirer/core` 实现 TUI（终端用户界面）交互式编辑配置。
 
 **`config`（无参数）**：交互式菜单主界面
 ```
 配置管理
 ├─ agents — 管理 agent 目录
-├─ links — 管理 skill 到 agent 的链接映射
+├─ links — 管理 skill 到 agent 的链接映射（矩阵编辑器）
 ├─ servers — 管理远程同步服务器
 ├─ sources — 管理外部来源 (git/http/local)
+├─ remote — 管理 skills → servers 同步映射（矩阵编辑器）
 └─ conflict_resolution — 冲突解决策略
 ```
 
 每个子菜单使用 `select` / `input` / `checkbox` 实现增删改：
 - **agents 管理**：列出已检测/手动配置的 agent，支持 `add` / `remove` / `auto-detect`（重新运行 detectAgents）
-- **links 管理**：列出 skill -> agent 映射，支持 `add`（选择 skill + 选择 target agents 支持多选通配符）/ `remove` / `edit`
-- **servers 管理**：列出远程服务器（host/user/port/ssh-key），支持 `add` / `remove` / `edit` / `test-connection`（SSH 连通性测试）。`add` 流程中，输入 server name 后自动解析 `~/.ssh/config`，若找到匹配 Host 则提取 HostName/IP、Port、User、IdentityFile 等字段供用户确认，确认即自动填入；未找到则回退到逐项输入（Hostname/IP/Port/User/IdentityFile）
+- **links 管理**：使用矩阵编辑器（见下方），skills × agents 二维网格，↑↓ 切换 skill，←→ 切换 agent 列，Space/Tab 切换选中状态，Enter 保存，Esc 返回主菜单
+- **servers 管理**：列出远程服务器（host/user/port/ssh-key），支持 `add` / `remove` / `edit` / `test-connection`（SSH 连通性测试）。`add` 流程中，输入 server name 后自动解析 `~/.ssh/config`，若找到匹配 Host 则提取 HostName/IP、Port、User、IdentityFile 等字段供用户确认，确认即自动填入；未找到则回退到逐项输入。每个 server 还支持配置远程 agents（远程机器上的 AI agent 目录映射）
+- **remote 管理**：使用矩阵编辑器（见下方），skills × servers 二维网格，控制哪些 skill 在哪些远程服务器上生效
 - **sources 管理**：与 `source list/add/update` 命令对等，提供交互式引导添加
 - **conflict_resolution 管理**：下拉选择 `manual` / `keep-local` / `keep-remote`
 
-编辑完成后提示确认，然后调用 `saveConfig()` 写入 config.yaml。
+**所有子菜单均支持 Esc 返回功能**：
+- 从 `syncskill config` 主菜单进入的子菜单：Esc 返回主菜单
+- 从 `syncskill config <submenu>` 直接进入（directEntry 模式）：Esc 直接退出 CLI
+- 嵌套子菜单（如 Servers → Configure remote agents）：Esc 返回上一级
+- 矩阵编辑器按 Esc 放弃修改并返回
+- `select` 组件通过 `ExitPromptError` 捕获实现 Esc 返回，`safeSelect` 包装函数统一处理
+
+**Esc 返回**：所有子菜单及嵌套子菜单均支持 Esc 返回上一级菜单。矩阵编辑器按 `Esc` 放弃修改并返回上一级。`select` 选择菜单通过 `ExitPromptError` 捕获实现 Esc 返回，`directEntry` 模式下 Esc 直接退出，菜单模式下 Esc 返回主菜单。编辑完成后调用 `saveConfig()` 写入 config.yaml。
+
+**矩阵编辑器（Matrix Editor）** — `@inquirer/core` `createPrompt` 自定义组件
+
+使用 `createPrompt` + `useKeypress` 实现二维网格交互。渲染示例：
+
+```
+  Skills → Agent Assignment       Page 1/3       ↑↓ navigate  ←→ move  Space: toggle  Tab: next  Enter: save  Esc: back
+
+  Skill              claude     hermes     qoder
+  ──────────────────────────────────────────────────────
+→ skill-one        [  ✓  ]    [     ]    [  ✓  ]
+  skill-two        [     ]    [  ✓  ]    [     ]
+```
+
+内部状态：`cursorRow`（当前 skill 行）、`cursorCol`（当前 agent/server 列）、`currentPage`（当前页码）。
+- `↑/↓`：上下移动行光标
+- `←/→`：左右移动列光标
+- `Space/Tab`：切换光标所在单元格的选中/未选中状态（Tab 同时移到下一列）
+- `Page Up/Page Down` 或 `n/p` 键翻页
+- `a` 键：全选/全不选当前 skill 行的所有 agent/server
+- `Enter`：保存修改到 config 并退出
+- `Escape`：放弃修改，返回主菜单（或退出，如果是从 CLI 子命令直接进入）
+
+单元格渲染：`[✓]`（选中）/ `[ ]`（未选中），光标所在行高亮为 `[ ✓ ]`，紧凑排列。
+
+**分页**：skills 数量超过 25 时自动分页，每页最多显示 25 行。页码显示在标题行右侧（如 `Page 1/3`）。翻页时 cursorRow 保持在页内相同位置（若超出则移到页末）。
+
+矩阵编辑器同时用于：
+- **config link**：skills × agents 映射 → 写入 `config.links`
+- **config remote**：skills × servers 映射 → 写入 `config.servers[name].skills.include`
+
+**config link 保存时的通配符优化**：如果某个 skill 选中了所有已配置的 agents，保存时写入 `["*"]` 而不是逐个列出所有 agent 名称。这样配置文件更简洁，也便于后续 agents 增减时自动生效。
+
+**`config link`**：直接调用矩阵编辑器，不经过主菜单。`Esc` 直接退出。
+
+**`config server`**：直接进入服务器管理菜单。所有子菜单项增加 `← Back` 选项，`Esc` 等效于选择 Back。
+
+**`config remote`**：直接调用矩阵编辑器，skills × servers 映射。`Esc` 直接退出。
 
 **`config show`**：打印当前配置（JSON 格式化，`console.log(JSON.stringify(config, null, 2))`）
 
 **`config set <key> <value>`**：非交互式设置单个配置项。`key` 使用点分隔路径（如 `agents.claude`、`conflict_resolution`）。`value` 自动解析：`"{}"` / `"[]"` / 数字 / JSON 字符串优先作为 JSON 解析，否则视为字符串。
+
+**新增类型：`ServerConfig.agents`**
+
+每个远程 server 可独立配置 AI agent 目录映射，结构同 `ConfigV1.agents`：
+```json
+{
+  "agents": {
+    "claude": "~/.claude/skills",
+    "hermes": "~/.hermes/skills"
+  }
+}
+```
+用于远程 receiver 在服务器上为不同 agent 创建正确的软链接。
 
 ### 3.4 `repo.ts` — 仓库初始化
 
@@ -206,7 +272,7 @@ syncskill/
 
 ### 3.7 `source.ts` — 外部来源管理
 
-- **Git 来源**：`git clone --single-branch --depth 1`（仅克隆默认主分支，不拉历史和其他分支，减小体积）；`source update` 时用 `git fetch --depth=1 origin <branch> && git reset --hard origin/<branch>`，确保始终只拉当前分支最新单条提交，不增长历史
+- **Git 来源**：克隆前通过 `git ls-remote --symref <url> HEAD` 自动探测远程默认分支名（可能是 `main`、`master` 或其他），然后执行 `git clone --single-branch --depth 1 --branch <detected>`；`source update` 时用 `git fetch --depth=1 origin <branch> && git reset --hard origin/<branch>`，确保始终只拉当前分支最新单条提交，不增长历史
 - **HTTP 来源**：`fetch()` 下载 → `tar` / `node:zlib` + `node:stream` 解压
 - **Local 来源**：通过软链接直接指向本地指定目录（不复制），适合共享网络盘或未推送到 git 的本地 skill 仓库；推送到远程服务器时才会实际复制文件内容
 - 支持 `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.zip`

@@ -11,3 +11,12 @@ This project uses OpenWolf for context management. Read and follow .wolf/OPENWOL
 
 - 规范入口：`./AGENTS.md`
 - 若本文件与 `AGENTS.md` 有冲突，以 `AGENTS.md` 为准。
+
+## 测试方法
+
+本地测试 CLI：
+
+```bash
+npm run build && npm link
+syncskills <args>
+```
