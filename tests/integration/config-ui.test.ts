@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
 import type { PromptApi } from '../../src/config-ui.js';
-import { runConfigUi, safeSelect, applyMatrixToLinks } from '../../src/config-ui.js';
+import { runConfigUi, safeSelect, applyMatrixToLinks, editServers } from '../../src/config-ui.js';
 import { ExitPromptError } from '@inquirer/core';
 import type { SyncSkillConfig } from '../../src/config.js';
 
@@ -234,5 +234,92 @@ describe('applyMatrixToLinks', () => {
     });
 
     expect(config.links['skill-a']).toEqual(['claude']);
+  });
+});
+
+describe('editServers', () => {
+  it('adds a new server to config', async () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const prompts = new PromptStub([
+      'add',
+      'myserver',
+      'example.com',
+      'root',
+      '22',
+      '',
+      'back'
+    ]) as unknown as PromptApi;
+
+    await editServers(config, prompts);
+
+    expect(config.servers['myserver']).toEqual({
+      host: 'example.com',
+      user: 'root',
+      port: 22,
+      remote_agents: {}
+    });
+  });
+
+  it('adds a server with identity file', async () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const prompts = new PromptStub([
+      'add',
+      'secure-server',
+      'secure.example.com',
+      'admin',
+      '2222',
+      '~/.ssh/id_rsa',
+      'back'
+    ]) as unknown as PromptApi;
+
+    await editServers(config, prompts);
+
+    expect(config.servers['secure-server']).toEqual({
+      host: 'secure.example.com',
+      user: 'admin',
+      port: 2222,
+      identity_file: '~/.ssh/id_rsa',
+      remote_agents: {}
+    });
+  });
+
+  it('removes a server from config', async () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: {},
+      servers: {
+        'old-server': { host: 'old.example.com', user: 'root', port: 22, remote_agents: {} }
+      },
+      sources: {}
+    };
+
+    const prompts = new PromptStub([
+      'old-server',
+      'remove',
+      true,
+      'back'
+    ]) as unknown as PromptApi;
+
+    await editServers(config, prompts);
+
+    expect(config.servers['old-server']).toBeUndefined();
   });
 });

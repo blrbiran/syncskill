@@ -173,6 +173,151 @@ export async function editConflictResolution(config: SyncSkillConfig, prompts: P
   });
 }
 
+async function editRemoteAgents(server: Record<string, unknown>, prompts: PromptApi): Promise<void> {
+  const remoteAgents = (server.remote_agents as Record<string, string>) ?? {};
+  server.remote_agents = remoteAgents;
+
+  while (true) {
+    const agentNames = Object.keys(remoteAgents).sort();
+    const choices = [
+      { name: '+ Add agent', value: 'add' as const },
+      ...agentNames.map((name) => ({ name: `${name}: ${remoteAgents[name]}`, value: name })),
+      { name: '← Back', value: 'back' as const }
+    ];
+
+    const result = await safeSelect(prompts, { message: 'Remote agents', choices });
+
+    if (result.escaped || result.value === 'back') {
+      return;
+    }
+
+    if (result.value === 'add') {
+      const name = await prompts.input({ message: 'Agent name' });
+      const path = await prompts.input({ message: 'Agent directory' });
+      remoteAgents[name] = path;
+      continue;
+    }
+
+    const agentToEdit = result.value as string;
+    const editResult = await safeSelect(prompts, {
+      message: `Edit agent: ${agentToEdit}`,
+      choices: [
+        { name: 'Edit path', value: 'edit' as const },
+        { name: 'Remove', value: 'remove' as const },
+        { name: '← Back', value: 'back' as const }
+      ]
+    });
+
+    if (editResult.escaped || editResult.value === 'back') {
+      continue;
+    }
+
+    if (editResult.value === 'remove') {
+      delete remoteAgents[agentToEdit];
+    } else if (editResult.value === 'edit') {
+      remoteAgents[agentToEdit] = await prompts.input({
+        message: 'Agent directory',
+        default: remoteAgents[agentToEdit]
+      });
+    }
+  }
+}
+
+async function editSingleServer(
+  config: SyncSkillConfig,
+  serverName: string,
+  prompts: PromptApi
+): Promise<void> {
+  while (true) {
+    const result = await safeSelect(prompts, {
+      message: `Edit server: ${serverName}`,
+      choices: [
+        { name: 'Edit connection', value: 'edit' as const },
+        { name: 'Configure remote agents', value: 'agents' as const },
+        { name: 'Remove server', value: 'remove' as const },
+        { name: '← Back', value: 'back' as const }
+      ]
+    });
+
+    if (result.escaped || result.value === 'back') {
+      return;
+    }
+
+    const server = config.servers[serverName] as Record<string, unknown>;
+
+    if (result.value === 'remove') {
+      const confirmed = await prompts.confirm({ message: `Remove ${serverName}?`, default: false });
+      if (confirmed) {
+        delete config.servers[serverName];
+        return;
+      }
+      continue;
+    }
+
+    if (result.value === 'edit') {
+      server.host = await prompts.input({ message: 'Host', default: server.host as string });
+      server.user = await prompts.input({ message: 'User', default: (server.user as string) ?? 'root' });
+      const portStr = await prompts.input({ message: 'Port', default: String(server.port ?? 22) });
+      server.port = parseInt(portStr, 10);
+      const identityFile = await prompts.input({
+        message: 'Identity file (optional)',
+        default: (server.identity_file as string) ?? ''
+      });
+      if (identityFile) {
+        server.identity_file = identityFile;
+      } else {
+        delete server.identity_file;
+      }
+      continue;
+    }
+
+    if (result.value === 'agents') {
+      await editRemoteAgents(server, prompts);
+    }
+  }
+}
+
+export async function editServers(config: SyncSkillConfig, prompts: PromptApi): Promise<void> {
+  while (true) {
+    const serverNames = Object.keys(config.servers).sort();
+    const choices = [
+      { name: '+ Add server', value: 'add' as const },
+      ...serverNames.map((name) => ({ name, value: name })),
+      { name: '← Back', value: 'back' as const }
+    ];
+
+    const result = await safeSelect(prompts, { message: 'Manage servers', choices });
+
+    if (result.escaped || result.value === 'back') {
+      return;
+    }
+
+    if (result.value === 'add') {
+      const name = await prompts.input({ message: 'Server name' });
+      const host = await prompts.input({ message: 'Host' });
+      const user = await prompts.input({ message: 'User', default: 'root' });
+      const portStr = await prompts.input({ message: 'Port', default: '22' });
+      const identityFile = await prompts.input({ message: 'Identity file (optional)' });
+
+      const server: Record<string, unknown> = {
+        host,
+        user,
+        port: parseInt(portStr, 10),
+        remote_agents: {}
+      };
+
+      if (identityFile) {
+        server.identity_file = identityFile;
+      }
+
+      config.servers[name] = server;
+      continue;
+    }
+
+    await editSingleServer(config, result.value as string, prompts);
+  }
+}
+
 export async function runConfigUi(homeDir: string, prompts: PromptApi = createPromptApi()): Promise<void> {
   const config = await loadConfig(homeDir);
 
