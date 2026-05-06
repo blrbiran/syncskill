@@ -3,6 +3,8 @@ import { ExitPromptError } from '@inquirer/core';
 
 import type { ConflictResolution, SyncSkillConfig } from './config.js';
 import { loadConfig, saveConfig } from './config.js';
+import { listLocalSkills } from './linker.js';
+import { createMatrixEditor, type MatrixEditorResult } from './matrix-editor.js';
 
 export interface PromptApi {
   select<T>(options: { message: string; choices: Array<{ name: string; value: T }> }): Promise<T>;
@@ -121,6 +123,43 @@ export async function editLinks(config: SyncSkillConfig, prompts: PromptApi): Pr
     });
     delete config.links[skillToRemove];
   }
+}
+
+export function applyMatrixToLinks(config: SyncSkillConfig, result: MatrixEditorResult): void {
+  if (result.cancelled) {
+    return;
+  }
+
+  const allAgents = Object.keys(config.agents).sort();
+
+  for (const [skill, agents] of Object.entries(result.selected)) {
+    if (agents.length === 0) {
+      delete config.links[skill];
+    } else if (agents.length === allAgents.length && allAgents.every((a) => agents.includes(a))) {
+      config.links[skill] = ['*'];
+    } else {
+      config.links[skill] = agents.sort();
+    }
+  }
+}
+
+export async function editLinksMatrix(config: SyncSkillConfig, homeDir: string): Promise<MatrixEditorResult> {
+  const skills = await listLocalSkills(homeDir);
+  const agents = Object.keys(config.agents).sort();
+
+  const selected: Record<string, string[]> = {};
+  for (const skill of skills) {
+    const targets = config.links[skill] ?? [];
+    selected[skill] = targets.includes('*') ? [...agents] : targets.filter((t) => agents.includes(t));
+  }
+
+  const matrixEditor = createMatrixEditor();
+  return matrixEditor({
+    title: 'Skills → Agent Assignment',
+    rows: skills,
+    columns: agents,
+    selected
+  });
 }
 
 export async function editConflictResolution(config: SyncSkillConfig, prompts: PromptApi): Promise<void> {

@@ -6,8 +6,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
 import type { PromptApi } from '../../src/config-ui.js';
-import { runConfigUi, safeSelect } from '../../src/config-ui.js';
+import { runConfigUi, safeSelect, applyMatrixToLinks } from '../../src/config-ui.js';
 import { ExitPromptError } from '@inquirer/core';
+import type { SyncSkillConfig } from '../../src/config.js';
 
 class PromptStub implements PromptApi {
   constructor(private readonly answers: unknown[]) {}
@@ -158,5 +159,80 @@ describe('safeSelect', () => {
         choices: [{ name: 'test', value: 'test' }]
       })
     ).rejects.toThrow('Some other error');
+  });
+});
+
+describe('applyMatrixToLinks', () => {
+  it('updates config.links from matrix selection', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '~/.claude/skills', hermes: '~/.hermes/skills' },
+      links: { 'skill-a': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+
+    applyMatrixToLinks(config, {
+      cancelled: false,
+      selected: { 'skill-a': ['claude', 'hermes'], 'skill-b': ['claude'] }
+    });
+
+    expect(config.links['skill-a']).toEqual(['*']);
+    expect(config.links['skill-b']).toEqual(['claude']);
+  });
+
+  it('saves wildcard when all agents selected', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '~/.claude/skills', hermes: '~/.hermes/skills' },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    applyMatrixToLinks(config, {
+      cancelled: false,
+      selected: { 'skill-a': ['claude', 'hermes'] }
+    });
+
+    expect(config.links['skill-a']).toEqual(['*']);
+  });
+
+  it('removes link when no agents selected', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '~/.claude/skills' },
+      links: { 'skill-a': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+
+    applyMatrixToLinks(config, {
+      cancelled: false,
+      selected: { 'skill-a': [] }
+    });
+
+    expect(config.links['skill-a']).toBeUndefined();
+  });
+
+  it('does not modify config when cancelled', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '~/.claude/skills' },
+      links: { 'skill-a': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+
+    applyMatrixToLinks(config, {
+      cancelled: true,
+      selected: { 'skill-a': [] }
+    });
+
+    expect(config.links['skill-a']).toEqual(['claude']);
   });
 });
