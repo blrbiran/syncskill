@@ -384,35 +384,78 @@ export async function editRemote(config: SyncSkillConfig, homeDir: string): Prom
   applyMatrixToRemote(config, result);
 }
 
-export async function runConfigUi(homeDir: string, prompts: PromptApi = createPromptApi()): Promise<void> {
+export interface RunConfigUiOptions {
+  directEntry?: 'link' | 'server' | 'remote';
+}
+
+export async function runConfigUi(
+  homeDir: string,
+  prompts: PromptApi = createPromptApi(),
+  options: RunConfigUiOptions = {}
+): Promise<void> {
   const config = await loadConfig(homeDir);
 
+  if (options.directEntry === 'link') {
+    const result = await editLinksMatrix(config, homeDir);
+    applyMatrixToLinks(config, result);
+    if (!result.cancelled) {
+      await saveConfig(config, homeDir);
+    }
+    return;
+  }
+
+  if (options.directEntry === 'server') {
+    await editServers(config, prompts);
+    await saveConfig(config, homeDir);
+    return;
+  }
+
+  if (options.directEntry === 'remote') {
+    await editRemote(config, homeDir);
+    await saveConfig(config, homeDir);
+    return;
+  }
+
   while (true) {
-    const section = await prompts.select({
+    const result = await safeSelect(prompts, {
       message: 'Choose a config section',
       choices: [
         { name: 'agents', value: 'agents' as const },
         { name: 'links', value: 'links' as const },
+        { name: 'servers', value: 'servers' as const },
+        { name: 'remote', value: 'remote' as const },
         { name: 'conflict_resolution', value: 'conflict_resolution' as const },
         { name: 'done', value: 'done' as const }
       ]
     });
 
-    if (section === 'done') {
+    if (result.escaped || result.value === 'done') {
       break;
     }
 
-    if (section === 'agents') {
+    if (result.value === 'agents') {
       await editAgents(config, prompts);
       continue;
     }
 
-    if (section === 'links') {
+    if (result.value === 'links') {
       await editLinks(config, prompts);
       continue;
     }
 
-    await editConflictResolution(config, prompts);
+    if (result.value === 'servers') {
+      await editServers(config, prompts);
+      continue;
+    }
+
+    if (result.value === 'remote') {
+      await editRemote(config, homeDir);
+      continue;
+    }
+
+    if (result.value === 'conflict_resolution') {
+      await editConflictResolution(config, prompts);
+    }
   }
 
   const shouldSave = await prompts.confirm({ message: 'Save changes?', default: true });
