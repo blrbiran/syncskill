@@ -306,13 +306,14 @@ async function prepareHttpMaterializedRoot(homeDir: string, name: string, source
 
 async function prepareGitMaterializedRoot(homeDir: string, name: string, source: SourceDefinition): Promise<string> {
   const checkoutDir = getGitCheckoutDir(homeDir, name);
+  const ref = source.ref ?? (await detectGitDefaultBranch(source.url));
 
   if (!(await pathExists(checkoutDir))) {
     await mkdir(dirname(checkoutDir), { recursive: true });
-    await runGit(['clone', source.url, checkoutDir]);
+    await runGit(['clone', '--single-branch', '--depth', '1', '--branch', ref, source.url, checkoutDir]);
   }
 
-  await runGit(['-C', checkoutDir, 'fetch', '--tags', 'origin', source.ref ?? 'HEAD']);
+  await runGit(['-C', checkoutDir, 'fetch', '--depth=1', 'origin', ref]);
   await runGit(['-C', checkoutDir, 'reset', '--hard', 'FETCH_HEAD']);
 
   if (isAbsolute(source.store)) {
@@ -580,6 +581,16 @@ async function runGit(args: string[]): Promise<void> {
   } catch (error) {
     const execError = error as Error & { stderr?: string };
     throw new Error(execError.stderr?.trim() || execError.message);
+  }
+}
+
+export async function detectGitDefaultBranch(url: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('git', ['ls-remote', '--symref', url, 'HEAD']);
+    const match = stdout.match(/ref: refs\/heads\/(\S+)\s+HEAD/);
+    return match?.[1] ?? 'main';
+  } catch {
+    return 'main';
   }
 }
 

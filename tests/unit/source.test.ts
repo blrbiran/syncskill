@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { saveConfig } from '../../src/config.js';
-import { listSources, loadSourceState, materializeSource, updateSource } from '../../src/source.js';
+import { detectGitDefaultBranch, listSources, loadSourceState, materializeSource, updateSource } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -611,5 +611,25 @@ describe('source module', () => {
     expect(result.materialized_skills).toEqual(['beta']);
     await expect(readlink(join(homeDir, '.syncskill', 'skills', 'alpha'))).resolves.toBe(join(sharedRoot, 'alpha'));
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'beta', 'SKILL.md'), 'utf8')).resolves.toBe('# git beta\n');
+  });
+
+  it('detectGitDefaultBranch returns the default branch from a bare repo', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+
+    await mkdir(join(workRepoDir, 'skills'), { recursive: true });
+    await writeFile(join(workRepoDir, 'skills', 'SKILL.md'), '# test\n', 'utf8');
+    await commitAll(workRepoDir, 'initial commit');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    const branch = await detectGitDefaultBranch(bareRepoDir);
+    expect(branch).toBe('main');
+  });
+
+  it('detectGitDefaultBranch returns main as fallback for invalid URLs', async () => {
+    const branch = await detectGitDefaultBranch('/nonexistent/path');
+    expect(branch).toBe('main');
   });
 });
