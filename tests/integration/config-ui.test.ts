@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
 import type { PromptApi } from '../../src/config-ui.js';
-import { runConfigUi } from '../../src/config-ui.js';
+import { runConfigUi, safeSelect } from '../../src/config-ui.js';
+import { ExitPromptError } from '@inquirer/core';
 
 class PromptStub implements PromptApi {
   constructor(private readonly answers: unknown[]) {}
@@ -111,5 +112,51 @@ describe('runConfigUi', () => {
       servers: {},
       sources: {}
     });
+  });
+});
+
+describe('safeSelect', () => {
+  it('returns selected value on normal selection', async () => {
+    const prompts = new PromptStub(['agents']) as unknown as PromptApi;
+    const result = await safeSelect(prompts, {
+      message: 'Choose',
+      choices: [{ name: 'agents', value: 'agents' }]
+    });
+    expect(result).toEqual({ escaped: false, value: 'agents' });
+  });
+
+  it('returns escaped: true when ExitPromptError is thrown', async () => {
+    const prompts: PromptApi = {
+      select: async () => {
+        throw new ExitPromptError();
+      },
+      input: async () => '',
+      checkbox: async () => [],
+      confirm: async () => false
+    };
+
+    const result = await safeSelect(prompts, {
+      message: 'Choose',
+      choices: [{ name: 'test', value: 'test' }]
+    });
+    expect(result).toEqual({ escaped: true });
+  });
+
+  it('rethrows non-ExitPromptError errors', async () => {
+    const prompts: PromptApi = {
+      select: async () => {
+        throw new Error('Some other error');
+      },
+      input: async () => '',
+      checkbox: async () => [],
+      confirm: async () => false
+    };
+
+    await expect(
+      safeSelect(prompts, {
+        message: 'Choose',
+        choices: [{ name: 'test', value: 'test' }]
+      })
+    ).rejects.toThrow('Some other error');
   });
 });

@@ -1,4 +1,5 @@
 import { checkbox, confirm, input, select } from '@inquirer/prompts';
+import { ExitPromptError } from '@inquirer/core';
 
 import type { ConflictResolution, SyncSkillConfig } from './config.js';
 import { loadConfig, saveConfig } from './config.js';
@@ -17,6 +18,26 @@ export function createPromptApi(): PromptApi {
     checkbox,
     confirm
   };
+}
+
+export interface SafeSelectResult<T> {
+  escaped: boolean;
+  value?: T;
+}
+
+export async function safeSelect<T>(
+  prompts: PromptApi,
+  options: { message: string; choices: Array<{ name: string; value: T }> }
+): Promise<SafeSelectResult<T>> {
+  try {
+    const value = await prompts.select(options);
+    return { escaped: false, value };
+  } catch (error) {
+    if (error instanceof ExitPromptError) {
+      return { escaped: true };
+    }
+    throw error;
+  }
 }
 
 export async function editAgents(config: SyncSkillConfig, prompts: PromptApi): Promise<void> {
