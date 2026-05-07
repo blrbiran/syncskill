@@ -6,7 +6,7 @@
 
 ## 1. 概述
 
-将 `syncskill` 命令行工具，核心用途：管理多 AI Agent（Claude/Hermes/Qoder 等）的 Skill 文件，在本地开发机和远程服务器之间双向同步。
+`syncskill` AI Agent Skills 同步工具。核心用途：管理多 AI Agent（Claude/Hermes/Qoder 等）的 Skill 文件，在本地开发机和远程服务器之间双向同步。
 
 **设计约束**：
 - 兼容 Node 20+
@@ -68,28 +68,26 @@ syncskill/
 |------|------|
 | `init [--skip-sources]` | 创建 `~/.syncskill/` 目录结构和 config.yaml |
 | `link [--all | <skill> | --status | --unlink <skill>]` | 管理 agent 目录软链接 |
-| `source add <name> --type git|http --url <url> --store <path>` | 添加外部来源 |
+| `source add <name> [--type git|http|local] [--url <url>] [--store <path>] [--skill-subdir <dir>]` | 添加外部来源（支持 GitHub URL 直接解析） |
 | `source update [--all | <name>]` | 更新来源 |
 | `source list` | 列出来源 |
-| `scan [--all-agents]` | 扫描 skill 并添加到 config links |
-| `push [--all | <server>]` | 推送到远程 |
-| `pull <server>` | 从远程拉取 |
-| `sync [--all | <server>]` | 一键全量同步：先 pull 所有远程变更到本地，再 push 本地变更到所有服务器。等效于 relay |
+| `discover [--all-agents]` | 发现 `~/.syncskill/skills/` 和已配置 sources 中新 skill 目录，注册到 config links。当 `~/.syncskill/skills/` 为空时，行为同 `init`：按优先级扫描 `~/.claude/skills/` → `~/.agents/skills/` → `~/.hermes/skills/` 等 agent 目录，将非软链接、不重名的 skills 复制到 `~/.syncskill/skills/`，重名以先扫描到的为准，然后注册到 links |
+| `push [<server>]` | 推送到远程；不加参数时默认 --all 推送到所有服务器 |
+| `pull [<server>]` | 从远程拉取；不加参数时默认 --all 拉取所有已配置服务器 |
+| `sync [<server>]` | 一键全量同步：先 pull 所有远程变更到本地，再 push 本地变更到所有服务器。不加参数时默认 --all 遍历所有已配置服务器 |
 | `status` | 显示同步状态 |
 | `diff <server>` | 显示待同步变更 |
-| `resolve <skill> --take local|remote` | 解决冲突 |
-| `refresh [--local | --remote | --status] [server]` | 刷新 manifest |
+| `resolve <skill> --take local|remote [--manual]` | 解决冲突：`--take` 一键覆盖，`--manual` 生成 `.sync-conflict` 标记文件供用户逐文件抉择 |
+| `refresh [--local | --remote | --all | --status] [server]` | 刷新 manifest。`--local`：重算本地 hash；`--remote`：SSH 重算远程 hash；`--all`：等效于 `--local && --remote`；`--status`：仅打印状态不刷新。默认不带参数时执行 `--all` 后接 `--status`；加 `[server]` 限定目标服务器，省略则遍历所有 |
 | `config [section]` | 交互式编辑配置文件（主菜单） |
 | `config show` | 打印当前配置 |
 | `config set <key> <value>` | 设置单个配置项 |
 | `config link` | 直接进入 Link 矩阵编辑器（skills × agents） |
 | `config server` | 直接进入服务器管理菜单 |
 | `config remote` | 直接进入远程配置矩阵（skills × servers） |
-| `config link` | 直接进入 Link 矩阵编辑器（skills × agents） |
-| `config server` | 直接进入服务器管理菜单 |
-| `config remote` | 直接进入远程配置矩阵（skills × servers） |
+| `source remove <name>` | 移除外部来源（连同本地 store 目录，可选保留） |
 
-全局参数：`--no-refresh` 跳过自动刷新。所有命令（除 `init` 和 `config`）执行前自动调用 `autoRefreshManifests()` 钩子。`config link`、`config server`、`config remote` 三个子命令也跳过自动刷新。
+全局参数：`--no-refresh` 跳过自动刷新。所有命令（除 `init` 和 `config`）执行前自动调用 `autoRefreshManifests()` 钩子。`config link`、`config server`、`config remote` 三个子命令也跳过自动刷新。当服务器数量 ≥ 3 时，`init` 命令结束后打印提示："检测到多台服务器，自动刷新可能较慢。可使用 `--no-refresh` 参数跳过刷新，手动执行 `syncskill refresh` 按需刷新。"
 
 ### 3.2 `config.ts` — 配置加载与验证
 
@@ -129,13 +127,14 @@ syncskill/
 - **conflict_resolution 管理**：下拉选择 `manual` / `keep-local` / `keep-remote`
 
 **所有子菜单均支持 Esc 返回功能**：
-- 从 `syncskill config` 主菜单进入的子菜单：Esc 返回主菜单
-- 从 `syncskill config <submenu>` 直接进入（directEntry 模式）：Esc 直接退出 CLI
+- 统一行为：从子菜单进入的嵌套层级中，Esc 始终返回上一级；在主菜单（第一层）按 Esc 退出 CLI
 - 嵌套子菜单（如 Servers → Configure remote agents）：Esc 返回上一级
-- 矩阵编辑器按 Esc 放弃修改并返回
 - `select` 组件通过 `ExitPromptError` 捕获实现 Esc 返回，`safeSelect` 包装函数统一处理
 
-**Esc 返回**：所有子菜单及嵌套子菜单均支持 Esc 返回上一级菜单。矩阵编辑器按 `Esc` 放弃修改并返回上一级。`select` 选择菜单通过 `ExitPromptError` 捕获实现 Esc 返回，`directEntry` 模式下 Esc 直接退出，菜单模式下 Esc 返回主菜单。编辑完成后调用 `saveConfig()` 写入 config.yaml。
+**Esc 保存行为**：
+- **矩阵编辑器（`config link` / `config remote`）**：按 `Esc` 退出子菜单时自动调用 `saveConfig()` 写入修改（即使放弃修改也保存当前 config 中尚未持久化的状态）
+- **agents / servers / sources / conflict_resolution 子菜单**：通过 `select` 菜单或 `input` 完成的增删改操作即时生效，Esc 退出子菜单时自动调用 `saveConfig()` 写入 config.yaml
+- 所有子菜单的保存逻辑一致：从子菜单返回上一级时 `saveConfig()`，主菜单按 Esc 退出 CLI 时也 `saveConfig()`
 
 **矩阵编辑器（Matrix Editor）** — `@inquirer/core` `createPrompt` 自定义组件
 
@@ -157,7 +156,7 @@ syncskill/
 - `Page Up/Page Down` 或 `n/p` 键翻页
 - `a` 键：全选/全不选当前 skill 行的所有 agent/server
 - `Enter`：保存修改到 config 并退出
-- `Escape`：放弃修改，返回主菜单（或退出，如果是从 CLI 子命令直接进入）
+- `Escape`：放弃修改，返回上一级（遵循统一 Esc 行为）
 
 单元格渲染：`[✓]`（选中）/ `[ ]`（未选中），光标所在行高亮为 `[ ✓ ]`，紧凑排列。
 
@@ -169,15 +168,15 @@ syncskill/
 
 **config link 保存时的通配符优化**：如果某个 skill 选中了所有已配置的 agents，保存时写入 `["*"]` 而不是逐个列出所有 agent 名称。这样配置文件更简洁，也便于后续 agents 增减时自动生效。
 
-**`config link`**：直接调用矩阵编辑器，不经过主菜单。`Esc` 直接退出。
+**`config link`**：直接调用矩阵编辑器，不经过主菜单。`Esc` 退出时自动保存修改到 config.yaml。
 
-**`config server`**：直接进入服务器管理菜单。所有子菜单项增加 `← Back` 选项，`Esc` 等效于选择 Back。
+**`config server`**：直接进入服务器管理菜单。所有子菜单项增加 `← Back` 选项，`Esc` 等效于选择 Back。所有修改即时生效，Esc 退出时自动保存。
 
-**`config remote`**：直接调用矩阵编辑器，skills × servers 映射。`Esc` 直接退出。
+**`config remote`**：直接调用矩阵编辑器，skills × servers 映射。`Esc` 退出时自动保存修改到 config.yaml。
 
 **`config show`**：打印当前配置（JSON 格式化，`console.log(JSON.stringify(config, null, 2))`）
 
-**`config set <key> <value>`**：非交互式设置单个配置项。`key` 使用点分隔路径（如 `agents.claude`、`conflict_resolution`）。`value` 自动解析：`"{}"` / `"[]"` / 数字 / JSON 字符串优先作为 JSON 解析，否则视为字符串。
+**`config set <key> <value>`**：非交互式设置单个配置项。`key` 使用点分隔路径（如 `agents.claude`、`conflict_resolution`、`servers.prod.agents.claude`）。`value` 自动解析：`"{}"` / `"[]"` / 数字 / JSON 字符串优先作为 JSON 解析，否则视为字符串。`config set --show-paths` 打印所有合法路径及其当前值。
 
 **新增类型：`ServerConfig.agents`**
 
@@ -197,7 +196,7 @@ syncskill/
 - 创建 `~/.syncskill/` 目录（含 `skills/`, `manifests/` 子目录）
 - 生成 `~/.syncskill/config.yaml`（含自动检测的 agent）
 - 复制 `config.example.yaml` 作为参考
-- **迁移已有 skills**：按顺序扫描 `~/.claude/skills/` → `~/.agents/skills/`，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的为准。跳过已存在的 skill。`--skip-sources` 参数跳过此步骤。
+- **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 `~/.claude/skills/` → `~/.agents/skills/` → `~/.hermes/skills/` → `~/.qwen/skills/` → `~/.qoder/skills/` → `~/.aone_copilot/skills/`，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。所有 agent 目录遍历完毕后再停止。`--skip-sources` 参数跳过此步骤。
 - **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.yaml` 的 `links` 字段（设为 `["*"]` 即所有 agent）。如果 config.yaml 已存在，则追加缺失的 link。
 - 所有目录/文件仅在不存在时才创建，已存在则跳过，不覆盖。`--skip-config` 跳过 config.yaml 创建。
 - 不再依赖当前目录的 `config.yaml`，所有操作基于 `~/.syncskill/`
@@ -278,6 +277,43 @@ syncskill/
 - 支持 `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.zip`
 - 解压使用 Node 原生模块，不依赖系统工具
 
+**`source add` 命令参数增强：**
+
+- `--store` 可选：`--type` 为 git 或 http 且未指定时，默认为 `~/.syncskill/sources/<github_repo_name>`（从 URL 提取仓库名，如无法提取则回退到 skill 名称）
+- `--skill-subdir` 可选：手动指定来源仓库内某个子目录作为 skill 目录
+- 支持 GitHub URL 直接解析：`syncskill source add https://github.com/openclaw/openclaw/tree/main/.agents/skills/openclaw-ghsa-maintainer` 等价于 `syncskill source add openclaw-ghsa-maintainer --type git --url https://github.com/openclaw/openclaw.git --store ~/.syncskill/sources/openclaw --skill-subdir .agents/skills/openclaw-ghsa-maintainer`
+- 无法解析为标准 GitHub URL 模式时，打印错误提示并列出期望格式（`https://github.com/<org>/<repo>/tree/<branch>/<path>` 或 `https://github.com/<org>/<repo>.git`），回退到 `--type git` 默认行为等待用户输入
+
+**多 skill 目录自动检测流程（`source add` 执行时）：**
+
+按以下优先级自动判断来源目录结构：
+
+1. **多 skill 模式（默认优先）**：来源目录包含 `skills/` 子目录 → 扫描 `skills/` 下所有子目录，每个含 `SKILL.md` 的子目录为一个独立 skill
+2. **单 skill 模式（默认降级）**：来源目录**不**包含 `skills/` 子目录且根目录有 `SKILL.md` → 来源目录本身为单个 skill，skill 名取自用户指定的名称
+3. **用户指定子目录模式**（用户未指定 `--skill-subdir` 且上述 1、2 均不满足时，交互式提示用户填写）：
+   - 指定路径下有 `SKILL.md` → 该子目录为单个 skill
+   - 指定路径下没有 `SKILL.md` → 该子目录为多 skill 容器，扫描其下所有含 `SKILL.md` 的子目录
+
+**重名检测与处理：**
+
+- `source add` 执行前，扫描 `~/.syncskill/skills/` 和所有已配置 sources 中的 skill 名称，检查是否有重名
+- 发现重名时：提示用户，在对应 source 配置段中写入 `ignore` 字段列出重名 skill 路径，跳过该 skill 的添加
+- 未重名时：自动在 `config.yaml` 的 `links` 段中新增该 skill 并设为 `["*"]`（全 agent 选择）
+
+**同仓库合并：**
+
+- 如果已有 source 配置使用相同 URL，提示用户选择合并到已有 source 或创建新条目（默认合并到已有）
+- 合并时共用同一 `url` 和 `store`，通过 `skill_subdir` 区分不同 skill 子目录
+- 合并前若 `--type` 为 git，先执行 `git pull`（或 `git fetch + reset`）将本地 store 仓库更新到最新版本，确保后续 skill 发现基于最新代码
+
+**Skill 发现函数：**
+
+`discoverSourceSkills()` 按上述优先级自动发现所有 skill 名称。`resolveSkillPath()` 通过 sources 参数定位技能所在的具体目录（来源 store + skill_subdir + skill 名称）。
+
+**全局 skill 发现：**
+
+配置好 source 后，`syncskill config link`、`syncskill config remote`、`syncskill discover`、`syncskill status` 等所有涉及 skill 列表的命令都能自动检测到来源中的 skills。统一通过集中的 skill 发现函数 `discoverAllSkills(config)`，合并 `~/.syncskill/skills/` 和所有 sources 的 skill。
+
 ### 3.8 `sync_engine.ts` — 核心同步流程
 
 **Push 流程**：
@@ -305,7 +341,7 @@ syncskill/
 4. 再次遍历所有服务器，对有本地变更的 skill 执行 push
 5. 汇总输出每个 skill 的最终同步状态
 
-用于一键解决"本地改了 skill1、服务器1改了 skill2、服务器2改了 skill3"的多服务器多 skill 同步场景。等效于原来的 `relay` 命令。
+用于一键解决"本地改了 skill1、服务器1改了 skill2、服务器2改了 skill3"的多服务器多 skill 同步场景。
 
 ### 3.9 `transport.ts` — SSH/rsync 传输
 
