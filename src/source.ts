@@ -13,6 +13,15 @@ import { getSyncPaths, loadConfig, saveConfig } from './config.js';
 
 const execFileAsync = promisify(execFile);
 
+export enum RemovalAction {
+  /** Git only: Convert source from git to local, keep store directory */
+  ConvertToLocal = 'convert-to-local',
+  /** Remove source config and links, keep skill files on disk */
+  RemoveConfigKeepFiles = 'remove-config-keep-files',
+  /** Remove source config, links, and all skill files */
+  RemoveAll = 'remove-all',
+}
+
 export type SourceType = 'local' | 'git' | 'http';
 
 export interface SourceDefinition {
@@ -121,7 +130,10 @@ export async function updateAllSources(homeDir = homedir(), updatedAt = new Date
 }
 
 export interface RemoveSourceOptions {
+  /** @deprecated Use action instead */
   keepStore?: boolean;
+  /** Removal action to perform */
+  action?: RemovalAction;
 }
 
 export async function removeSource(
@@ -130,27 +142,60 @@ export async function removeSource(
   options: RemoveSourceOptions = {}
 ): Promise<void> {
   const config = await loadConfig(homeDir);
+  const source = config.sources[name];
 
-  if (config.sources[name] === undefined) {
+  if (source === undefined) {
     throw new Error(`Source not found: ${name}`);
   }
 
-  delete config.sources[name];
-  await saveConfig(config, homeDir);
-
   const ownershipState = await loadSkillOwnershipState(homeDir);
-  const nextOwnership = structuredClone(ownershipState) as SkillOwnershipState;
+  const sourceState = await loadSourceState(homeDir, name);
+  const ownedSkills = sourceState?.materialized_skills ?? [];
+  const { skillsDir, syncDir } = getSyncPaths(homeDir);
+  const sourceDir = join(syncDir, '.sources', name);
 
-  for (const [skill, owner] of Object.entries(nextOwnership.owners)) {
-    if (owner === name) {
+  // Handle legacy keepStore option
+  const action = options.action ??
+    (options.keepStore ? RemovalAction.RemoveConfigKeepFiles : RemovalAction.RemoveAll);
+
+  if (action === RemovalAction.ConvertToLocal) {
+    if (source.type !== 'git') {
+      throw new Error(`ConvertToLocal only valid for git sources, got: ${source.type}`);
+    }
+    // Convert to local source pointing to checkout directory with original store path
+    const checkoutDir = join(sourceDir, 'checkout');
+    const originalStore = source.store ?? '.';
+    config.sources[name] = {
+      type: 'local',
+      url: checkoutDir,
+      store: originalStore,
+    };
+    await saveConfig(config, homeDir);
+    return;
+  }
+
+  // Remove source from config
+  delete config.sources[name];
+
+  // Remove links for owned skills
+  const nextOwnership = structuredClone(ownershipState) as SkillOwnershipState;
+  for (const skill of ownedSkills) {
+    if (nextOwnership.owners[skill] === name) {
       delete nextOwnership.owners[skill];
+      delete config.links[skill];
     }
   }
 
+  await saveConfig(config, homeDir);
   await saveSkillOwnershipState(homeDir, nextOwnership);
 
-  if (!options.keepStore) {
-    const sourceDir = join(getSyncPaths(homeDir).syncDir, '.sources', name);
+  if (action === RemovalAction.RemoveAll) {
+    // Delete skill files
+    for (const skill of ownedSkills) {
+      const skillPath = join(skillsDir, skill);
+      await rm(skillPath, { recursive: true, force: true });
+    }
+    // Delete source directory
     await rm(sourceDir, { recursive: true, force: true });
   }
 }

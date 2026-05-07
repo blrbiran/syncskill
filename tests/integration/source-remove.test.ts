@@ -1,11 +1,12 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { parse, stringify } from 'yaml';
 
-import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
-import { removeSource } from '../../src/source.js';
+import { createDefaultConfig, loadConfig, saveConfig, type SyncSkillConfig } from '../../src/config.js';
+import { RemovalAction, removeSource } from '../../src/source.js';
 
 describe('removeSource', () => {
   const tempDirs: string[] = [];
@@ -70,5 +71,161 @@ describe('removeSource', () => {
     await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
 
     await expect(removeSource(homeDir, 'nonexistent')).rejects.toThrow('Source not found: nonexistent');
+  });
+});
+
+describe('removeSource with RemovalAction', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('converts git source to local with RemovalAction.ConvertToLocal', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-remove-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const sourcesDir = join(syncDir, '.sources', 'test-source');
+
+    await mkdir(join(sourcesDir, 'checkout', 'skill-a'), { recursive: true });
+    await writeFile(join(sourcesDir, 'checkout', 'skill-a', 'SKILL.md'), 'content');
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: { claude: '~/.claude/skills' },
+        links: { 'skill-a': ['*'] },
+        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', store: '.' } },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+    await writeFile(
+      join(sourcesDir, 'state.json'),
+      JSON.stringify({ materialized_skills: ['skill-a'], updated_at: '2026-01-01T00:00:00Z' })
+    );
+    await mkdir(join(syncDir, '.sources'), { recursive: true });
+    await writeFile(
+      join(syncDir, '.sources', 'skills.json'),
+      JSON.stringify({ owners: { 'skill-a': 'test-source' } })
+    );
+
+    await removeSource(homeDir, 'test-source', { action: RemovalAction.ConvertToLocal });
+
+    const config = parse(await readFile(join(syncDir, 'config.yaml'), 'utf-8')) as SyncSkillConfig;
+    expect(config.sources['test-source']).toBeDefined();
+    expect(config.sources['test-source'].type).toBe('local');
+    expect(config.sources['test-source'].url).toContain('checkout');
+    expect(config.sources['test-source'].store).toBe('.');
+  });
+
+  it('removes config but keeps files with RemovalAction.RemoveConfigKeepFiles', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-remove-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const sourcesDir = join(syncDir, '.sources', 'test-source');
+    const skillsDir = join(syncDir, 'skills');
+
+    await mkdir(join(sourcesDir, 'materialized', 'skill-a'), { recursive: true });
+    await mkdir(join(skillsDir, 'skill-a'), { recursive: true });
+    await writeFile(join(skillsDir, 'skill-a', 'SKILL.md'), 'content');
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: { claude: '~/.claude/skills' },
+        links: { 'skill-a': ['*'] },
+        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', store: '.' } },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+    await writeFile(
+      join(sourcesDir, 'state.json'),
+      JSON.stringify({ materialized_skills: ['skill-a'], updated_at: '2026-01-01T00:00:00Z' })
+    );
+    await writeFile(
+      join(syncDir, '.sources', 'skills.json'),
+      JSON.stringify({ owners: { 'skill-a': 'test-source' } })
+    );
+
+    await removeSource(homeDir, 'test-source', { action: RemovalAction.RemoveConfigKeepFiles });
+
+    const config = parse(await readFile(join(syncDir, 'config.yaml'), 'utf-8')) as SyncSkillConfig;
+    expect(config.sources['test-source']).toBeUndefined();
+    expect(config.links['skill-a']).toBeUndefined();
+    // Files should still exist
+    const fileExists = await stat(join(skillsDir, 'skill-a', 'SKILL.md')).then(() => true).catch(() => false);
+    expect(fileExists).toBe(true);
+  });
+
+  it('removes everything with RemovalAction.RemoveAll', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-remove-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const sourcesDir = join(syncDir, '.sources', 'test-source');
+    const skillsDir = join(syncDir, 'skills');
+
+    await mkdir(join(sourcesDir, 'materialized', 'skill-a'), { recursive: true });
+    await mkdir(join(skillsDir, 'skill-a'), { recursive: true });
+    await writeFile(join(skillsDir, 'skill-a', 'SKILL.md'), 'content');
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: { claude: '~/.claude/skills' },
+        links: { 'skill-a': ['*'] },
+        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', store: '.' } },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+    await writeFile(
+      join(sourcesDir, 'state.json'),
+      JSON.stringify({ materialized_skills: ['skill-a'], updated_at: '2026-01-01T00:00:00Z' })
+    );
+    await writeFile(
+      join(syncDir, '.sources', 'skills.json'),
+      JSON.stringify({ owners: { 'skill-a': 'test-source' } })
+    );
+
+    await removeSource(homeDir, 'test-source', { action: RemovalAction.RemoveAll });
+
+    const config = parse(await readFile(join(syncDir, 'config.yaml'), 'utf-8')) as SyncSkillConfig;
+    expect(config.sources['test-source']).toBeUndefined();
+    expect(config.links['skill-a']).toBeUndefined();
+    // Files should be deleted
+    const skillExists = await stat(join(skillsDir, 'skill-a')).then(() => true).catch(() => false);
+    expect(skillExists).toBe(false);
+    const sourceExists = await stat(sourcesDir).then(() => true).catch(() => false);
+    expect(sourceExists).toBe(false);
+  });
+
+  it('throws error when ConvertToLocal is used on non-git source', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-remove-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: { claude: '~/.claude/skills' },
+        links: {},
+        sources: { 'test-source': { type: 'local', url: '/some/path', store: '.' } },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+    await mkdir(join(syncDir, '.sources'), { recursive: true });
+    await writeFile(
+      join(syncDir, '.sources', 'skills.json'),
+      JSON.stringify({ owners: {} })
+    );
+
+    await expect(
+      removeSource(homeDir, 'test-source', { action: RemovalAction.ConvertToLocal })
+    ).rejects.toThrow('ConvertToLocal only valid for git sources');
   });
 });
