@@ -5,7 +5,7 @@ import { Command, InvalidArgumentError } from 'commander';
 import { applyResolution, reconcileManifest } from './conflict.js';
 import { loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
 import { createPromptApi, runConfigUi } from './config-ui.js';
-import { collectLinkStatus, linkConfiguredSkills, scanSkills, unlinkSkill } from './linker.js';
+import { collectLinkStatus, discoverSkills, linkConfiguredSkills, unlinkSkill } from './linker.js';
 import { loadServerManifest, saveServerManifest } from './manifest.js';
 import { formatProbeLines, formatServerListLines, formatServerShowLines, listServers, probeServer, showServer } from './server.js';
 import { initializeRepo } from './repo.js';
@@ -136,11 +136,11 @@ export function createProgram(homeDir?: string): Command {
     });
 
   program
-    .command('scan')
-    .description('Scan local skills and add missing links')
+    .command('discover')
+    .description('Discover skills in ~/.syncskill/skills/ and configured sources, register to config links')
     .option('--all-agents', 'Link new skills to all configured agents')
     .action(async (options: { allAgents?: boolean }) => {
-      const addedSkills = await scanSkills(resolvedHomeDir, {
+      const addedSkills = await discoverSkills(resolvedHomeDir, {
         allAgents: Boolean(options.allAgents)
       });
 

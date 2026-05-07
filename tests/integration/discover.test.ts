@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
-import { scanSkills } from '../../src/linker.js';
+import { discoverSkills } from '../../src/linker.js';
 
-describe('scanSkills', () => {
+describe('discoverSkills', () => {
   const tempDirs: string[] = [];
 
   afterEach(async () => {
@@ -32,7 +32,7 @@ describe('scanSkills', () => {
     await mkdir(join(homeDir, '.syncskill', 'skills', 'alpha'), { recursive: true });
     await mkdir(join(homeDir, '.syncskill', 'skills', 'existing'), { recursive: true });
 
-    await expect(scanSkills(homeDir, { allAgents: false })).resolves.toEqual(['alpha', 'zeta']);
+    await expect(discoverSkills(homeDir, { allAgents: false })).resolves.toEqual(['alpha', 'zeta']);
     await expect(loadConfig(homeDir)).resolves.toEqual({
       version: 1,
       conflict_resolution: 'manual',
@@ -56,7 +56,7 @@ describe('scanSkills', () => {
     await mkdir(join(homeDir, '.syncskill', 'skills', 'beta'), { recursive: true });
     await mkdir(join(homeDir, '.syncskill', 'skills', 'alpha'), { recursive: true });
 
-    await expect(scanSkills(homeDir, { allAgents: true })).resolves.toEqual(['alpha', 'beta']);
+    await expect(discoverSkills(homeDir, { allAgents: true })).resolves.toEqual(['alpha', 'beta']);
     await expect(loadConfig(homeDir)).resolves.toEqual({
       version: 1,
       conflict_resolution: 'manual',

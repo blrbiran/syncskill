@@ -31,7 +31,7 @@ export async function listLocalSkills(homeDir: string): Promise<string[]> {
     .sort();
 }
 
-export async function scanSkills(homeDir: string, { allAgents }: ScanOptions): Promise<string[]> {
+export async function discoverSkills(homeDir: string, { allAgents }: ScanOptions): Promise<string[]> {
   const config = await loadConfig(homeDir);
   const discoveredSkills = await listLocalSkills(homeDir);
   const addedSkills: string[] = [];

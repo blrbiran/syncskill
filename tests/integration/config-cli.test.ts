@@ -8,7 +8,7 @@ import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js
 import { createProgram } from '../../src/index.js';
 
 describe('config CLI', () => {
-  it('init, scan, and link --status work together for one local skill', async () => {
+  it('init, discover, and link --status work together for one local skill', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);
 
@@ -19,7 +19,7 @@ describe('config CLI', () => {
     await writeFile(join(homeDir, '.syncskill', 'skills', 'welcome', 'SKILL.md'), 'hello', 'utf8');
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan', '--all-agents'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'discover', '--all-agents'], { from: 'node' });
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all'], { from: 'node' });
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--status'], { from: 'node' });
 
