@@ -1,4 +1,4 @@
-# syncskill — TypeScript 实现设计
+# Syncskill — TypeScript 实现设计
 
 > 日期：2026-04-30
 > 状态：草稿
@@ -305,6 +305,23 @@ syncskill/
 - 如果已有 source 配置使用相同 URL，提示用户选择合并到已有 source 或创建新条目（默认合并到已有）
 - 合并时共用同一 `url` 和 `store`，通过 `skill_subdir` 区分不同 skill 子目录
 - 合并前若 `--type` 为 git，先执行 `git pull`（或 `git fetch + reset`）将本地 store 仓库更新到最新版本，确保后续 skill 发现基于最新代码
+
+**`source remove` 命令行为（交互式确认）：**
+
+移除 source 前，列出该 source 提供的 skill 及其状态，按来源类型询问用户选择：
+
+**Git type source**（有本地 store 仓库，skill 可能已复制到 `~/.syncskill/skills/`）：
+1. **转为 local source** — 保留 skill 文件，将 source 类型从 git 改为 local，指向现有 store 目录（skill 继续生效，不再需要 git clone）
+2. **删除 links + source 配置** — 移除 source 配置和对应 skill 的 links，保留 skill 文件在磁盘上（skill 变手动管理）
+3. **删除 links + source 配置 + local 文件** — 完全清理：移除 source、links、skill 文件
+
+**HTTP / Local source**：
+1. **确认删除 links + source 配置** — 移除 source 配置和对应 skill 的 links，保留 skill 文件在磁盘上
+2. **删除 links + source 配置 + local 文件** — 完全清理：移除 source、links、skill 文件
+
+**孤立 skill 判断**：`source remove` 执行前，扫描该 source 提供的所有 skill，判断每个 skill 是否还被其他 source 或 `~/.syncskill/skills/` 手动目录提供。仅由当前 source 提供的 skill 标记为"孤立"，展示给用户并在确认选项中说明影响范围。
+
+所有删除操作需要用户二次确认（`@inquirer/prompts` confirm）。
 
 **Skill 发现函数：**
 

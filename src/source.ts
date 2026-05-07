@@ -142,11 +142,16 @@ export async function removeSource(
   options: RemoveSourceOptions = {}
 ): Promise<void> {
   const config = await loadConfig(homeDir);
-  const source = config.sources[name];
+  const sourceRaw = config.sources[name];
 
-  if (source === undefined) {
+  if (sourceRaw === undefined) {
     throw new Error(`Source not found: ${name}`);
   }
+
+  // Type-guard for source properties
+  const source = sourceRaw as Record<string, unknown>;
+  const sourceType = source.type as string | undefined;
+  const sourceStore = source.store as string | undefined;
 
   const ownershipState = await loadSkillOwnershipState(homeDir);
   const sourceState = await loadSourceState(homeDir, name);
@@ -159,12 +164,12 @@ export async function removeSource(
     (options.keepStore ? RemovalAction.RemoveConfigKeepFiles : RemovalAction.RemoveAll);
 
   if (action === RemovalAction.ConvertToLocal) {
-    if (source.type !== 'git') {
-      throw new Error(`ConvertToLocal only valid for git sources, got: ${source.type}`);
+    if (sourceType !== 'git') {
+      throw new Error(`ConvertToLocal only valid for git sources, got: ${sourceType}`);
     }
     // Convert to local source pointing to checkout directory with original store path
     const checkoutDir = join(sourceDir, 'checkout');
-    const originalStore = source.store ?? '.';
+    const originalStore = sourceStore ?? '.';
     config.sources[name] = {
       type: 'local',
       url: checkoutDir,

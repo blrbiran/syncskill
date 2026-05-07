@@ -5,11 +5,13 @@ import { join } from 'node:path';
 
 import { Command, InvalidArgumentError } from 'commander';
 
+import { select, confirm } from '@inquirer/prompts';
+
 import { applyResolution, formatConflictMarker, reconcileManifest } from './conflict.js';
 import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
 import { createPromptApi, runConfigUi } from './config-ui.js';
 import { collectLinkStatus, discoverSkills, linkConfiguredSkills, unlinkSkill } from './linker.js';
-import { loadServerManifest, saveServerManifest } from './manifest.js';
+import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './manifest.js';
 import { formatProbeLines, formatServerListLines, formatServerShowLines, listServers, probeServer, showServer } from './server.js';
 import { initializeRepo } from './repo.js';
 import {
@@ -20,7 +22,18 @@ import {
   loadTrackedManifests,
   refreshStoredManifests
 } from './refresh.js';
-import { addSourceFromUrl, formatSourceListLines, listSources, removeSource, SourceType, updateAllSources, updateSource } from './source.js';
+import {
+  addSourceFromUrl,
+  findOrphanSkills,
+  formatSourceListLines,
+  listSources,
+  loadSkillOwnershipState,
+  RemovalAction,
+  removeSource,
+  SourceType,
+  updateAllSources,
+  updateSource,
+} from './source.js';
 import { pullFromServer, pushToServers, syncServers, type PullResult, type PushResult } from './sync_engine.js';
 
 function shouldSkipAutoRefresh(command: Command): boolean {
@@ -258,10 +271,107 @@ export function createProgram(homeDir?: string): Command {
   sourceCommand
     .command('remove <name>')
     .description('Remove a configured source')
-    .option('--keep-store', 'Keep the local store directory')
-    .action(async (name: string, options: { keepStore?: boolean }) => {
-      await removeSource(resolvedHomeDir, name, { keepStore: Boolean(options.keepStore) });
-      console.log(`Removed source: ${name}`);
+    .option('--force', 'Skip confirmation prompts')
+    .action(async (name: string, options: { force?: boolean }) => {
+      const config = await loadConfig(resolvedHomeDir);
+      const sourceRaw = config.sources[name];
+
+      if (!sourceRaw) {
+        console.error(`Source not found: ${name}`);
+        process.exit(1);
+      }
+
+      // Extract source type from the raw config object
+      const sourceType = (sourceRaw as Record<string, unknown>).type;
+      const isGitSource = sourceType === 'git';
+
+      const ownershipState = await loadSkillOwnershipState(resolvedHomeDir);
+      const localSkills = new Set(await listLocalSkillNames(resolvedHomeDir));
+      const orphans = findOrphanSkills(name, config, ownershipState, localSkills);
+
+      // Show affected skills
+      const ownedSkills = Object.entries(ownershipState.owners)
+        .filter(([, owner]) => owner === name)
+        .map(([skill]) => skill);
+
+      if (ownedSkills.length > 0) {
+        console.log(`\nSkills provided by source "${name}":`);
+        for (const skill of ownedSkills) {
+          const isOrphan = orphans.includes(skill);
+          console.log(`  - ${skill}${isOrphan ? ' (orphan - only from this source)' : ''}`);
+        }
+        console.log('');
+      } else {
+        console.log(`\nSource "${name}" provides no skills.\n`);
+      }
+
+      let action: RemovalAction;
+
+      if (options.force) {
+        action = RemovalAction.RemoveAll;
+      } else if (isGitSource) {
+        // Git source: 3 options
+        const choice = await select({
+          message: `How do you want to remove source "${name}"?`,
+          choices: [
+            {
+              name: 'Convert to local source (keep files, no more git updates)',
+              value: RemovalAction.ConvertToLocal,
+            },
+            {
+              name: 'Remove config + links only (keep skill files on disk)',
+              value: RemovalAction.RemoveConfigKeepFiles,
+            },
+            {
+              name: 'Remove everything (config, links, and skill files)',
+              value: RemovalAction.RemoveAll,
+            },
+          ],
+        });
+        action = choice;
+      } else {
+        // HTTP/Local source: 2 options
+        const choice = await select({
+          message: `How do you want to remove source "${name}"?`,
+          choices: [
+            {
+              name: 'Remove config + links only (keep skill files on disk)',
+              value: RemovalAction.RemoveConfigKeepFiles,
+            },
+            {
+              name: 'Remove everything (config, links, and skill files)',
+              value: RemovalAction.RemoveAll,
+            },
+          ],
+        });
+        action = choice;
+      }
+
+      // Double confirmation for destructive actions
+      if (action === RemovalAction.RemoveAll && orphans.length > 0) {
+        const confirmed = await confirm({
+          message: `This will permanently delete ${orphans.length} orphan skill(s). Continue?`,
+          default: false,
+        });
+        if (!confirmed) {
+          console.log('Cancelled.');
+          return;
+        }
+      }
+
+      await removeSource(resolvedHomeDir, name, { action });
+
+      switch (action) {
+        case RemovalAction.ConvertToLocal:
+          console.log(`Converted source "${name}" to local type.`);
+          break;
+        case RemovalAction.RemoveConfigKeepFiles:
+          console.log(`Removed source "${name}" (skill files kept on disk).`);
+          break;
+        case RemovalAction.RemoveAll:
+          console.log(`Removed source "${name}" and all associated files.`);
+          break;
+      }
     });
 
   const serverCommand = program.command('server').description('Inspect configured remote servers');
