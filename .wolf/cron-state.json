@@ -1,7 +1,26 @@
 {
-  "last_heartbeat": "2026-05-06T15:19:00.635Z",
+  "last_heartbeat": "2026-05-07T15:30:44.212Z",
   "engine_status": "running",
-  "execution_log": [],
+  "execution_log": [
+    {
+      "task_id": "anatomy-rescan",
+      "status": "success",
+      "timestamp": "2026-05-06T16:00:00.655Z",
+      "duration_ms": 23
+    },
+    {
+      "task_id": "memory-consolidation",
+      "status": "success",
+      "timestamp": "2026-05-06T18:00:00.634Z",
+      "duration_ms": 8
+    },
+    {
+      "task_id": "anatomy-rescan",
+      "status": "success",
+      "timestamp": "2026-05-06T22:00:00.496Z",
+      "duration_ms": 34
+    }
+  ],
   "dead_letter_queue": [],
   "upcoming": []
 }

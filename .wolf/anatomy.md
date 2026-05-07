@@ -1,17 +1,17 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-06T15:52:26.158Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-06T22:00:00.495Z
 > Files: 68 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
-- `.gitignore` — Git ignore rules (~587 tok)
+- `.gitignore` — Git ignore rules (~612 tok)
 - `AGENTS.md` — AGENTS.md (~397 tok)
 - `CLAUDE.md` — OpenWolf (~103 tok)
 - `config.example.yaml` (~85 tok)
 - `LICENSE` — Project license (~284 tok)
-- `package-lock.json` — npm lock file (~20368 tok)
-- `package.json` — Node.js package manifest (~206 tok)
+- `package-lock.json` — npm lock file (~24651 tok)
+- `package.json` — Node.js package manifest (~216 tok)
 - `README.md` — Project documentation (~621 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
@@ -30,21 +30,8 @@
 - `design-guide.md` — Design Guide (~620 tok)
 - `usage-guide.md` — Usage Guide (~974 tok)
 
-## docs/superpowers/plans/
-
-- `2026-04-30-syncskill-local-foundation.md` — syncskill Local Foundation Implementation Plan (~12375 tok)
-- `2026-05-01-syncskill-external-sources.md` — syncskill External Sources Implementation Plan (~7076 tok)
-- `2026-05-01-syncskill-remote-lifecycle.md` — syncskill Remote Lifecycle Implementation Plan (~7275 tok)
-- `2026-05-01-syncskill-remote-sync.md` — syncskill Remote Sync Implementation Plan (~12831 tok)
-- `2026-05-01-syncskill-ship-readiness.md` — syncskill Ship Readiness Implementation Plan (~5706 tok)
-- `2026-05-01-syncskill-state-and-reconciliation.md` — syncskill State and Reconciliation Implementation Plan (~11104 tok)
-- `2026-05-06-config-ui-enhancements.md` — Config UI Enhancements Implementation Plan (~8411 tok)
-
 ## docs/superpowers/specs/
 
-- `2026-04-30-syncskill-cli-implementation-design.md` — syncskill CLI — Implementation Design (~2129 tok)
-- `2026-05-01-syncskill-remote-lifecycle-design.md` — syncskill Remote Lifecycle — Design (~2528 tok)
-- `2026-05-01-syncskill-ship-readiness-design.md` — syncskill Ship Readiness — Design (~1719 tok)
 - `syncskill-typescript-design.md` — syncskill — TypeScript 实现设计 (~3375 tok)
 
 ## src/
