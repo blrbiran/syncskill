@@ -274,11 +274,13 @@ export function createProgram(homeDir?: string): Command {
   program
     .command('refresh [server]')
     .description('Refresh tracked manifests from local and remote sources')
+    .option('--all', 'Refresh both local and remote (default when no flags)')
     .option('--local', 'Refresh local manifest state')
     .option('--remote', 'Refresh remote manifest state')
     .option('--status', 'Show refreshed status rows')
-    .action(async (server: string | undefined, options: { local?: boolean; remote?: boolean; status?: boolean }) => {
+    .action(async (server: string | undefined, options: { all?: boolean; local?: boolean; remote?: boolean; status?: boolean }) => {
       const manifests = await refreshStoredManifests(resolvedHomeDir, {
+        all: Boolean(options.all),
         local: Boolean(options.local),
         remote: Boolean(options.remote),
         server

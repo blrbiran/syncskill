@@ -12,6 +12,7 @@ import {
 import { createTransportRuntime, refreshRemoteManifestFromServer } from './transport.js';
 
 export interface RefreshStoredManifestOptions {
+  all?: boolean;
   local?: boolean;
   remote?: boolean;
   server?: string;
@@ -35,10 +36,18 @@ export async function loadTrackedManifests(homeDir: string, server?: string): Pr
 }
 
 export function shouldRefreshLocal(options: RefreshStoredManifestOptions): boolean {
+  if (options.all === true) {
+    return true;
+  }
+
   return options.local === true || options.remote !== true;
 }
 
 export function shouldRefreshRemote(options: RefreshStoredManifestOptions): boolean {
+  if (options.all === true) {
+    return true;
+  }
+
   return options.remote === true;
 }
 

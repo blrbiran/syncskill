@@ -445,6 +445,81 @@ describe('refresh orchestration', () => {
     expect(shouldRefreshRemote({ local: true, remote: true })).toBe(true);
   });
 
+  it('interprets all option as both local and remote refresh', () => {
+    expect(shouldRefreshLocal({ all: true })).toBe(true);
+    expect(shouldRefreshRemote({ all: true })).toBe(true);
+    expect(shouldRefreshLocal({ all: true, local: false })).toBe(true);
+    expect(shouldRefreshRemote({ all: true, remote: false })).toBe(true);
+  });
+
+  it('refreshes both local and remote when all option is true', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {
+              claude: '/srv/skills'
+            }
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const { skillsDir } = getSyncPaths(homeDir);
+    await mkdir(join(skillsDir, 'welcome'), { recursive: true });
+    await writeFile(join(skillsDir, 'welcome', 'SKILL.md'), '# welcome\n', 'utf8');
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: null,
+          remote_hash: '11111111111111111111111111111111',
+          recorded_hash: '11111111111111111111111111111111',
+          direction: 'pull',
+          status: 'new'
+        }
+      }
+    });
+
+    vi.spyOn(transportModule, 'refreshRemoteManifestFromServer').mockImplementation(
+      async (_server, _runtime, manifest, updatedAt) => ({
+        ...manifest,
+        updated_at: updatedAt,
+        skills: {
+          ...manifest.skills,
+          welcome: {
+            ...manifest.skills.welcome,
+            remote_hash: '22222222222222222222222222222222'
+          }
+        }
+      })
+    );
+
+    const updatedAt = '2026-05-05T00:00:00.000Z';
+    const manifests = await refreshStoredManifests(homeDir, {
+      all: true,
+      now: updatedAt
+    });
+
+    expect(manifests).toHaveLength(1);
+    expect(manifests[0]?.skills.welcome.local_hash).not.toBeNull();
+    expect(manifests[0]?.skills.welcome.remote_hash).toBe('22222222222222222222222222222222');
+    expect(transportModule.refreshRemoteManifestFromServer).toHaveBeenCalled();
+  });
+
   it('rebuildRemoteManifestFromHashes uses real remote hashes as source of truth', () => {
     const manifest = createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z');
     manifest.skills.docs = {
