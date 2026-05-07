@@ -641,3 +641,59 @@ async function pathExists(targetPath: string): Promise<boolean> {
     throw error;
   }
 }
+
+export interface GitHubUrlParsed {
+  org: string;
+  repo: string;
+  branch?: string;
+  path: string;
+  cloneUrl: string;
+  skillName: string;
+}
+
+export function parseGitHubUrl(url: string): GitHubUrlParsed | null {
+  // Pattern: https://github.com/<org>/<repo>/tree/<branch>/<path>
+  const treeMatch = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)(?:\/(.+))?$/);
+  if (treeMatch) {
+    const [, org, repo, branch, path = ''] = treeMatch;
+    const skillName = path ? path.split('/').pop()! : repo;
+    return {
+      org,
+      repo,
+      branch,
+      path,
+      cloneUrl: `https://github.com/${org}/${repo}.git`,
+      skillName
+    };
+  }
+
+  // Pattern: https://github.com/<org>/<repo>.git
+  const gitMatch = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\.git$/);
+  if (gitMatch) {
+    const [, org, repo] = gitMatch;
+    return {
+      org,
+      repo,
+      branch: undefined,
+      path: '',
+      cloneUrl: url,
+      skillName: repo
+    };
+  }
+
+  // Pattern: https://github.com/<org>/<repo>
+  const plainMatch = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/?$/);
+  if (plainMatch) {
+    const [, org, repo] = plainMatch;
+    return {
+      org,
+      repo,
+      branch: undefined,
+      path: '',
+      cloneUrl: `https://github.com/${org}/${repo}.git`,
+      skillName: repo
+    };
+  }
+
+  return null;
+}
