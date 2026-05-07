@@ -7,8 +7,8 @@ import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { saveConfig } from '../../src/config.js';
-import { detectGitDefaultBranch, discoverSourceSkills, listSources, loadSourceState, materializeSource, resolveSkillPath, updateSource } from '../../src/source.js';
+import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
+import { detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, listSources, loadSourceState, materializeSource, resolveSkillPath, updateSource } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -724,5 +724,111 @@ describe('resolveSkillPath', () => {
   it('resolves skill path with custom skillSubdir', () => {
     const path = resolveSkillPath('/root', 'skill-a', 'custom-dir');
     expect(path).toBe(join('/root', 'custom-dir', 'skill-a'));
+  });
+});
+
+describe('discoverAllSkills', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('merges skills from local dir and configured sources', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-all-'));
+    tempDirs.push(homeDir);
+
+    // Create local skill
+    const { skillsDir } = getSyncPaths(homeDir);
+    await mkdir(join(skillsDir, 'local-skill'), { recursive: true });
+
+    // Create source with skill
+    const sourceRoot = join(homeDir, 'source');
+    await mkdir(join(sourceRoot, 'skills', 'source-skill'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'source-skill', 'SKILL.md'), '# Source Skill');
+
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      sources: {
+        'my-source': {
+          type: 'local',
+          url: sourceRoot,
+          store: '.'
+        }
+      }
+    }, homeDir);
+
+    const config = await loadConfig(homeDir);
+    const skills = await discoverAllSkills(homeDir, config);
+
+    expect(skills.sort()).toEqual(['local-skill', 'source-skill']);
+  });
+
+  it('returns empty array when no skills exist', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-all-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    const config = await loadConfig(homeDir);
+    const skills = await discoverAllSkills(homeDir, config);
+
+    expect(skills).toEqual([]);
+  });
+
+  it('deduplicates skills that exist in both local dir and sources', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-all-'));
+    tempDirs.push(homeDir);
+
+    // Create local skill
+    const { skillsDir } = getSyncPaths(homeDir);
+    await mkdir(join(skillsDir, 'shared-skill'), { recursive: true });
+
+    // Create source with same skill name
+    const sourceRoot = join(homeDir, 'source');
+    await mkdir(join(sourceRoot, 'skills', 'shared-skill'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'shared-skill', 'SKILL.md'), '# Shared Skill');
+
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      sources: {
+        'my-source': {
+          type: 'local',
+          url: sourceRoot,
+          store: '.'
+        }
+      }
+    }, homeDir);
+
+    const config = await loadConfig(homeDir);
+    const skills = await discoverAllSkills(homeDir, config);
+
+    expect(skills).toEqual(['shared-skill']);
+  });
+
+  it('skips sources with unmaterialized roots', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-all-'));
+    tempDirs.push(homeDir);
+
+    // Create local skill
+    const { skillsDir } = getSyncPaths(homeDir);
+    await mkdir(join(skillsDir, 'local-skill'), { recursive: true });
+
+    // Config with non-existent source
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      sources: {
+        'nonexistent': {
+          type: 'local',
+          url: join(homeDir, 'nonexistent-source'),
+          store: '.'
+        }
+      }
+    }, homeDir);
+
+    const config = await loadConfig(homeDir);
+    const skills = await discoverAllSkills(homeDir, config);
+
+    expect(skills).toEqual(['local-skill']);
   });
 });

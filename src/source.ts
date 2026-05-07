@@ -8,6 +8,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 
+import type { SyncSkillConfig } from './config.js';
 import { getSyncPaths, loadConfig, saveConfig } from './config.js';
 
 const execFileAsync = promisify(execFile);
@@ -793,4 +794,58 @@ export function parseGitHubUrl(url: string): GitHubUrlParsed | null {
   }
 
   return null;
+}
+
+export async function discoverAllSkills(
+  homeDir: string,
+  config: SyncSkillConfig
+): Promise<string[]> {
+  const { skillsDir } = getSyncPaths(homeDir);
+  const allSkills = new Set<string>();
+
+  // 1. Discover skills from ~/.syncskill/skills/
+  if (await pathExists(skillsDir)) {
+    const localSkills = await listSkillDirectories(skillsDir);
+    for (const skill of localSkills) {
+      allSkills.add(skill);
+    }
+  }
+
+  // 2. Discover skills from configured sources
+  for (const [name, sourceDef] of Object.entries(config.sources)) {
+    const sourceEntry = normalizeSourceEntry(name, sourceDef)[0];
+    if (!sourceEntry) continue;
+
+    try {
+      const materializedRoot = getMaterializedRootPath(homeDir, name, sourceEntry);
+      if (!(await pathExists(materializedRoot))) continue;
+
+      const sourceSkills = await discoverSourceSkills(materializedRoot, name);
+      for (const skill of sourceSkills) {
+        allSkills.add(skill);
+      }
+    } catch {
+      // Skip sources that can't be read
+    }
+  }
+
+  return Array.from(allSkills).sort();
+}
+
+function getMaterializedRootPath(homeDir: string, name: string, source: SourceEntry): string {
+  if (source.type === 'local') {
+    return getLocalMaterializedRoot(source);
+  }
+
+  if (source.type === 'git') {
+    const checkoutDir = getGitCheckoutDir(homeDir, name);
+    return isAbsolute(source.store) ? source.store : resolve(checkoutDir, source.store);
+  }
+
+  if (source.type === 'http') {
+    const checkoutDir = getHttpCheckoutDir(homeDir, name);
+    return isAbsolute(source.store) ? source.store : resolve(checkoutDir, source.store);
+  }
+
+  throw new Error(`Unknown source type: ${source.type}`);
 }
