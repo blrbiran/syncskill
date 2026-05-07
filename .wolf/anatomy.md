@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-06T22:00:00.495Z
-> Files: 68 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-07T16:32:14.936Z
+> Files: 61 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -30,23 +30,27 @@
 - `design-guide.md` — Design Guide (~620 tok)
 - `usage-guide.md` — Usage Guide (~974 tok)
 
+## docs/superpowers/plans/
+
+- `2026-05-07-spec-alignment.md` — Spec Alignment Implementation Plan (~10312 tok)
+
 ## docs/superpowers/specs/
 
-- `syncskill-typescript-design.md` — syncskill — TypeScript 实现设计 (~3375 tok)
+- `syncskill-typescript-design.md` — syncskill — TypeScript 实现设计 (~4113 tok)
 
 ## src/
 
-- `config-ui.ts` — Exports PromptApi, createPromptApi, SafeSelectResult, safeSelect + 11 more (~3952 tok)
-- `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 11 more (~1842 tok)
-- `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 3 more (~926 tok)
-- `index.ts` — Exports createProgram (~3976 tok)
-- `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, listLocalSkills + 5 more (~1183 tok)
+- `config-ui.ts` — Exports PromptApi, createPromptApi, SafeSelectResult, safeSelect + 11 more (~3968 tok)
+- `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 12 more (~2035 tok)
+- `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 5 more (~1129 tok)
+- `index.ts` — Exports createProgram (~4650 tok)
+- `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, listLocalSkills + 5 more (~1184 tok)
 - `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3315 tok)
-- `matrix-editor.ts` — Exports MatrixEditorConfig, MatrixEditorResult, renderMatrixLine, createMatrixEditor (~1502 tok)
-- `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + 5 more (~1289 tok)
+- `matrix-editor.ts` — Exports MatrixEditorConfig, MatrixEditorResult, renderMatrixLine, createMatrixEditor (~1495 tok)
+- `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1324 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~729 tok)
 - `server.ts` — Exports ProbeLine, formatServerListLines, formatServerShowLines, formatProbeLines + 3 more (~438 tok)
-- `source.ts` — Exports SourceType, SourceDefinition, SourceEntry, SourceState + 7 more (~5355 tok)
+- `source.ts` — Exports SourceType, SourceDefinition, SourceEntry, SourceState, discoverAllSkills, discoverSourceSkills + 9 more (~7293 tok)
 - `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 5 more (~2963 tok)
 - `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer + 6 more (~3216 tok)
 
@@ -62,16 +66,17 @@
 
 ## tests/integration/
 
-- `config-cli.test.ts` — Declares homeDir (~820 tok)
-- `config-ui.test.ts` — Declares PromptStub (~3006 tok)
+- `config-cli.test.ts` — Declares homeDir (~1079 tok)
+- `config-ui.test.ts` — Declares PromptStub (~3001 tok)
+- `discover.test.ts` — Declares tempDirs (~646 tok)
 - `help-output.test.ts` — Declares help (~152 tok)
 - `README.md` — Project documentation (~37 tok)
-- `reconciliation-cli.test.ts` — Declares tempDirs (~4075 tok)
+- `reconciliation-cli.test.ts` — Declares tempDirs (~4490 tok)
 - `remote-refresh.test.ts` — Declares tempDirs (~669 tok)
 - `repo.test.ts` — Declares tempDirs (~1236 tok)
-- `scan.test.ts` — Declares tempDirs (~641 tok)
 - `server-cli.test.ts` — Declares tempDirs (~1061 tok)
 - `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~3087 tok)
+- `source-remove.test.ts` — Declares tempDirs (~684 tok)
 - `sync-cli.test.ts` — Declares tempDirs (~1314 tok)
 - `sync-engine.test.ts` — TransportRuntime: createRuntime (~3568 tok)
 - `transport.test.ts` — receiverPath: importReceiverModule, runReceiverCommand, runReceiverApply, createReceiverManifest, createRuntime (~6110 tok)
@@ -86,7 +91,8 @@
 - `matrix-editor.test.ts` — Declares config (~540 tok)
 - `package.test.ts` — Declares rootDir (~364 tok)
 - `README.md` — Project documentation (~35 tok)
-- `refresh.test.ts` — Declares tempDirs (~4994 tok)
+- `refresh.test.ts` — Declares tempDirs (~5658 tok)
 - `server.test.ts` (~406 tok)
-- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~7082 tok)
+- `source-github-url.test.ts` — Declares result (~1311 tok)
+- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~9048 tok)
 - `test-tiers.test.ts` — Declares rootDir (~368 tok)
