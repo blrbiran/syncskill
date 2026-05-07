@@ -398,9 +398,7 @@ export async function runConfigUi(
   if (options.directEntry === 'link') {
     const result = await editLinksMatrix(config, homeDir);
     applyMatrixToLinks(config, result);
-    if (!result.cancelled) {
-      await saveConfig(config, homeDir);
-    }
+    await saveConfig(config, homeDir);
     return;
   }
 
@@ -430,36 +428,37 @@ export async function runConfigUi(
     });
 
     if (result.escaped || result.value === 'done') {
+      await saveConfig(config, homeDir);
       break;
     }
 
     if (result.value === 'agents') {
       await editAgents(config, prompts);
+      await saveConfig(config, homeDir);
       continue;
     }
 
     if (result.value === 'links') {
       await editLinks(config, prompts);
+      await saveConfig(config, homeDir);
       continue;
     }
 
     if (result.value === 'servers') {
       await editServers(config, prompts);
+      await saveConfig(config, homeDir);
       continue;
     }
 
     if (result.value === 'remote') {
       await editRemote(config, homeDir);
+      await saveConfig(config, homeDir);
       continue;
     }
 
     if (result.value === 'conflict_resolution') {
       await editConflictResolution(config, prompts);
+      await saveConfig(config, homeDir);
     }
-  }
-
-  const shouldSave = await prompts.confirm({ message: 'Save changes?', default: true });
-  if (shouldSave) {
-    await saveConfig(config, homeDir);
   }
 }

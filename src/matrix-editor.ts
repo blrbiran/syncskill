@@ -60,7 +60,7 @@ export const createMatrixEditor = () =>
 
     useKeypress((key) => {
       if (key.name === 'escape') {
-        done({ cancelled: true, selected: initialSelected });
+        done({ cancelled: false, selected });
         return;
       }
 
@@ -135,7 +135,7 @@ export const createMatrixEditor = () =>
 
     const pageInfo = totalPages > 1 ? `  Page ${currentPage + 1}/${totalPages}` : '';
     const titleLine = `${title}${pageInfo}`;
-    const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  Enter: save  Esc: back';
+    const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  Enter/Esc: save';
 
     const lines = pageRows.map((rowName, idx) => {
       const rowSelected = selected[rowName] ?? [];

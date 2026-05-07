@@ -53,7 +53,7 @@ describe('runConfigUi', () => {
 
     await runConfigUi(
       homeDir,
-      new PromptStub(['agents', 'add', 'local', '/tmp/local-skills', 'back', 'done', true])
+      new PromptStub(['agents', 'add', 'local', '/tmp/local-skills', 'back', 'done'])
     );
 
     await expect(loadConfig(homeDir)).resolves.toEqual({
@@ -80,7 +80,7 @@ describe('runConfigUi', () => {
       homeDir
     );
 
-    await runConfigUi(homeDir, new PromptStub(['links', 'edit', 'welcome', ['*', 'qoder'], 'back', 'done', true]));
+    await runConfigUi(homeDir, new PromptStub(['links', 'edit', 'welcome', ['*', 'qoder'], 'back', 'done']));
 
     await expect(loadConfig(homeDir)).resolves.toEqual({
       version: 1,
@@ -103,7 +103,7 @@ describe('runConfigUi', () => {
 
     await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
 
-    await runConfigUi(homeDir, new PromptStub(['conflict_resolution', 'keep-local', 'done', true]));
+    await runConfigUi(homeDir, new PromptStub(['conflict_resolution', 'keep-local', 'done']));
 
     await expect(loadConfig(homeDir)).resolves.toEqual({
       version: 1,
