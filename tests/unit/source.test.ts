@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { saveConfig } from '../../src/config.js';
-import { detectGitDefaultBranch, listSources, loadSourceState, materializeSource, updateSource } from '../../src/source.js';
+import { detectGitDefaultBranch, discoverSourceSkills, listSources, loadSourceState, materializeSource, resolveSkillPath, updateSource } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -631,5 +631,98 @@ describe('source module', () => {
   it('detectGitDefaultBranch returns main as fallback for invalid URLs', async () => {
     const branch = await detectGitDefaultBranch('/nonexistent/path');
     expect(branch).toBe('main');
+  });
+});
+
+describe('discoverSourceSkills', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('discovers skills in skills/ subdirectory (multi-skill mode)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'source');
+    await mkdir(join(sourceRoot, 'skills', 'skill-a'), { recursive: true });
+    await mkdir(join(sourceRoot, 'skills', 'skill-b'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'skill-a', 'SKILL.md'), '# Skill A');
+    await writeFile(join(sourceRoot, 'skills', 'skill-b', 'SKILL.md'), '# Skill B');
+
+    const skills = await discoverSourceSkills(sourceRoot);
+
+    expect(skills).toEqual(['skill-a', 'skill-b']);
+  });
+
+  it('discovers single skill when root has SKILL.md (single-skill mode)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'my-skill');
+    await mkdir(sourceRoot, { recursive: true });
+    await writeFile(join(sourceRoot, 'SKILL.md'), '# My Skill');
+
+    const skills = await discoverSourceSkills(sourceRoot, 'my-skill');
+
+    expect(skills).toEqual(['my-skill']);
+  });
+
+  it('returns empty array when no skills found', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'empty');
+    await mkdir(sourceRoot, { recursive: true });
+
+    const skills = await discoverSourceSkills(sourceRoot);
+
+    expect(skills).toEqual([]);
+  });
+
+  it('ignores directories in skills/ subdirectory without SKILL.md', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'source');
+    await mkdir(join(sourceRoot, 'skills', 'valid-skill'), { recursive: true });
+    await mkdir(join(sourceRoot, 'skills', 'not-a-skill'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'valid-skill', 'SKILL.md'), '# Valid Skill');
+    await writeFile(join(sourceRoot, 'skills', 'not-a-skill', 'README.md'), '# Not a skill');
+
+    const skills = await discoverSourceSkills(sourceRoot);
+
+    expect(skills).toEqual(['valid-skill']);
+  });
+
+  it('returns empty array for single-skill mode without fallbackName', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'my-skill');
+    await mkdir(sourceRoot, { recursive: true });
+    await writeFile(join(sourceRoot, 'SKILL.md'), '# My Skill');
+
+    const skills = await discoverSourceSkills(sourceRoot);
+
+    expect(skills).toEqual([]);
+  });
+});
+
+describe('resolveSkillPath', () => {
+  it('resolves skill path with skillSubdir', () => {
+    const path = resolveSkillPath('/root', 'skill-a', 'skills');
+    expect(path).toBe(join('/root', 'skills', 'skill-a'));
+  });
+
+  it('resolves skill path without skillSubdir (uses skills/ default)', () => {
+    const path = resolveSkillPath('/root', 'skill-a');
+    expect(path).toBe(join('/root', 'skills', 'skill-a'));
+  });
+
+  it('resolves skill path with custom skillSubdir', () => {
+    const path = resolveSkillPath('/root', 'skill-a', 'custom-dir');
+    expect(path).toBe(join('/root', 'custom-dir', 'skill-a'));
   });
 });

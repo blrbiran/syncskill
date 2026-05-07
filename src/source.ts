@@ -629,7 +629,7 @@ export async function detectGitDefaultBranch(url: string): Promise<string> {
   }
 }
 
-async function pathExists(targetPath: string): Promise<boolean> {
+export async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await lstat(targetPath);
     return true;
@@ -640,6 +640,49 @@ async function pathExists(targetPath: string): Promise<boolean> {
 
     throw error;
   }
+}
+
+export async function discoverSourceSkills(
+  sourceRoot: string,
+  fallbackName?: string
+): Promise<string[]> {
+  // Priority 1: Check for skills/ subdirectory (multi-skill mode)
+  const skillsSubdir = join(sourceRoot, 'skills');
+  if (await pathExists(skillsSubdir)) {
+    const entries = await readdir(skillsSubdir, { withFileTypes: true });
+    const skills: string[] = [];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const skillMdPath = join(skillsSubdir, entry.name, 'SKILL.md');
+      if (await pathExists(skillMdPath)) {
+        skills.push(entry.name);
+      }
+    }
+
+    return skills.sort();
+  }
+
+  // Priority 2: Check for SKILL.md in root (single-skill mode)
+  const rootSkillMd = join(sourceRoot, 'SKILL.md');
+  if (await pathExists(rootSkillMd) && fallbackName) {
+    return [fallbackName];
+  }
+
+  return [];
+}
+
+export function resolveSkillPath(
+  sourceRoot: string,
+  skillName: string,
+  skillSubdir?: string
+): string {
+  if (skillSubdir) {
+    return join(sourceRoot, skillSubdir, skillName);
+  }
+
+  // Default: skills/ subdirectory
+  return join(sourceRoot, 'skills', skillName);
 }
 
 export interface GitHubUrlParsed {
