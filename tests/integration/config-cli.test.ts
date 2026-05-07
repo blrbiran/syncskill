@@ -71,4 +71,28 @@ describe('config CLI', () => {
       sources: {}
     });
   });
+
+  it('lists all valid config paths with --show-paths', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      agents: { claude: '~/.claude/skills' },
+      servers: { prod: { host: 'prod.example.com', user: 'deploy' } }
+    }, homeDir);
+
+    const output: string[] = [];
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg: string) => {
+      output.push(msg);
+    });
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'config', 'set', '--show-paths']);
+
+    consoleLog.mockRestore();
+
+    expect(output.some(line => line.includes('agents.claude'))).toBe(true);
+    expect(output.some(line => line.includes('servers.prod.host'))).toBe(true);
+    expect(output.some(line => line.includes('conflict_resolution'))).toBe(true);
+  });
 });

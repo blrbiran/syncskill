@@ -3,7 +3,7 @@
 import { Command, InvalidArgumentError } from 'commander';
 
 import { applyResolution, reconcileManifest } from './conflict.js';
-import { loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
+import { getConfigPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
 import { createPromptApi, runConfigUi } from './config-ui.js';
 import { collectLinkStatus, discoverSkills, linkConfiguredSkills, unlinkSkill } from './linker.js';
 import { loadServerManifest, saveServerManifest } from './manifest.js';
@@ -105,10 +105,23 @@ export function createProgram(homeDir?: string): Command {
     });
 
   configCommand
-    .command('set <key> <value>')
+    .command('set [key] [value]')
     .description('Set a config value')
-    .action(async (key: string, value: string) => {
+    .option('--show-paths', 'Show all valid config paths')
+    .action(async (key: string | undefined, value: string | undefined, options: { showPaths?: boolean }) => {
       const current = await loadConfig(homeDir);
+
+      if (options.showPaths) {
+        for (const { path, value: configValue } of getConfigPaths(current)) {
+          console.log(`${path}\t${JSON.stringify(configValue)}`);
+        }
+        return;
+      }
+
+      if (key === undefined || value === undefined) {
+        throw new Error('config set requires <key> and <value>, or use --show-paths');
+      }
+
       const parsed = parseConfigValue(value);
       const next = setConfigValue(current, key, parsed);
       await saveConfig(next, homeDir);

@@ -239,3 +239,27 @@ function normalizeLinks(value: unknown): Record<string, string[]> {
     Object.entries(value).map(([key, targets]) => [key, normalizeStringArray(targets)])
   );
 }
+
+export function getConfigPaths(config: SyncSkillConfig): Array<{ path: string; value: unknown }> {
+  const paths: Array<{ path: string; value: unknown }> = [];
+
+  function walk(obj: unknown, currentPath: string): void {
+    if (obj === null || typeof obj !== 'object') {
+      paths.push({ path: currentPath, value: obj });
+      return;
+    }
+
+    if (Array.isArray(obj)) {
+      paths.push({ path: currentPath, value: obj });
+      return;
+    }
+
+    for (const [key, value] of Object.entries(obj)) {
+      const nextPath = currentPath ? `${currentPath}.${key}` : key;
+      walk(value, nextPath);
+    }
+  }
+
+  walk(config, '');
+  return paths.filter(p => p.path !== '');
+}
