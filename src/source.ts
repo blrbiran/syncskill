@@ -119,6 +119,41 @@ export async function updateAllSources(homeDir = homedir(), updatedAt = new Date
   return states;
 }
 
+export interface RemoveSourceOptions {
+  keepStore?: boolean;
+}
+
+export async function removeSource(
+  homeDir = homedir(),
+  name: string,
+  options: RemoveSourceOptions = {}
+): Promise<void> {
+  const config = await loadConfig(homeDir);
+
+  if (config.sources[name] === undefined) {
+    throw new Error(`Source not found: ${name}`);
+  }
+
+  delete config.sources[name];
+  await saveConfig(config, homeDir);
+
+  const ownershipState = await loadSkillOwnershipState(homeDir);
+  const nextOwnership = structuredClone(ownershipState) as SkillOwnershipState;
+
+  for (const [skill, owner] of Object.entries(nextOwnership.owners)) {
+    if (owner === name) {
+      delete nextOwnership.owners[skill];
+    }
+  }
+
+  await saveSkillOwnershipState(homeDir, nextOwnership);
+
+  if (!options.keepStore) {
+    const sourceDir = join(getSyncPaths(homeDir).syncDir, '.sources', name);
+    await rm(sourceDir, { recursive: true, force: true });
+  }
+}
+
 async function syncSource(
   homeDir: string,
   name: string,

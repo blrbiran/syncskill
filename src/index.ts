@@ -17,7 +17,7 @@ import {
   loadTrackedManifests,
   refreshStoredManifests
 } from './refresh.js';
-import { addSource, formatSourceListLines, listSources, SourceType, updateAllSources, updateSource } from './source.js';
+import { addSource, formatSourceListLines, listSources, removeSource, SourceType, updateAllSources, updateSource } from './source.js';
 import { pullFromServer, pushToServers, syncServers, type PullResult, type PushResult } from './sync_engine.js';
 
 function shouldSkipAutoRefresh(command: Command): boolean {
@@ -247,6 +247,15 @@ export function createProgram(homeDir?: string): Command {
       }
 
       await updateSource(resolvedHomeDir, name);
+    });
+
+  sourceCommand
+    .command('remove <name>')
+    .description('Remove a configured source')
+    .option('--keep-store', 'Keep the local store directory')
+    .action(async (name: string, options: { keepStore?: boolean }) => {
+      await removeSource(resolvedHomeDir, name, { keepStore: Boolean(options.keepStore) });
+      console.log(`Removed source: ${name}`);
     });
 
   const serverCommand = program.command('server').description('Inspect configured remote servers');
