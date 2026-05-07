@@ -651,6 +651,60 @@ export interface GitHubUrlParsed {
   skillName: string;
 }
 
+export interface AddSourceFromUrlOptions {
+  name?: string;
+  type?: SourceType;
+  store?: string;
+  skillSubdir?: string;
+  ref?: string;
+}
+
+export async function addSourceFromUrl(
+  homeDir = homedir(),
+  urlOrName: string,
+  options: AddSourceFromUrlOptions = {}
+): Promise<{ name: string; source: SourceDefinition }> {
+  const { syncDir } = getSyncPaths(homeDir);
+  const parsed = parseGitHubUrl(urlOrName);
+
+  if (parsed) {
+    const name = options.name ?? parsed.skillName;
+    const store = options.store ?? join(syncDir, 'sources', parsed.repo);
+    const source: SourceDefinition = {
+      type: options.type ?? 'git',
+      url: parsed.cloneUrl,
+      store: relative(syncDir, store) || '.',
+      ...(parsed.branch || options.ref ? { ref: options.ref ?? parsed.branch } : {}),
+    };
+
+    await addSource(homeDir, name, source);
+    return { name, source };
+  }
+
+  // Not a GitHub URL - require explicit parameters
+  if (!options.type || !options.store) {
+    const expectedFormats = [
+      'https://github.com/<org>/<repo>/tree/<branch>/<path>',
+      'https://github.com/<org>/<repo>.git',
+      'https://github.com/<org>/<repo>'
+    ];
+    throw new Error(
+      `Could not parse URL. Expected GitHub URL formats:\n${expectedFormats.map(f => `  ${f}`).join('\n')}\n\nOr provide explicit --type, --url, and --store options.`
+    );
+  }
+
+  const name = options.name ?? urlOrName;
+  const source: SourceDefinition = {
+    type: options.type,
+    url: urlOrName,
+    store: options.store,
+    ...(options.ref ? { ref: options.ref } : {}),
+  };
+
+  await addSource(homeDir, name, source);
+  return { name, source };
+}
+
 export function parseGitHubUrl(url: string): GitHubUrlParsed | null {
   // Pattern: https://github.com/<org>/<repo>/tree/<branch>/<path>
   const treeMatch = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)(?:\/(.+))?$/);

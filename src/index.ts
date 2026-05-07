@@ -17,7 +17,7 @@ import {
   loadTrackedManifests,
   refreshStoredManifests
 } from './refresh.js';
-import { addSource, formatSourceListLines, listSources, removeSource, SourceType, updateAllSources, updateSource } from './source.js';
+import { addSourceFromUrl, formatSourceListLines, listSources, removeSource, SourceType, updateAllSources, updateSource } from './source.js';
 import { pullFromServer, pushToServers, syncServers, type PullResult, type PushResult } from './sync_engine.js';
 
 function shouldSkipAutoRefresh(command: Command): boolean {
@@ -200,31 +200,34 @@ export function createProgram(homeDir?: string): Command {
   const sourceCommand = program.command('source').description('Manage configured sources');
 
   sourceCommand
-    .command('add <name>')
-    .description('Add a source and materialize it immediately')
-    .requiredOption(
-      '--type <type>',
-      'Source type',
-      (value: string) => {
-        if (value === 'local' || value === 'git' || value === 'http') {
-          return value as SourceType;
-        }
-
-        throw new InvalidArgumentError('Expected local, git, or http');
+    .command('add <nameOrUrl>')
+    .description('Add a source (supports GitHub URL direct parsing)')
+    .option('--type <type>', 'Source type (git, http, local)', (value: string) => {
+      if (value === 'local' || value === 'git' || value === 'http') {
+        return value as SourceType;
       }
-    )
-    .requiredOption('--url <url>', 'Source URL')
-    .requiredOption('--store <store>', 'Materialized store path')
-    .option('--ref <ref>', 'Source revision')
-    .action(async (name: string, options: { type: SourceType; url: string; store: string; ref?: string }) => {
-      const source = {
+      throw new InvalidArgumentError('Expected local, git, or http');
+    })
+    .option('--url <url>', 'Source URL (if different from first argument)')
+    .option('--store <store>', 'Materialized store path')
+    .option('--skill-subdir <dir>', 'Subdirectory within source containing skills')
+    .option('--ref <ref>', 'Git ref (branch/tag)')
+    .action(async (nameOrUrl: string, options: {
+      type?: SourceType;
+      url?: string;
+      store?: string;
+      skillSubdir?: string;
+      ref?: string;
+    }) => {
+      const { name } = await addSourceFromUrl(resolvedHomeDir, options.url ?? nameOrUrl, {
+        name: options.url ? nameOrUrl : undefined,
         type: options.type,
-        url: options.url,
         store: options.store,
-        ...(typeof options.ref === 'string' ? { ref: options.ref } : {})
-      };
+        skillSubdir: options.skillSubdir,
+        ref: options.ref
+      });
 
-      await addSource(resolvedHomeDir, name, source);
+      console.log(`Added source: ${name}`);
     });
 
   sourceCommand
