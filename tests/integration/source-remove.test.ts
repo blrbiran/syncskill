@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { parse, stringify } from 'yaml';
 
 import { createDefaultConfig, loadConfig, saveConfig, type SyncSkillConfig } from '../../src/config.js';
-import { RemovalAction, removeSource } from '../../src/source.js';
+import { listLocalSkillNames } from '../../src/manifest.js';
+import { findOrphanSkills, loadSkillOwnershipState, RemovalAction, removeSource } from '../../src/source.js';
 
 describe('removeSource', () => {
   const tempDirs: string[] = [];
@@ -227,5 +228,65 @@ describe('removeSource with RemovalAction', () => {
     await expect(
       removeSource(homeDir, 'test-source', { action: RemovalAction.ConvertToLocal })
     ).rejects.toThrow('ConvertToLocal only valid for git sources');
+  });
+});
+
+describe('findOrphanSkills integration', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('correctly identifies orphan skills with real file structure', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-orphan-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const skillsDir = join(syncDir, 'skills');
+
+    // Create skills directory with one manual skill
+    await mkdir(join(skillsDir, 'manual-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'manual-skill', 'SKILL.md'), 'manual');
+
+    // Create source with two skills, one overlaps with manual
+    await mkdir(join(syncDir, '.sources', 'test-source', 'materialized', 'skill-a'), { recursive: true });
+    await mkdir(join(syncDir, '.sources', 'test-source', 'materialized', 'manual-skill'), { recursive: true });
+
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: { claude: '~/.claude/skills' },
+        links: {
+          'skill-a': ['*'],
+          'manual-skill': ['*'],
+        },
+        sources: {
+          'test-source': { type: 'git', url: 'https://example.com/repo.git' },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    await writeFile(
+      join(syncDir, '.sources', 'skills.json'),
+      JSON.stringify({
+        owners: {
+          'skill-a': 'test-source',
+          'manual-skill': 'test-source',
+        },
+      })
+    );
+
+    const config = await loadConfig(homeDir);
+    const ownershipState = await loadSkillOwnershipState(homeDir);
+    const localSkills = new Set(await listLocalSkillNames(homeDir));
+
+    const orphans = findOrphanSkills('test-source', config, ownershipState, localSkills);
+
+    // manual-skill exists in skillsDir, so not orphan
+    // skill-a only from source, so orphan
+    expect(orphans).toEqual(['skill-a']);
   });
 });
