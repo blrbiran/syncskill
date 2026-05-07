@@ -8,7 +8,8 @@ import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
-import { detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, listSources, loadSourceState, materializeSource, resolveSkillPath, updateSource } from '../../src/source.js';
+import type { SyncSkillConfig } from '../../src/config.js';
+import { detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findOrphanSkills, listSources, loadSourceState, materializeSource, resolveSkillPath, updateSource } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -830,5 +831,77 @@ describe('discoverAllSkills', () => {
     const skills = await discoverAllSkills(homeDir, config);
 
     expect(skills).toEqual(['local-skill']);
+  });
+});
+
+describe('findOrphanSkills', () => {
+  it('returns skills only owned by the target source', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      agents: { claude: '~/.claude/skills' },
+      links: {
+        'skill-a': ['*'],
+        'skill-b': ['*'],
+        'skill-c': ['*'],
+      },
+      sources: {
+        'source-one': { type: 'git', url: 'https://example.com/repo.git', store: '.' },
+        'source-two': { type: 'git', url: 'https://example.com/other.git', store: '.' },
+      },
+      servers: {},
+      conflict_resolution: 'manual',
+    };
+    const ownershipState = {
+      owners: {
+        'skill-a': 'source-one',
+        'skill-b': 'source-one',
+        'skill-c': 'source-two',
+      },
+    };
+    const localSkills = new Set<string>(); // no manual skills
+
+    const orphans = findOrphanSkills('source-one', config, ownershipState, localSkills);
+
+    expect(orphans).toEqual(['skill-a', 'skill-b']);
+  });
+
+  it('excludes skills that exist in local skills directory', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      agents: { claude: '~/.claude/skills' },
+      links: { 'skill-a': ['*'] },
+      sources: {
+        'source-one': { type: 'git', url: 'https://example.com/repo.git', store: '.' },
+      },
+      servers: {},
+      conflict_resolution: 'manual',
+    };
+    const ownershipState = {
+      owners: { 'skill-a': 'source-one' },
+    };
+    const localSkills = new Set(['skill-a']); // also exists locally
+
+    const orphans = findOrphanSkills('source-one', config, ownershipState, localSkills);
+
+    expect(orphans).toEqual([]);
+  });
+
+  it('returns empty array when source owns no skills', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      agents: { claude: '~/.claude/skills' },
+      links: {},
+      sources: {
+        'source-one': { type: 'git', url: 'https://example.com/repo.git', store: '.' },
+      },
+      servers: {},
+      conflict_resolution: 'manual',
+    };
+    const ownershipState = { owners: {} };
+    const localSkills = new Set<string>();
+
+    const orphans = findOrphanSkills('source-one', config, ownershipState, localSkills);
+
+    expect(orphans).toEqual([]);
   });
 });

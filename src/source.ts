@@ -31,8 +31,8 @@ export interface SourceState {
   updated_at: string;
 }
 
-interface SkillOwnershipState {
-  owners: Record<string, string>;
+export interface SkillOwnershipState {
+  owners: Record<string, string>; // skill name -> source name
 }
 
 export async function listSources(homeDir = homedir()): Promise<SourceEntry[]> {
@@ -848,4 +848,24 @@ function getMaterializedRootPath(homeDir: string, name: string, source: SourceEn
   }
 
   throw new Error(`Unknown source type: ${source.type}`);
+}
+
+export function findOrphanSkills(
+  sourceName: string,
+  _config: SyncSkillConfig,
+  ownershipState: SkillOwnershipState,
+  localSkills: Set<string>
+): string[] {
+  const orphans: string[] = [];
+
+  for (const [skill, owner] of Object.entries(ownershipState.owners)) {
+    if (owner !== sourceName) continue;
+
+    // Check if skill exists in local skills directory (manual management)
+    if (localSkills.has(skill)) continue;
+
+    orphans.push(skill);
+  }
+
+  return orphans.sort();
 }
