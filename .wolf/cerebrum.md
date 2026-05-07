@@ -12,7 +12,7 @@
 
 - **Project:** syncskill
 - **Description:** Multi-device AI Agent Skill sync tool
-- **Main Spec:** `docs/superpowers/specs/syncskill-typescript-design.md` 是总设计文档，实现前先对比 spec 与当前代码，确定待实现部分
+- **Main Spec:** `docs/superpowers/specs/syncskill-design.md` 是总设计文档，实现前先对比 spec 与当前代码，确定待实现部分
 - **Testing:** 本地测试 CLI 使用 `npm run build && npm link`，然后运行 `syncskill <args>`
 - **CLI Entry Point:** 当通过 npm link 运行时，`process.argv[1]` 是 symlink 路径，与 `import.meta.url` 不匹配。需要使用 `realpathSync` 解析真实路径后比较
 
@@ -28,4 +28,4 @@
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->
 
-- **[2026-05-07]** Main design spec is `docs/superpowers/specs/syncskill-typescript-design.md`. All future major changes should prompt whether to update this spec document.
+- **[2026-05-07]** Main design spec is `docs/superpowers/specs/syncskill-design.md`. All future major changes should prompt whether to update this spec document.

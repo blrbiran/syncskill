@@ -36,7 +36,7 @@
 
 ## docs/superpowers/specs/
 
-- `syncskill-typescript-design.md` — syncskill — TypeScript 实现设计 (~4113 tok)
+- `syncskill-design.md` — syncskill — TypeScript 实现设计 (~4113 tok)
 
 ## src/
 
