@@ -289,7 +289,7 @@ function getSkillOwnershipStateFile(homeDir: string): string {
   return join(getSyncPaths(homeDir).syncDir, '.sources', 'skills.json');
 }
 
-async function loadSkillOwnershipState(homeDir: string): Promise<SkillOwnershipState> {
+export async function loadSkillOwnershipState(homeDir: string): Promise<SkillOwnershipState> {
   const stateFile = getSkillOwnershipStateFile(homeDir);
 
   try {
