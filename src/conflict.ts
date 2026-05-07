@@ -89,6 +89,32 @@ export function getDiffRows(manifest: ServerManifest): StatusRow[] {
   return getStatusRows(manifest).filter((row) => row.direction !== 'skip');
 }
 
+export interface ConflictMarker {
+  skill: string;
+  server: string;
+  local_hash: string;
+  remote_hash: string;
+  created_at: string;
+}
+
+export function formatConflictMarker(marker: ConflictMarker): string {
+  return `# Sync Conflict Marker
+# This file was created by syncskill resolve --manual
+# Delete this file after resolving the conflict
+
+skill: ${marker.skill}
+server: ${marker.server}
+local_hash: ${marker.local_hash}
+remote_hash: ${marker.remote_hash}
+created_at: ${marker.created_at}
+
+# Resolution options:
+# 1. Keep local: syncskill resolve ${marker.skill} --take local
+# 2. Keep remote: syncskill resolve ${marker.skill} --take remote
+# 3. Manual merge: Edit files, then run one of the above
+`;
+}
+
 export function applyResolution(
   manifest: ServerManifest,
   skill: string,

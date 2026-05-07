@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { saveConfig } from '../../src/config.js';
+import { createDefaultConfig, saveConfig } from '../../src/config.js';
 import { getSyncPaths } from '../../src/config.js';
 import { loadServerManifest, saveServerManifest } from '../../src/manifest.js';
 import * as refreshModule from '../../src/refresh.js';
@@ -488,5 +488,45 @@ describe('reconciliation CLI', () => {
         }
       }
     });
+  });
+
+  it('creates .sync-conflict marker file with --manual option', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-'));
+    tempDirs.push(homeDir);
+
+    const { skillsDir, manifestsDir } = getSyncPaths(homeDir);
+    await mkdir(join(skillsDir, 'test-skill'), { recursive: true });
+    await mkdir(manifestsDir, { recursive: true });
+
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    await writeFile(
+      join(manifestsDir, 'test-server.json'),
+      JSON.stringify({
+        version: 1,
+        server: 'test-server',
+        updated_at: new Date().toISOString(),
+        skills: {
+          'test-skill': {
+            local_hash: 'local-hash',
+            remote_hash: 'remote-hash',
+            recorded_hash: 'base-hash',
+            direction: 'conflict',
+            status: 'conflict'
+          }
+        }
+      })
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'resolve', 'test-skill', '--manual']);
+
+    const markerPath = join(skillsDir, 'test-skill', '.sync-conflict');
+    const marker = await readFile(markerPath, 'utf8');
+
+    expect(marker).toContain('local_hash: local-hash');
+    expect(marker).toContain('remote_hash: remote-hash');
+    expect(consoleLog.mock.calls[0][0]).toContain('Created conflict marker:');
   });
 });

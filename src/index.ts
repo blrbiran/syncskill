@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { Command, InvalidArgumentError } from 'commander';
 
-import { applyResolution, reconcileManifest } from './conflict.js';
-import { getConfigPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
+import { applyResolution, formatConflictMarker, reconcileManifest } from './conflict.js';
+import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
 import { createPromptApi, runConfigUi } from './config-ui.js';
 import { collectLinkStatus, discoverSkills, linkConfiguredSkills, unlinkSkill } from './linker.js';
 import { loadServerManifest, saveServerManifest } from './manifest.js';
@@ -347,7 +350,7 @@ export function createProgram(homeDir?: string): Command {
   program
     .command('resolve <skill>')
     .description('Resolve one tracked conflict by choosing local or remote state')
-    .requiredOption(
+    .option(
       '--take <side>',
       'Choose which side to keep',
       (value: string) => {
@@ -358,7 +361,12 @@ export function createProgram(homeDir?: string): Command {
         throw new InvalidArgumentError('Expected local or remote');
       }
     )
-    .action(async (skill: string, options: { take: 'local' | 'remote' }) => {
+    .option('--manual', 'Create .sync-conflict marker file for manual resolution')
+    .action(async (skill: string, options: { take?: 'local' | 'remote'; manual?: boolean }) => {
+      if (!options.take && !options.manual) {
+        throw new Error('resolve requires --take <local|remote> or --manual');
+      }
+
       const servers = await listTrackedServers(resolvedHomeDir);
       const updatedAt = new Date().toISOString();
       let resolved = false;
@@ -372,7 +380,25 @@ export function createProgram(homeDir?: string): Command {
           continue;
         }
 
-        const updatedManifest = applyResolution(reconciled, skill, options.take, updatedAt);
+        if (options.manual) {
+          const { skillsDir } = getSyncPaths(resolvedHomeDir);
+          const skillDir = join(skillsDir, skill);
+          await mkdir(skillDir, { recursive: true });
+          const markerPath = join(skillDir, '.sync-conflict');
+          const markerContent = formatConflictMarker({
+            skill,
+            server,
+            local_hash: current.local_hash ?? '',
+            remote_hash: current.remote_hash ?? '',
+            created_at: updatedAt
+          });
+          await writeFile(markerPath, markerContent, 'utf8');
+          console.log(`Created conflict marker: ${markerPath}`);
+          resolved = true;
+          continue;
+        }
+
+        const updatedManifest = applyResolution(reconciled, skill, options.take!, updatedAt);
         await saveServerManifest(resolvedHomeDir, updatedManifest);
 
         const updatedSkill = updatedManifest.skills[skill];
