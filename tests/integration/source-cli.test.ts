@@ -553,4 +553,109 @@ describe('same-repo merge detection', () => {
     expect(match).not.toBeNull();
     expect(match?.name).toBe('repo-skill1');
   });
+
+  it('CLI shows sameRepoMatch message when source already exists', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-same-repo-msg-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+
+    // Create config with existing source
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: { skill1: ['*'] },
+        sources: {
+          'repo-skill1': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'skills/skill1',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    // Mock console.log to capture output
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => logs.push(args.join(' '));
+
+    try {
+      // Try to add source with same repo URL
+      await createProgram(homeDir).parseAsync(
+        ['node', 'syncskill', 'source', 'add', 'skill2', '--type', 'git', '--url', 'https://github.com/org/repo.git', '--store', 'skills/skill2'],
+        { from: 'node' }
+      );
+
+      // Verify sameRepoMatch message was shown
+      const output = logs.join('\n');
+      expect(output).toContain('A source already exists for this repository');
+      expect(output).toContain('repo-skill1');
+    } finally {
+      console.log = originalLog;
+    }
+  });
+});
+
+describe('source add --path auto-detect local type', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('auto-detects local type when --path is provided without --type', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-path-auto-'));
+    tempDirs.push(homeDir);
+    const pathDir = join(homeDir, 'local-skills');
+
+    // Create a skill in pathDir
+    await mkdir(join(pathDir, 'my-skill'), { recursive: true });
+    await writeFile(join(pathDir, 'my-skill', 'SKILL.md'), '# My Skill');
+
+    // Create minimal config
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    // Run source add with --path but NO --type
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', 'source', 'add', 'local-src', '--path', pathDir],
+      { from: 'node' }
+    );
+
+    // Verify local type was auto-detected
+    const config = await loadConfig(homeDir);
+    const source = config.sources['local-src'] as Record<string, unknown>;
+    expect(source.type).toBe('local');
+    expect(source.url).toBe(pathDir);
+    expect(source.store).toBe('.');
+
+    // Verify skill was materialized
+    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'my-skill'))).resolves.toBe(join(pathDir, 'my-skill'));
+  });
+
+  it('--type takes precedence over --path auto-detection', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-path-explicit-'));
+    tempDirs.push(homeDir);
+
+    // Create minimal config
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    // When --type git is explicit, --path should not force local type
+    // Git sources don't materialize immediately, they just save config
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', 'source', 'add', 'my-source', '--type', 'git', '--url', 'https://example.com/repo.git', '--path', '/some/path', '--store', 'skills'],
+      { from: 'node' }
+    );
+
+    // Verify type is git (not local, even though --path was provided)
+    const config = await loadConfig(homeDir);
+    const source = config.sources['my-source'] as Record<string, unknown>;
+    expect(source.type).toBe('git');
+    expect(source.url).toBe('https://example.com/repo.git');
+  });
 });

@@ -361,7 +361,7 @@ export async function loadSkillOwnershipState(homeDir: string): Promise<SkillOwn
   }
 }
 
-function normalizeSkillsIndex(value: unknown): SkillsIndex {
+export function normalizeSkillsIndex(value: unknown): SkillsIndex {
   if (
     typeof value !== 'object' ||
     value === null ||
@@ -402,17 +402,15 @@ export async function buildSkillsIndex(homeDir = homedir()): Promise<SkillsIndex
   const index: SkillsIndex = { version: 1, skills: {} };
 
   // 1. Add manual skills from ~/.syncskill/skills/
+  // Manual skills ALWAYS take priority over source skills with the same name
   if (await pathExists(skillsDir)) {
     const manualSkills = await listSkillDirectories(skillsDir);
     for (const skill of manualSkills) {
-      // Manual skills take priority - only add if not already owned by a source
-      if (!ownershipState.owners[skill]) {
-        index.skills[skill] = {
-          path: join(skillsDir, skill),
-          origin: 'manual',
-          type: 'manual',
-        };
-      }
+      index.skills[skill] = {
+        path: join(skillsDir, skill),
+        origin: 'manual',
+        type: 'manual',
+      };
     }
   }
 

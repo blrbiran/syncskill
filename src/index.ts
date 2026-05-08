@@ -243,12 +243,22 @@ export function createProgram(homeDir?: string): Command {
       skillSubdir?: string;
       ref?: string;
     }) => {
+      // Auto-detect local type when --path is provided without --type
+      // If not a GitHub URL pattern and --path is provided, default to local type
+      let effectiveType = options.type;
+      if (!effectiveType && options.path) {
+        const parsed = /^https:\/\/github\.com\//.test(nameOrUrl);
+        if (!parsed) {
+          effectiveType = 'local';
+        }
+      }
+
       // For local type, --path sets the URL (directory path) and defaults store to '.'
       // --store always takes precedence if explicitly provided
       let effectiveUrl = options.url ?? nameOrUrl;
       let effectiveStore = options.store;
 
-      if (options.type === 'local' && options.path) {
+      if (effectiveType === 'local' && options.path) {
         // --path provides the local directory path (becomes url)
         // Only use path if url wasn't explicitly provided
         if (!options.url) {
@@ -262,7 +272,7 @@ export function createProgram(homeDir?: string): Command {
 
       const result = await addSourceFromUrl(resolvedHomeDir, effectiveUrl, {
         name: options.url ? nameOrUrl : (options.path ? nameOrUrl : undefined),
-        type: options.type,
+        type: effectiveType,
         store: effectiveStore,
         skillSubdir: options.skillSubdir,
         ref: options.ref

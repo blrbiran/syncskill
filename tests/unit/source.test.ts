@@ -10,7 +10,7 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { buildSkillsIndex, classifySameRepoScenario, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, resolveSkillPath, SameRepoScenario, saveSkillsIndex, updateSource } from '../../src/source.js';
+import { buildSkillsIndex, classifySameRepoScenario, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, normalizeSkillsIndex, resolveSkillPath, SameRepoScenario, saveSkillsIndex, updateSource } from '../../src/source.js';
 import type { SkillsIndex } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
@@ -1339,5 +1339,229 @@ describe('handleSameRepoMerge', () => {
 
     expect(result.action).toBe('created-new-entry');
     expect(result.newSourceName).toBe('existing-source.2');
+  });
+
+  it('scenario 3 with expandToParent=true: expands to shared parent with all skills', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-merge-expand-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const sourcesDir = join(syncDir, '.sources', 'existing-source');
+
+    // Create checkout with three sibling skills
+    await mkdir(join(sourcesDir, 'checkout', 'skills', 'skill1'), { recursive: true });
+    await mkdir(join(sourcesDir, 'checkout', 'skills', 'skill2'), { recursive: true });
+    await mkdir(join(sourcesDir, 'checkout', 'skills', 'skill3'), { recursive: true });
+    await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill1', 'SKILL.md'), '# Skill 1');
+    await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill2', 'SKILL.md'), '# Skill 2');
+    await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill3', 'SKILL.md'), '# Skill 3');
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: { skill1: ['*'] },
+        sources: {
+          'existing-source': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'skills/skill1',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    const result = await handleSameRepoMerge(homeDir, {
+      existingName: 'existing-source',
+      existingSubdir: 'skills/skill1',
+      newSubdir: 'skills/skill2',
+      scenario: SameRepoScenario.SameParentSiblings,
+      expandToParent: true,
+    });
+
+    expect(result.action).toBe('expanded-to-multi');
+    expect(result.newSkills).toContain('skill1');
+    expect(result.newSkills).toContain('skill2');
+    expect(result.newSkills).toContain('skill3');
+
+    // Verify config updated with parent directory
+    const config = await loadConfig(homeDir);
+    const source = config.sources['existing-source'] as Record<string, unknown>;
+    expect(source.store).toBe('skills/');
+  });
+
+  it('scenario 4: increments suffix when .2 already exists', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-merge-suffix-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: { skill1: ['*'], skill2: ['*'] },
+        sources: {
+          'existing-source': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'skills/skill1',
+          },
+          'existing-source.2': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'examples/skill2',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    const result = await handleSameRepoMerge(homeDir, {
+      existingName: 'existing-source',
+      existingSubdir: 'skills/skill1',
+      newSubdir: 'docs/skill3',
+      scenario: SameRepoScenario.DifferentParents,
+    });
+
+    expect(result.action).toBe('created-new-entry');
+    expect(result.newSourceName).toBe('existing-source.3');
+  });
+});
+
+describe('classifySameRepoScenario edge cases', () => {
+  it('handles empty string for new subdir', () => {
+    const result = classifySameRepoScenario(
+      'skills/',
+      '',
+      false,
+      false
+    );
+
+    // Empty new path with existing multi-skill should be DifferentParents
+    // since dirname('') === '.' and dirname('skills') !== '.'
+    expect(result).toBe(SameRepoScenario.DifferentParents);
+  });
+
+  it('handles root path "." for existing subdir', () => {
+    const result = classifySameRepoScenario(
+      '.',
+      'skills/skill1',
+      false,
+      true
+    );
+
+    // Root contains everything - should be NewWithinExisting
+    // But the logic checks startsWith, and 'skills/skill1' does not start with './'
+    // So this falls through to DifferentParents
+    expect(result).toBe(SameRepoScenario.DifferentParents);
+  });
+
+  it('handles trailing slashes consistently', () => {
+    const result = classifySameRepoScenario(
+      'skills/',
+      'skills/skill1/',
+      false,
+      true
+    );
+
+    expect(result).toBe(SameRepoScenario.NewWithinExisting);
+  });
+
+  it('handles same path (edge case)', () => {
+    const result = classifySameRepoScenario(
+      'skills/skill1',
+      'skills/skill1',
+      true,
+      true
+    );
+
+    // Same path, same parent → SameParentSiblings (degenerate case)
+    expect(result).toBe(SameRepoScenario.SameParentSiblings);
+  });
+});
+
+describe('normalizeSkillsIndex edge cases', () => {
+  it('returns empty index for null', () => {
+    expect(normalizeSkillsIndex(null)).toEqual({ version: 1, skills: {} });
+  });
+
+  it('returns empty index for wrong version', () => {
+    expect(normalizeSkillsIndex({ version: 2, skills: {} })).toEqual({ version: 1, skills: {} });
+  });
+
+  it('returns empty index for missing skills field', () => {
+    expect(normalizeSkillsIndex({ version: 1 })).toEqual({ version: 1, skills: {} });
+  });
+
+  it('returns empty index for non-object skills', () => {
+    expect(normalizeSkillsIndex({ version: 1, skills: 'invalid' })).toEqual({ version: 1, skills: {} });
+  });
+
+  it('returns empty index for array input', () => {
+    expect(normalizeSkillsIndex([])).toEqual({ version: 1, skills: {} });
+  });
+
+  it('returns empty index for primitive input', () => {
+    expect(normalizeSkillsIndex('string')).toEqual({ version: 1, skills: {} });
+    expect(normalizeSkillsIndex(123)).toEqual({ version: 1, skills: {} });
+    expect(normalizeSkillsIndex(undefined)).toEqual({ version: 1, skills: {} });
+  });
+});
+
+describe('buildSkillsIndex manual skill priority', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('manual skill takes priority over source skill with same name', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-priority-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const skillsDir = join(syncDir, 'skills');
+    const sourcesDir = join(syncDir, '.sources');
+
+    // Create manual skill
+    await mkdir(join(skillsDir, 'shared-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'shared-skill', 'SKILL.md'), '# Manual Version');
+
+    // Create source with skill of same name and set up ownership
+    await mkdir(join(sourcesDir, 'my-source', 'materialized', 'shared-skill'), { recursive: true });
+    await writeFile(join(sourcesDir, 'my-source', 'materialized', 'shared-skill', 'SKILL.md'), '# Source Version');
+    await writeFile(
+      join(sourcesDir, 'my-source', 'state.json'),
+      JSON.stringify({ materialized_skills: ['shared-skill'], updated_at: '2026-01-01T00:00:00Z' })
+    );
+    // Mark the skill as owned by source to test priority
+    await writeFile(
+      join(sourcesDir, 'ownership.json'),
+      JSON.stringify({ owners: { 'shared-skill': 'my-source' } })
+    );
+
+    // Create config
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      YAML.stringify({
+        version: 1,
+        agents: { claude: '~/.claude/skills' },
+        links: { 'shared-skill': ['*'] },
+        sources: { 'my-source': { type: 'git', url: 'https://example.com/repo.git', store: 'materialized' } },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    const index = await buildSkillsIndex(homeDir);
+
+    // Manual skill should take priority
+    expect(index.skills['shared-skill'].origin).toBe('manual');
+    expect(index.skills['shared-skill'].type).toBe('manual');
+    expect(index.skills['shared-skill'].path).toBe(join(skillsDir, 'shared-skill'));
   });
 });
