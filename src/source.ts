@@ -354,6 +354,51 @@ export async function saveSkillsIndex(homeDir = homedir(), index: SkillsIndex): 
   await writeFile(indexFile, JSON.stringify(index, null, 2) + '\n');
 }
 
+export async function buildSkillsIndex(homeDir = homedir()): Promise<SkillsIndex> {
+  const config = await loadConfig(homeDir);
+  const { skillsDir } = getSyncPaths(homeDir);
+  const ownershipState = await loadSkillOwnershipState(homeDir);
+  const index: SkillsIndex = { version: 1, skills: {} };
+
+  // 1. Add manual skills from ~/.syncskill/skills/
+  if (await pathExists(skillsDir)) {
+    const manualSkills = await listSkillDirectories(skillsDir);
+    for (const skill of manualSkills) {
+      // Manual skills take priority - only add if not already owned by a source
+      if (!ownershipState.owners[skill]) {
+        index.skills[skill] = {
+          path: join(skillsDir, skill),
+          origin: 'manual',
+          type: 'manual',
+        };
+      }
+    }
+  }
+
+  // 2. Add skills from configured sources
+  for (const [sourceName, sourceDef] of Object.entries(config.sources)) {
+    const sourceEntry = normalizeSourceEntry(sourceName, sourceDef)[0];
+    if (!sourceEntry) continue;
+
+    const sourceState = await loadSourceState(homeDir, sourceName);
+    if (!sourceState) continue;
+
+    for (const skill of sourceState.materialized_skills) {
+      // Skip if already added as manual skill
+      if (index.skills[skill]?.origin === 'manual') continue;
+
+      const materializedRoot = getMaterializedRootPath(homeDir, sourceName, sourceEntry);
+      index.skills[skill] = {
+        path: join(materializedRoot, skill),
+        origin: sourceName,
+        type: sourceEntry.type,
+      };
+    }
+  }
+
+  return index;
+}
+
 async function saveSkillOwnershipState(homeDir: string, state: SkillOwnershipState): Promise<void> {
   const stateFile = getSkillOwnershipStateFile(homeDir);
   await mkdir(dirname(stateFile), { recursive: true });

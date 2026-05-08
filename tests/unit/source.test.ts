@@ -6,10 +6,11 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import YAML from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findOrphanSkills, listSources, loadSourceState, loadSkillsIndex, materializeSource, resolveSkillPath, saveSkillsIndex, updateSource } from '../../src/source.js';
+import { buildSkillsIndex, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findOrphanSkills, listSources, loadSourceState, loadSkillsIndex, materializeSource, resolveSkillPath, saveSkillsIndex, updateSource } from '../../src/source.js';
 import type { SkillsIndex } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
@@ -972,5 +973,56 @@ describe('skills-index', () => {
 
     const loaded = await loadSkillsIndex(homeDir);
     expect(loaded).toEqual({ version: 1, skills: {} });
+  });
+
+  it('builds index from manual skills and sources', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-build-index-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const skillsDir = join(syncDir, 'skills');
+    const sourcesDir = join(syncDir, '.sources');
+
+    // Create manual skill
+    await mkdir(join(skillsDir, 'manual-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'manual-skill', 'SKILL.md'), '# Manual Skill');
+
+    // Create source with materialized skill
+    await mkdir(join(sourcesDir, 'my-source', 'materialized', 'source-skill'), { recursive: true });
+    await writeFile(join(sourcesDir, 'my-source', 'materialized', 'source-skill', 'SKILL.md'), '# Source Skill');
+    await writeFile(
+      join(sourcesDir, 'my-source', 'state.json'),
+      JSON.stringify({ materialized_skills: ['source-skill'], updated_at: '2026-01-01T00:00:00Z' })
+    );
+    await writeFile(
+      join(sourcesDir, 'ownership.json'),
+      JSON.stringify({ owners: { 'source-skill': 'my-source' } })
+    );
+
+    // Create config
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      YAML.stringify({
+        version: 1,
+        agents: { claude: '~/.claude/skills' },
+        links: { 'manual-skill': ['*'], 'source-skill': ['*'] },
+        sources: { 'my-source': { type: 'git', url: 'https://example.com/repo.git', store: 'materialized' } },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    const index = await buildSkillsIndex(homeDir);
+
+    expect(index.version).toBe(1);
+    expect(index.skills['manual-skill']).toEqual({
+      path: join(skillsDir, 'manual-skill'),
+      origin: 'manual',
+      type: 'manual',
+    });
+    expect(index.skills['source-skill']).toEqual({
+      path: expect.stringContaining('source-skill'),
+      origin: 'my-source',
+      type: 'git',
+    });
   });
 });
