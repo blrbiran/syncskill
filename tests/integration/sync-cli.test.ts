@@ -157,4 +157,114 @@ describe('sync CLI', () => {
       ['welcome\talpha\tpush\tin-sync']
     ]);
   });
+
+  it('pull without server argument pulls from all servers', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} },
+          beta: { host: 'beta.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const pullFromServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pullFromServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pulled_skills: ['skill-a'],
+        skipped_skills: [],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      },
+      {
+        server: 'beta',
+        pulled_skills: ['skill-b'],
+        skipped_skills: [],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'beta', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      }
+    ]);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull'], { from: 'node' });
+
+    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, undefined);
+    expect(consoleLog.mock.calls).toEqual([
+      ['skill-a\talpha\tpull\tin-sync'],
+      ['skill-b\tbeta\tpull\tin-sync']
+    ]);
+  });
+
+  it('pull with specific server pulls from that server only', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} },
+          beta: { host: 'beta.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const pullFromServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pullFromServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pulled_skills: ['skill-a'],
+        skipped_skills: [],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      }
+    ]);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull', 'alpha'], { from: 'node' });
+
+    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha']);
+    expect(consoleLog.mock.calls).toEqual([
+      ['skill-a\talpha\tpull\tin-sync']
+    ]);
+  });
+
+  it('pull --all pulls from all servers', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const pullFromServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pullFromServers').mockImplementation(async () => []);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull', '--all'], { from: 'node' });
+
+    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, undefined);
+  });
 });

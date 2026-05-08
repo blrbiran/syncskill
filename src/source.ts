@@ -487,7 +487,8 @@ async function prepareHttpMaterializedRoot(homeDir: string, name: string, source
   const runtimeDir = dirname(checkoutDir);
   const stagingDir = join(runtimeDir, 'checkout.next');
   const backupDir = join(runtimeDir, 'checkout.prev');
-  const archiveFile = join(runtimeDir, 'archive.tar.gz');
+  const archiveFormat = detectArchiveFormat(source.url);
+  const archiveFile = join(runtimeDir, `archive${archiveFormat.extension}`);
 
   await rm(stagingDir, { recursive: true, force: true });
   await rm(backupDir, { recursive: true, force: true });
@@ -495,7 +496,7 @@ async function prepareHttpMaterializedRoot(homeDir: string, name: string, source
 
   try {
     await downloadHttpArchive(source.url, archiveFile);
-    await extractTarGzArchive(archiveFile, stagingDir);
+    await extractArchive(archiveFile, stagingDir, archiveFormat.type);
 
     if (isAbsolute(source.store)) {
       throw new Error('HTTP source store must be a relative path');
@@ -803,9 +804,49 @@ async function renamePath(sourcePath: string, destinationPath: string): Promise<
   await rename(sourcePath, destinationPath);
 }
 
-async function extractTarGzArchive(archiveFile: string, destinationDir: string): Promise<void> {
+export type ArchiveType = 'tar.gz' | 'tar.bz2' | 'tar.xz' | 'zip';
+
+export interface ArchiveFormat {
+  type: ArchiveType;
+  extension: string;
+}
+
+export function detectArchiveFormat(url: string): ArchiveFormat {
+  const lowerUrl = url.toLowerCase();
+
+  if (lowerUrl.endsWith('.tar.gz') || lowerUrl.endsWith('.tgz')) {
+    return { type: 'tar.gz', extension: '.tar.gz' };
+  }
+  if (lowerUrl.endsWith('.tar.bz2') || lowerUrl.endsWith('.tbz2')) {
+    return { type: 'tar.bz2', extension: '.tar.bz2' };
+  }
+  if (lowerUrl.endsWith('.tar.xz') || lowerUrl.endsWith('.txz')) {
+    return { type: 'tar.xz', extension: '.tar.xz' };
+  }
+  if (lowerUrl.endsWith('.zip')) {
+    return { type: 'zip', extension: '.zip' };
+  }
+
+  // Default to tar.gz for unknown formats
+  return { type: 'tar.gz', extension: '.tar.gz' };
+}
+
+async function extractArchive(archiveFile: string, destinationDir: string, archiveType: ArchiveType): Promise<void> {
   try {
-    await execFileAsync('tar', ['-xzf', archiveFile, '-C', destinationDir]);
+    switch (archiveType) {
+      case 'tar.gz':
+        await execFileAsync('tar', ['-xzf', archiveFile, '-C', destinationDir]);
+        break;
+      case 'tar.bz2':
+        await execFileAsync('tar', ['-xjf', archiveFile, '-C', destinationDir]);
+        break;
+      case 'tar.xz':
+        await execFileAsync('tar', ['-xJf', archiveFile, '-C', destinationDir]);
+        break;
+      case 'zip':
+        await execFileAsync('unzip', ['-q', archiveFile, '-d', destinationDir]);
+        break;
+    }
   } catch (error) {
     const execError = error as Error & { stderr?: string };
     throw new Error(execError.stderr?.trim() || execError.message);

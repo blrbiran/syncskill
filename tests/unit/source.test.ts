@@ -10,7 +10,7 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { buildSkillsIndex, classifySameRepoScenario, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, normalizeSkillsIndex, resolveSkillPath, SameRepoScenario, saveSkillsIndex, updateSource } from '../../src/source.js';
+import { buildSkillsIndex, classifySameRepoScenario, detectArchiveFormat, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, normalizeSkillsIndex, resolveSkillPath, SameRepoScenario, saveSkillsIndex, updateSource } from '../../src/source.js';
 import type { SkillsIndex } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
@@ -1563,5 +1563,52 @@ describe('buildSkillsIndex manual skill priority', () => {
     expect(index.skills['shared-skill'].origin).toBe('manual');
     expect(index.skills['shared-skill'].type).toBe('manual');
     expect(index.skills['shared-skill'].path).toBe(join(skillsDir, 'shared-skill'));
+  });
+});
+
+describe('detectArchiveFormat', () => {
+  it('returns tar.gz for .tar.gz URLs', () => {
+    const result = detectArchiveFormat('https://example.com/archive.tar.gz');
+    expect(result).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
+  });
+
+  it('returns tar.gz for .tgz URLs', () => {
+    const result = detectArchiveFormat('https://example.com/archive.tgz');
+    expect(result).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
+  });
+
+  it('returns tar.bz2 for .tar.bz2 URLs', () => {
+    const result = detectArchiveFormat('https://example.com/archive.tar.bz2');
+    expect(result).toEqual({ type: 'tar.bz2', extension: '.tar.bz2' });
+  });
+
+  it('returns tar.bz2 for .tbz2 URLs', () => {
+    const result = detectArchiveFormat('https://example.com/archive.tbz2');
+    expect(result).toEqual({ type: 'tar.bz2', extension: '.tar.bz2' });
+  });
+
+  it('returns tar.xz for .tar.xz URLs', () => {
+    const result = detectArchiveFormat('https://example.com/archive.tar.xz');
+    expect(result).toEqual({ type: 'tar.xz', extension: '.tar.xz' });
+  });
+
+  it('returns tar.xz for .txz URLs', () => {
+    const result = detectArchiveFormat('https://example.com/archive.txz');
+    expect(result).toEqual({ type: 'tar.xz', extension: '.tar.xz' });
+  });
+
+  it('returns zip for .zip URLs', () => {
+    const result = detectArchiveFormat('https://example.com/archive.zip');
+    expect(result).toEqual({ type: 'zip', extension: '.zip' });
+  });
+
+  it('defaults to tar.gz for unknown extensions', () => {
+    const result = detectArchiveFormat('https://example.com/archive.unknown');
+    expect(result).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
+  });
+
+  it('handles case-insensitive extensions', () => {
+    expect(detectArchiveFormat('https://example.com/archive.TAR.GZ')).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
+    expect(detectArchiveFormat('https://example.com/archive.ZIP')).toEqual({ type: 'zip', extension: '.zip' });
   });
 });

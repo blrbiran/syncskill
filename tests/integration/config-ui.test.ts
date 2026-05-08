@@ -1,12 +1,12 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
-import type { PromptApi } from '../../src/config-ui.js';
-import { runConfigUi, safeSelect, applyMatrixToLinks, editServers, applyMatrixToRemote } from '../../src/config-ui.js';
+import type { PromptApi, SSHHostConfig } from '../../src/config-ui.js';
+import { runConfigUi, safeSelect, applyMatrixToLinks, editServers, applyMatrixToRemote, parseSSHConfig } from '../../src/config-ui.js';
 import { ExitPromptError } from '@inquirer/core';
 import type { SyncSkillConfig } from '../../src/config.js';
 
@@ -385,5 +385,130 @@ describe('applyMatrixToRemote', () => {
     });
 
     expect((config.servers.server1 as Record<string, unknown>).skills).toEqual({ include: ['existing'] });
+  });
+});
+
+describe('parseSSHConfig', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    for (const dir of tempDirs) {
+      await rm(dir, { recursive: true, force: true });
+    }
+    tempDirs.length = 0;
+  });
+
+  async function createTestHome(): Promise<string> {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-ssh-'));
+    tempDirs.push(homeDir);
+    await mkdir(join(homeDir, '.ssh'), { recursive: true });
+    return homeDir;
+  }
+
+  it('parses exact host match with HostName, User, Port, IdentityFile', async () => {
+    const homeDir = await createTestHome();
+    await writeFile(join(homeDir, '.ssh', 'config'), `
+Host myserver
+  HostName 192.168.1.100
+  User admin
+  Port 2222
+  IdentityFile ~/.ssh/id_myserver
+`);
+
+    const result = await parseSSHConfig('myserver', homeDir);
+    expect(result).toEqual({
+      hostname: '192.168.1.100',
+      user: 'admin',
+      port: 2222,
+      identityFile: join(homeDir, '.ssh/id_myserver')
+    });
+  });
+
+  it('parses wildcard pattern *.example.com', async () => {
+    const homeDir = await createTestHome();
+    await writeFile(join(homeDir, '.ssh', 'config'), `
+Host *.example.com
+  User deploy
+  Port 22
+`);
+
+    const result = await parseSSHConfig('server.example.com', homeDir);
+    expect(result).toEqual({
+      user: 'deploy',
+      port: 22
+    });
+  });
+
+  it('handles regex special chars in pattern (e.g., host.name)', async () => {
+    const homeDir = await createTestHome();
+    await writeFile(join(homeDir, '.ssh', 'config'), `
+Host server.prod
+  HostName 10.0.0.1
+  User root
+`);
+
+    // Exact match should work
+    const result = await parseSSHConfig('server.prod', homeDir);
+    expect(result).toEqual({
+      hostname: '10.0.0.1',
+      user: 'root'
+    });
+
+    // Similar name without dot should NOT match
+    const noMatch = await parseSSHConfig('serverprod', homeDir);
+    expect(noMatch).toBeNull();
+  });
+
+  it('returns null when host not found', async () => {
+    const homeDir = await createTestHome();
+    await writeFile(join(homeDir, '.ssh', 'config'), `
+Host other-server
+  HostName 10.0.0.2
+`);
+
+    const result = await parseSSHConfig('myserver', homeDir);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when ~/.ssh/config missing', async () => {
+    const homeDir = await createTestHome();
+    // Don't create config file
+
+    const result = await parseSSHConfig('myserver', homeDir);
+    expect(result).toBeNull();
+  });
+
+  it('ignores global wildcard Host *', async () => {
+    const homeDir = await createTestHome();
+    await writeFile(join(homeDir, '.ssh', 'config'), `
+Host *
+  User globaluser
+
+Host myserver
+  HostName specific.host
+`);
+
+    const result = await parseSSHConfig('myserver', homeDir);
+    // Should only get HostName from myserver block, not User from * block
+    expect(result).toEqual({
+      hostname: 'specific.host'
+    });
+  });
+
+  it('handles multiple Host patterns on same line', async () => {
+    const homeDir = await createTestHome();
+    await writeFile(join(homeDir, '.ssh', 'config'), `
+Host server1 server2 server3
+  User shareduser
+  Port 3333
+`);
+
+    const result1 = await parseSSHConfig('server1', homeDir);
+    const result2 = await parseSSHConfig('server2', homeDir);
+    const result3 = await parseSSHConfig('server3', homeDir);
+
+    expect(result1).toEqual({ user: 'shareduser', port: 3333 });
+    expect(result2).toEqual({ user: 'shareduser', port: 3333 });
+    expect(result3).toEqual({ user: 'shareduser', port: 3333 });
   });
 });

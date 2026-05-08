@@ -1,3 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 import { checkbox, confirm, input, select } from '@inquirer/prompts';
 import { ExitPromptError } from '@inquirer/core';
 
@@ -5,6 +9,8 @@ import type { ConflictResolution, SyncSkillConfig } from './config.js';
 import { loadConfig, saveConfig } from './config.js';
 import { listLocalSkills } from './linker.js';
 import { createMatrixEditor, type MatrixEditorResult } from './matrix-editor.js';
+import { probeServer } from './server.js';
+import { formatSourceListLines, listSources, removeSource, RemovalAction, updateAllSources, updateSource } from './source.js';
 
 export interface PromptApi {
   select<T>(options: { message: string; choices: Array<{ name: string; value: T }> }): Promise<T>;
@@ -232,7 +238,8 @@ async function editRemoteAgents(server: Record<string, unknown>, prompts: Prompt
 async function editSingleServer(
   config: SyncSkillConfig,
   serverName: string,
-  prompts: PromptApi
+  prompts: PromptApi,
+  homeDir: string
 ): Promise<void> {
   while (true) {
     const result = await safeSelect(prompts, {
@@ -240,6 +247,7 @@ async function editSingleServer(
       choices: [
         { name: 'Edit connection', value: 'edit' as const },
         { name: 'Configure remote agents', value: 'agents' as const },
+        { name: 'Test connection', value: 'test' as const },
         { name: 'Remove server', value: 'remove' as const },
         { name: '← Back', value: 'back' as const }
       ]
@@ -279,11 +287,86 @@ async function editSingleServer(
 
     if (result.value === 'agents') {
       await editRemoteAgents(server, prompts);
+      continue;
+    }
+
+    if (result.value === 'test') {
+      console.log(`Testing connection to ${serverName}...`);
+      try {
+        const results = await probeServer(homeDir, serverName);
+        for (const probe of results) {
+          console.log(`  ${probe.check}: ${probe.ok ? 'OK' : 'FAILED'}`);
+          if (!probe.ok && probe.detail) {
+            console.log(`    Detail: ${probe.detail}`);
+          }
+        }
+      } catch (error) {
+        console.log(`  Error: ${(error as Error).message}`);
+      }
     }
   }
 }
 
-export async function editServers(config: SyncSkillConfig, prompts: PromptApi): Promise<void> {
+export interface SSHHostConfig {
+  hostname?: string;
+  user?: string;
+  port?: number;
+  identityFile?: string;
+}
+
+export async function parseSSHConfig(hostName: string, homeDir: string = homedir()): Promise<SSHHostConfig | null> {
+  const sshConfigPath = join(homeDir, '.ssh', 'config');
+
+  try {
+    const content = await readFile(sshConfigPath, 'utf8');
+    const lines = content.split('\n');
+    let inMatchingHost = false;
+    const config: SSHHostConfig = {};
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (trimmed.toLowerCase().startsWith('host ')) {
+        const hostPatterns = trimmed.slice(5).trim().split(/\s+/);
+        inMatchingHost = hostPatterns.some((pattern) => {
+          if (pattern === '*') return false;
+          if (pattern.includes('*') || pattern.includes('?')) {
+            // Escape regex special characters, then convert SSH wildcards to regex
+            const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp('^' + escaped.replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+            return regex.test(hostName);
+          }
+          return pattern === hostName;
+        });
+        continue;
+      }
+
+      if (!inMatchingHost) continue;
+
+      const match = trimmed.match(/^(\S+)\s+(.+)$/);
+      if (!match) continue;
+
+      const [, key, value] = match;
+      const keyLower = key.toLowerCase();
+
+      if (keyLower === 'hostname') {
+        config.hostname = value;
+      } else if (keyLower === 'user') {
+        config.user = value;
+      } else if (keyLower === 'port') {
+        config.port = parseInt(value, 10);
+      } else if (keyLower === 'identityfile') {
+        config.identityFile = value.replace(/^~/, homeDir);
+      }
+    }
+
+    return Object.keys(config).length > 0 ? config : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function editServers(config: SyncSkillConfig, prompts: PromptApi, homeDir: string = homedir()): Promise<void> {
   while (true) {
     const serverNames = Object.keys(config.servers).sort();
     const choices = [
@@ -300,10 +383,38 @@ export async function editServers(config: SyncSkillConfig, prompts: PromptApi): 
 
     if (result.value === 'add') {
       const name = await prompts.input({ message: 'Server name' });
-      const host = await prompts.input({ message: 'Host' });
-      const user = await prompts.input({ message: 'User', default: 'root' });
-      const portStr = await prompts.input({ message: 'Port', default: '22' });
-      const identityFile = await prompts.input({ message: 'Identity file (optional)' });
+
+      // Try to parse SSH config for defaults
+      const sshConfig = await parseSSHConfig(name, homeDir);
+      let defaultHost = '';
+      let defaultUser = 'root';
+      let defaultPort = '22';
+      let defaultIdentityFile = '';
+
+      if (sshConfig) {
+        console.log(`Found SSH config for "${name}":`);
+        if (sshConfig.hostname) {
+          console.log(`  HostName: ${sshConfig.hostname}`);
+          defaultHost = sshConfig.hostname;
+        }
+        if (sshConfig.user) {
+          console.log(`  User: ${sshConfig.user}`);
+          defaultUser = sshConfig.user;
+        }
+        if (sshConfig.port) {
+          console.log(`  Port: ${sshConfig.port}`);
+          defaultPort = String(sshConfig.port);
+        }
+        if (sshConfig.identityFile) {
+          console.log(`  IdentityFile: ${sshConfig.identityFile}`);
+          defaultIdentityFile = sshConfig.identityFile;
+        }
+      }
+
+      const host = await prompts.input({ message: 'Host', default: defaultHost || name });
+      const user = await prompts.input({ message: 'User', default: defaultUser });
+      const portStr = await prompts.input({ message: 'Port', default: defaultPort });
+      const identityFile = await prompts.input({ message: 'Identity file (optional)', default: defaultIdentityFile });
 
       const server: Record<string, unknown> = {
         host,
@@ -320,7 +431,7 @@ export async function editServers(config: SyncSkillConfig, prompts: PromptApi): 
       continue;
     }
 
-    await editSingleServer(config, result.value as string, prompts);
+    await editSingleServer(config, result.value as string, prompts, homeDir);
   }
 }
 
@@ -409,7 +520,7 @@ export async function runConfigUi(
   }
 
   if (options.directEntry === 'server') {
-    await editServers(config, prompts);
+    await editServers(config, prompts, homeDir);
     await saveConfig(config, homeDir);
     return;
   }
@@ -427,6 +538,7 @@ export async function runConfigUi(
         { name: 'agents', value: 'agents' as const },
         { name: 'links', value: 'links' as const },
         { name: 'servers', value: 'servers' as const },
+        { name: 'sources', value: 'sources' as const },
         { name: 'remote', value: 'remote' as const },
         { name: 'conflict_resolution', value: 'conflict_resolution' as const },
         { name: 'done', value: 'done' as const }
@@ -451,8 +563,13 @@ export async function runConfigUi(
     }
 
     if (result.value === 'servers') {
-      await editServers(config, prompts);
+      await editServers(config, prompts, homeDir);
       await saveConfig(config, homeDir);
+      continue;
+    }
+
+    if (result.value === 'sources') {
+      await editSources(homeDir, prompts);
       continue;
     }
 
@@ -465,6 +582,65 @@ export async function runConfigUi(
     if (result.value === 'conflict_resolution') {
       await editConflictResolution(config, prompts);
       await saveConfig(config, homeDir);
+    }
+  }
+}
+
+async function editSources(homeDir: string, prompts: PromptApi): Promise<void> {
+  while (true) {
+    const sources = await listSources(homeDir);
+    const sourceNames = sources.map((s) => s.name);
+
+    const choices = [
+      { name: '+ Update all', value: 'update-all' as const },
+      ...sourceNames.map((name) => ({ name, value: name })),
+      { name: '← Back', value: 'back' as const }
+    ];
+
+    const result = await safeSelect(prompts, { message: 'Manage sources', choices });
+
+    if (result.escaped || result.value === 'back') {
+      return;
+    }
+
+    if (result.value === 'update-all') {
+      console.log('Updating all sources...');
+      await updateAllSources(homeDir);
+      console.log('Done.');
+      continue;
+    }
+
+    const sourceName = result.value as string;
+    const actionResult = await safeSelect(prompts, {
+      message: `Source: ${sourceName}`,
+      choices: [
+        { name: 'Update', value: 'update' as const },
+        { name: 'Remove', value: 'remove' as const },
+        { name: '← Back', value: 'back' as const }
+      ]
+    });
+
+    if (actionResult.escaped || actionResult.value === 'back') {
+      continue;
+    }
+
+    if (actionResult.value === 'update') {
+      console.log(`Updating source: ${sourceName}...`);
+      await updateSource(homeDir, sourceName);
+      console.log('Done.');
+      continue;
+    }
+
+    if (actionResult.value === 'remove') {
+      const confirmed = await prompts.confirm({
+        message: `Remove source "${sourceName}"? This will remove the source config but keep skill files.`,
+        default: false
+      });
+
+      if (confirmed) {
+        await removeSource(homeDir, sourceName, { action: RemovalAction.RemoveConfigKeepFiles });
+        console.log(`Removed source: ${sourceName}`);
+      }
     }
   }
 }

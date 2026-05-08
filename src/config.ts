@@ -33,7 +33,7 @@ export interface ConfiguredServer {
   remote_agents: Record<string, string>;
 }
 
-const KNOWN_AGENT_DIRS = {
+export const KNOWN_AGENT_DIRS = {
   claude: '.claude/skills',
   agents: '.agents/skills',
   hermes: '.hermes/skills',

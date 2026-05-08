@@ -36,7 +36,7 @@ import {
   updateAllSources,
   updateSource,
 } from './source.js';
-import { pullFromServer, pushToServers, syncServers, type PullResult, type PushResult } from './sync_engine.js';
+import { pullFromServer, pullFromServers, pushToServers, syncServers, type PullResult, type PushResult } from './sync_engine.js';
 
 function shouldSkipAutoRefresh(command: Command): boolean {
   const commandPath: string[] = [];
@@ -594,13 +594,17 @@ export function createProgram(homeDir?: string): Command {
     });
 
   program
-    .command('pull <server>')
-    .description('Pull remote skill changes from one server')
-    .action(async (server: string) => {
-      const result = await pullFromServer(resolvedHomeDir, server);
+    .command('pull [server]')
+    .description('Pull remote skill changes from one server or all configured servers')
+    .option('--all', 'Pull from all configured servers')
+    .action(async (server: string | undefined, options: { all?: boolean }) => {
+      const servers = options.all || server === undefined ? undefined : [server];
+      const results = await pullFromServers(resolvedHomeDir, servers);
 
-      for (const line of formatSkillRows('pull', result)) {
-        console.log(line);
+      for (const result of results) {
+        for (const line of formatSkillRows('pull', result)) {
+          console.log(line);
+        }
       }
     });
 

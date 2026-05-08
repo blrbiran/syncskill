@@ -1,7 +1,7 @@
 import { cp, lstat, mkdir, readdir, readlink, rm, stat, symlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { expandTargetAgents, getSyncPaths, loadConfig, saveConfig } from './config.js';
+import { expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, saveConfig, type SyncSkillConfig } from './config.js';
 import { buildSkillsIndex, saveSkillsIndex } from './source.js';
 
 export interface ScanOptions {
@@ -34,21 +34,80 @@ export async function listLocalSkills(homeDir: string): Promise<string[]> {
 
 export async function discoverSkills(homeDir: string, { allAgents }: ScanOptions): Promise<string[]> {
   const config = await loadConfig(homeDir);
+  const existingLinks = new Set(Object.keys(config.links));
+
+  // When skills/ is empty, trigger auto-migration like init does
+  const existingSkills = await listLocalSkills(homeDir);
+  if (existingSkills.length === 0) {
+    await migrateSkillsFromAgentDirs(homeDir, config, allAgents);
+  }
+
   const discoveredSkills = await listLocalSkills(homeDir);
   const addedSkills: string[] = [];
 
   for (const skill of discoveredSkills) {
-    if (skill in config.links) {
+    // Track skills that are new (weren't in links before this call)
+    if (existingLinks.has(skill)) {
       continue;
     }
 
-    config.links[skill] = allAgents ? ['*'] : [];
+    if (!(skill in config.links)) {
+      config.links[skill] = allAgents ? ['*'] : [];
+    }
     addedSkills.push(skill);
   }
 
   await saveConfig(config, homeDir);
 
   return addedSkills;
+}
+
+async function migrateSkillsFromAgentDirs(homeDir: string, config: SyncSkillConfig, allAgents: boolean): Promise<void> {
+  const { skillsDir } = getSyncPaths(homeDir);
+  const sourceRoots = Object.values(KNOWN_AGENT_DIRS).map((dir) => join(homeDir, dir));
+
+  for (const root of sourceRoots) {
+    const skillDirs = await listSkillDirectoriesFiltered(root);
+
+    for (const skill of skillDirs) {
+      const source = join(root, skill);
+      const target = join(skillsDir, skill);
+
+      if (await pathExists(target)) {
+        continue;
+      }
+
+      // Skip symlinks (only copy regular directories)
+      const sourceStat = await lstat(source);
+      if (sourceStat.isSymbolicLink()) {
+        continue;
+      }
+
+      await cp(source, target, { recursive: true });
+
+      if (!config.links[skill]) {
+        config.links[skill] = allAgents ? ['*'] : [];
+      }
+    }
+  }
+}
+
+async function listSkillDirectoriesFiltered(root: string): Promise<string[]> {
+  try {
+    const entries = await readdir(root, { withFileTypes: true });
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  } catch {
+    return [];
+  }
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await stat(target);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function ensureLinkedDirectory(

@@ -133,6 +133,18 @@ export async function pullFromServer(homeDir: string, serverName: string, option
   };
 }
 
+export async function pullFromServers(homeDir: string, servers?: string[], options: SyncEngineOptions = {}): Promise<PullResult[]> {
+  const config = await loadConfig(homeDir);
+  const targetServers = resolveTargetServers(config, servers);
+  const results: PullResult[] = [];
+
+  for (const serverName of targetServers) {
+    results.push(await pullFromServer(homeDir, serverName, options));
+  }
+
+  return results;
+}
+
 export async function syncServers(homeDir: string, servers?: string[], options: SyncEngineOptions = {}): Promise<SyncResult[]> {
   const config = await loadConfig(homeDir);
   const targetServers = resolveTargetServers(config, servers);

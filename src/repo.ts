@@ -5,6 +5,7 @@ import {
   createDefaultConfig,
   detectAgents,
   getSyncPaths,
+  KNOWN_AGENT_DIRS,
   loadConfig,
   saveConfig,
   type SyncSkillConfig
@@ -39,6 +40,12 @@ export async function initializeRepo(homeDir: string, options: InitializeRepoOpt
   };
 
   await saveConfig(config, homeDir);
+
+  const serverCount = Object.keys(config.servers).length;
+  if (serverCount >= 3) {
+    console.log(`\nDetected ${serverCount} servers. Auto-refresh may be slow.`);
+    console.log('Use --no-refresh to skip refresh, then run "syncskill refresh" manually as needed.');
+  }
 }
 
 async function copyConfigExample(homeDir: string): Promise<void> {
@@ -55,7 +62,7 @@ async function copyConfigExample(homeDir: string): Promise<void> {
 
 async function migrateSkills(homeDir: string, config: SyncSkillConfig): Promise<void> {
   const { skillsDir } = getSyncPaths(homeDir);
-  const sourceRoots = [join(homeDir, '.claude', 'skills'), join(homeDir, '.agents', 'skills')];
+  const sourceRoots = Object.values(KNOWN_AGENT_DIRS).map((dir) => join(homeDir, dir));
 
   for (const root of sourceRoots) {
     const skillDirs = await listSkillDirectories(root);
