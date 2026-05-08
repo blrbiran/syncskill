@@ -1009,3 +1009,26 @@ export function findOrphanSkills(
 
   return orphans.sort();
 }
+
+export interface ExistingSourceMatch {
+  name: string;
+  source: SourceEntry;
+}
+
+export async function findExistingSourceByUrl(
+  homeDir = homedir(),
+  url: string
+): Promise<ExistingSourceMatch | null> {
+  const config = await loadConfig(homeDir);
+
+  for (const [name, sourceDef] of Object.entries(config.sources)) {
+    const entry = normalizeSourceEntry(name, sourceDef)[0];
+    if (!entry) continue;
+
+    if (entry.url === url) {
+      return { name, source: entry };
+    }
+  }
+
+  return null;
+}

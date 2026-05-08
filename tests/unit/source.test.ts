@@ -6,11 +6,11 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it } from 'vitest';
-import YAML from 'yaml';
+import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { buildSkillsIndex, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findOrphanSkills, listSources, loadSourceState, loadSkillsIndex, materializeSource, resolveSkillPath, saveSkillsIndex, updateSource } from '../../src/source.js';
+import { buildSkillsIndex, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, listSources, loadSourceState, loadSkillsIndex, materializeSource, resolveSkillPath, saveSkillsIndex, updateSource } from '../../src/source.js';
 import type { SkillsIndex } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
@@ -1024,5 +1024,73 @@ describe('skills-index', () => {
       origin: 'my-source',
       type: 'git',
     });
+  });
+});
+
+describe('findExistingSourceByUrl', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('returns matching source when URL matches', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-same-repo-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: {},
+        sources: {
+          'existing-source': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'sources/repo',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    const result = await findExistingSourceByUrl(homeDir, 'https://github.com/org/repo.git');
+
+    expect(result).not.toBeNull();
+    expect(result?.name).toBe('existing-source');
+    expect(result?.source.url).toBe('https://github.com/org/repo.git');
+  });
+
+  it('returns null when no matching URL', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-same-repo-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: {},
+        sources: {
+          'other-source': {
+            type: 'git',
+            url: 'https://github.com/org/other.git',
+            store: 'sources/other',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    const result = await findExistingSourceByUrl(homeDir, 'https://github.com/org/repo.git');
+
+    expect(result).toBeNull();
   });
 });
