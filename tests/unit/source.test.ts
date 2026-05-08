@@ -10,7 +10,7 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { buildSkillsIndex, classifySameRepoScenario, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, listSources, loadSourceState, loadSkillsIndex, materializeSource, resolveSkillPath, SameRepoScenario, saveSkillsIndex, updateSource } from '../../src/source.js';
+import { buildSkillsIndex, classifySameRepoScenario, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, resolveSkillPath, SameRepoScenario, saveSkillsIndex, updateSource } from '../../src/source.js';
 import type { SkillsIndex } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
@@ -1138,5 +1138,129 @@ describe('classifySameRepoScenario', () => {
     );
 
     expect(result).toBe(SameRepoScenario.DifferentParents);
+  });
+});
+
+describe('handleSameRepoMerge', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('scenario 1: removes skill from ignore when re-adding within multi-skill', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-merge-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const sourcesDir = join(syncDir, '.sources', 'existing-source');
+
+    // Create source with ignore list
+    await mkdir(join(sourcesDir, 'checkout', 'skills', 'skill1'), { recursive: true });
+    await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill1', 'SKILL.md'), '# Skill 1');
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: {},
+        sources: {
+          'existing-source': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'skills/',
+            ignore: ['skill1'],
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    const result = await handleSameRepoMerge(homeDir, {
+      existingName: 'existing-source',
+      existingSubdir: 'skills/',
+      newSubdir: 'skills/skill1',
+      scenario: SameRepoScenario.NewWithinExisting,
+    });
+
+    expect(result.action).toBe('restored-from-ignore');
+    expect(result.skillName).toBe('skill1');
+  });
+
+  it('scenario 1: returns already-covered when skill not in ignore', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-merge-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: { skill1: ['*'] },
+        sources: {
+          'existing-source': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'skills/',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    const result = await handleSameRepoMerge(homeDir, {
+      existingName: 'existing-source',
+      existingSubdir: 'skills/',
+      newSubdir: 'skills/skill1',
+      scenario: SameRepoScenario.NewWithinExisting,
+    });
+
+    expect(result.action).toBe('already-covered');
+    expect(result.skillName).toBe('skill1');
+  });
+
+  it('scenario 2: expands to multi-skill directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-merge-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const sourcesDir = join(syncDir, '.sources', 'existing-source');
+
+    // Create source with single skill but multiple skills in checkout
+    await mkdir(join(sourcesDir, 'checkout', 'skills', 'skill1'), { recursive: true });
+    await mkdir(join(sourcesDir, 'checkout', 'skills', 'skill2'), { recursive: true });
+    await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill1', 'SKILL.md'), '# Skill 1');
+    await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill2', 'SKILL.md'), '# Skill 2');
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: { skill1: ['*'] },
+        sources: {
+          'existing-source': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'skills/skill1',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    const result = await handleSameRepoMerge(homeDir, {
+      existingName: 'existing-source',
+      existingSubdir: 'skills/skill1',
+      newSubdir: 'skills/',
+      scenario: SameRepoScenario.NewContainsExisting,
+    });
+
+    expect(result.action).toBe('expanded-to-multi');
+    expect(result.newSkills).toContain('skill2');
   });
 });

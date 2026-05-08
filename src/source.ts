@@ -580,6 +580,28 @@ async function listSkillDirectories(root: string): Promise<string[]> {
     .sort((left, right) => left.localeCompare(right));
 }
 
+async function listSkillDirectoriesWithSkillMd(root: string): Promise<string[]> {
+  try {
+    const entries = await readdir(root, { withFileTypes: true });
+    const skills: string[] = [];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const skillMdPath = join(root, entry.name, 'SKILL.md');
+      if (await pathExists(skillMdPath)) {
+        skills.push(entry.name);
+      }
+    }
+
+    return skills.sort();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function removeStaleSkills(
   skillsDir: string,
   materializedRoot: string,
@@ -1056,6 +1078,21 @@ export interface ExistingSourceMatch {
   source: SourceEntry;
 }
 
+export interface SameRepoMergeOptions {
+  existingName: string;
+  existingSubdir: string;
+  newSubdir: string;
+  scenario: SameRepoScenario;
+  expandToParent?: boolean;
+}
+
+export interface SameRepoMergeResult {
+  action: 'restored-from-ignore' | 'already-covered' | 'expanded-to-multi' | 'added-sibling' | 'created-new-entry';
+  skillName?: string;
+  newSkills?: string[];
+  newSourceName?: string;
+}
+
 export async function findExistingSourceByUrl(
   homeDir = homedir(),
   url: string
@@ -1072,4 +1109,77 @@ export async function findExistingSourceByUrl(
   }
 
   return null;
+}
+
+export async function handleSameRepoMerge(
+  homeDir = homedir(),
+  options: SameRepoMergeOptions
+): Promise<SameRepoMergeResult> {
+  const config = await loadConfig(homeDir);
+  const { existingName, existingSubdir, newSubdir, scenario } = options;
+  const sourceRaw = config.sources[existingName] as Record<string, unknown>;
+
+  if (!sourceRaw) {
+    throw new Error(`Source not found: ${existingName}`);
+  }
+
+  if (scenario === SameRepoScenario.NewWithinExisting) {
+    // Scenario 1: Check if skill is in ignore list
+    const skillName = newSubdir.split('/').pop()!;
+    const ignoreList = (sourceRaw.ignore as string[] | undefined) ?? [];
+
+    if (ignoreList.includes(skillName)) {
+      // Remove from ignore, add to links
+      sourceRaw.ignore = ignoreList.filter(s => s !== skillName);
+      if ((sourceRaw.ignore as string[]).length === 0) {
+        delete sourceRaw.ignore;
+      }
+      config.links[skillName] = ['*'];
+      await saveConfig(config, homeDir);
+      return { action: 'restored-from-ignore', skillName };
+    }
+
+    // Skill already covered by multi-skill source
+    return { action: 'already-covered', skillName };
+  }
+
+  if (scenario === SameRepoScenario.NewContainsExisting) {
+    // Scenario 2: Expand to multi-skill directory
+    const { syncDir } = getSyncPaths(homeDir);
+    const sourceDir = join(syncDir, '.sources', existingName, 'checkout');
+    const multiSkillPath = join(sourceDir, newSubdir);
+
+    // Discover all skills in the new multi-skill directory
+    // The multiSkillPath is already a skills directory, so scan its subdirectories directly
+    const allSkills = await listSkillDirectoriesWithSkillMd(multiSkillPath);
+    const existingSkillName = existingSubdir.split('/').pop()!;
+    const newSkills = allSkills.filter(s => s !== existingSkillName);
+
+    // Update source to point to multi-skill directory
+    sourceRaw.store = newSubdir;
+
+    // Add new skills to links and update ownership (non-conflicting ones)
+    const ownershipState = await loadSkillOwnershipState(homeDir);
+    const conflicting: string[] = [];
+    for (const skill of newSkills) {
+      if (ownershipState.owners[skill] && ownershipState.owners[skill] !== existingName) {
+        conflicting.push(skill);
+      } else {
+        config.links[skill] = ['*'];
+        ownershipState.owners[skill] = existingName;  // Track ownership
+      }
+    }
+
+    // Add conflicting skills to ignore (deduplicated)
+    if (conflicting.length > 0) {
+      const existingIgnore = (sourceRaw.ignore as string[] | undefined) ?? [];
+      sourceRaw.ignore = [...new Set([...existingIgnore, ...conflicting])];
+    }
+
+    await saveConfig(config, homeDir);
+    await saveSkillOwnershipState(homeDir, ownershipState);
+    return { action: 'expanded-to-multi', newSkills };
+  }
+
+  throw new Error(`Unhandled scenario: ${scenario}`);
 }
