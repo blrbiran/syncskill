@@ -10,7 +10,7 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { buildSkillsIndex, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, listSources, loadSourceState, loadSkillsIndex, materializeSource, resolveSkillPath, saveSkillsIndex, updateSource } from '../../src/source.js';
+import { buildSkillsIndex, classifySameRepoScenario, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, listSources, loadSourceState, loadSkillsIndex, materializeSource, resolveSkillPath, SameRepoScenario, saveSkillsIndex, updateSource } from '../../src/source.js';
 import type { SkillsIndex } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
@@ -1092,5 +1092,51 @@ describe('findExistingSourceByUrl', () => {
     const result = await findExistingSourceByUrl(homeDir, 'https://github.com/org/repo.git');
 
     expect(result).toBeNull();
+  });
+});
+
+describe('classifySameRepoScenario', () => {
+  it('returns scenario 1 when new path is subset of existing multi-skill dir', () => {
+    const result = classifySameRepoScenario(
+      'skills/',           // existing: multi-skill directory
+      'skills/skill1',     // new: single skill within
+      false,               // existing has SKILL.md = false (multi)
+      true                 // new has SKILL.md = true (single)
+    );
+
+    expect(result).toBe(SameRepoScenario.NewWithinExisting);
+  });
+
+  it('returns scenario 2 when new path contains existing single skill', () => {
+    const result = classifySameRepoScenario(
+      'skills/skill1',     // existing: single skill
+      'skills/',           // new: multi-skill directory containing it
+      true,                // existing has SKILL.md = true (single)
+      false                // new has SKILL.md = false (multi)
+    );
+
+    expect(result).toBe(SameRepoScenario.NewContainsExisting);
+  });
+
+  it('returns scenario 3 when same parent, different skills', () => {
+    const result = classifySameRepoScenario(
+      'skills/skill1',     // existing: single skill
+      'skills/skill2',     // new: sibling skill
+      true,
+      true
+    );
+
+    expect(result).toBe(SameRepoScenario.SameParentSiblings);
+  });
+
+  it('returns scenario 4 when different parent directories', () => {
+    const result = classifySameRepoScenario(
+      'skills/skill1',     // existing in skills/
+      'examples/skill2',   // new in examples/
+      true,
+      true
+    );
+
+    expect(result).toBe(SameRepoScenario.DifferentParents);
   });
 });

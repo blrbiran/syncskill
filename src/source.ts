@@ -22,6 +22,47 @@ export enum RemovalAction {
   RemoveAll = 'remove-all',
 }
 
+export enum SameRepoScenario {
+  /** Scenario 1: New skill path is within existing multi-skill directory */
+  NewWithinExisting = 'new-within-existing',
+  /** Scenario 2: New multi-skill directory contains existing single skill */
+  NewContainsExisting = 'new-contains-existing',
+  /** Scenario 3: Same parent directory, different single skills */
+  SameParentSiblings = 'same-parent-siblings',
+  /** Scenario 4: Different parent directories entirely */
+  DifferentParents = 'different-parents',
+}
+
+export function classifySameRepoScenario(
+  existingSubdir: string,
+  newSubdir: string,
+  existingHasSkillMd: boolean,
+  newHasSkillMd: boolean
+): SameRepoScenario {
+  const existingNorm = existingSubdir.replace(/\/$/, '');
+  const newNorm = newSubdir.replace(/\/$/, '');
+
+  // Check if new is within existing (scenario 1)
+  if (!existingHasSkillMd && newHasSkillMd && newNorm.startsWith(existingNorm + '/')) {
+    return SameRepoScenario.NewWithinExisting;
+  }
+
+  // Check if new contains existing (scenario 2)
+  if (existingHasSkillMd && !newHasSkillMd && existingNorm.startsWith(newNorm + '/')) {
+    return SameRepoScenario.NewContainsExisting;
+  }
+
+  // Check if same parent directory (scenario 3)
+  const existingParent = dirname(existingNorm);
+  const newParent = dirname(newNorm);
+  if (existingParent === newParent && existingHasSkillMd && newHasSkillMd) {
+    return SameRepoScenario.SameParentSiblings;
+  }
+
+  // Different parents (scenario 4)
+  return SameRepoScenario.DifferentParents;
+}
+
 export type SourceType = 'local' | 'git' | 'http';
 
 export interface SourceDefinition {
