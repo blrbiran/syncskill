@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
 import { createProgram } from '../../src/index.js';
-import { loadSourceState } from '../../src/source.js';
+import { findExistingSourceByUrl, loadSourceState } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -512,5 +512,45 @@ describe('skills-index generation', () => {
     const indexPath = join(syncDir, 'skills-index.json');
     const index = JSON.parse(await readFile(indexPath, 'utf-8'));
     expect(index.skills['new-skill']).toBeDefined();
+  });
+});
+
+describe('same-repo merge detection', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('detects existing source with same URL', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-same-repo-cli-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+
+    // Create config with existing source
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: { skill1: ['*'] },
+        sources: {
+          'repo-skill1': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'skills/skill1',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    // Test findExistingSourceByUrl directly
+    const match = await findExistingSourceByUrl(homeDir, 'https://github.com/org/repo.git');
+    expect(match).not.toBeNull();
+    expect(match?.name).toBe('repo-skill1');
   });
 });

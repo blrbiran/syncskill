@@ -260,7 +260,7 @@ export function createProgram(homeDir?: string): Command {
         }
       }
 
-      const { name } = await addSourceFromUrl(resolvedHomeDir, effectiveUrl, {
+      const result = await addSourceFromUrl(resolvedHomeDir, effectiveUrl, {
         name: options.url ? nameOrUrl : (options.path ? nameOrUrl : undefined),
         type: options.type,
         store: effectiveStore,
@@ -268,7 +268,15 @@ export function createProgram(homeDir?: string): Command {
         ref: options.ref
       });
 
-      console.log(`Added source: ${name}`);
+      if (result.sameRepoMatch) {
+        console.log(`\nA source already exists for this repository: ${result.sameRepoMatch.name}`);
+        console.log(`Existing store: ${result.sameRepoMatch.source.store}`);
+        console.log(`\nTo add a skill from a different path in this repo, use:`);
+        console.log(`  syncskill source add <skill-name> --url ${result.sameRepoMatch.source.url} --skill-subdir <path>`);
+        return;
+      }
+
+      console.log(`Added source: ${result.name}`);
     });
 
   sourceCommand

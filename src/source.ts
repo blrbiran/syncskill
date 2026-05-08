@@ -910,11 +910,23 @@ export async function addSourceFromUrl(
   homeDir = homedir(),
   urlOrName: string,
   options: AddSourceFromUrlOptions = {}
-): Promise<{ name: string; source: SourceDefinition }> {
+): Promise<{ name: string; source: SourceDefinition; sameRepoMatch?: ExistingSourceMatch }> {
   const { syncDir } = getSyncPaths(homeDir);
   const parsed = parseGitHubUrl(urlOrName);
 
   if (parsed) {
+    // Check for existing source with same URL
+    const existingMatch = await findExistingSourceByUrl(homeDir, parsed.cloneUrl);
+
+    if (existingMatch) {
+      // Return the match for CLI to handle interactively
+      return {
+        name: existingMatch.name,
+        source: existingMatch.source,
+        sameRepoMatch: existingMatch,
+      };
+    }
+
     const name = options.name ?? parsed.skillName;
     const store = options.store ?? join(syncDir, 'sources', parsed.repo);
     const source: SourceDefinition = {
@@ -926,6 +938,18 @@ export async function addSourceFromUrl(
 
     await addSource(homeDir, name, source);
     return { name, source };
+  }
+
+  // For non-GitHub URLs with explicit type
+  if (options.type === 'git' || options.type === 'http') {
+    const existingMatch = await findExistingSourceByUrl(homeDir, urlOrName);
+    if (existingMatch) {
+      return {
+        name: existingMatch.name,
+        source: existingMatch.source,
+        sameRepoMatch: existingMatch,
+      };
+    }
   }
 
   // Not a GitHub URL - require explicit parameters
