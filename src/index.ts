@@ -24,12 +24,14 @@ import {
 } from './refresh.js';
 import {
   addSourceFromUrl,
+  buildSkillsIndex,
   findOrphanSkills,
   formatSourceListLines,
   listSources,
   loadSkillOwnershipState,
   RemovalAction,
   removeSource,
+  saveSkillsIndex,
   SourceType,
   updateAllSources,
   updateSource,
@@ -176,6 +178,10 @@ export function createProgram(homeDir?: string): Command {
       for (const skillName of addedSkills) {
         console.log(skillName);
       }
+
+      // Generate skills-index.json
+      const index = await buildSkillsIndex(resolvedHomeDir);
+      await saveSkillsIndex(resolvedHomeDir, index);
     });
 
   program

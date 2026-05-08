@@ -2,6 +2,7 @@ import { cp, lstat, mkdir, readdir, readlink, rm, stat, symlink } from 'node:fs/
 import { dirname, join } from 'node:path';
 
 import { expandTargetAgents, getSyncPaths, loadConfig, saveConfig } from './config.js';
+import { buildSkillsIndex, saveSkillsIndex } from './source.js';
 
 export interface ScanOptions {
   allAgents: boolean;
@@ -101,6 +102,12 @@ export async function linkConfiguredSkills(homeDir: string, request: LinkRequest
       const state = await ensureLinkedDirectory(sourceDir, join(config.agents[agent], skill));
       results.push({ skill, agent, state });
     }
+  }
+
+  // Generate skills-index.json when linking all skills
+  if (request.all) {
+    const index = await buildSkillsIndex(homeDir);
+    await saveSkillsIndex(homeDir, index);
   }
 
   return results;

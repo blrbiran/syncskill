@@ -1,4 +1,5 @@
 import { access, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import { stringify } from 'yaml';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -346,5 +347,80 @@ describe('source CLI', () => {
       [`local-zeta\tlocal\t${join(homeDir, 'source-zeta')}\tskills`],
       ['zeta\tgit\thttps://example.com/zeta.git\tskills']
     ]);
+  });
+});
+
+describe('skills-index generation', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('generates skills-index.json after link --all', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-index-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const skillsDir = join(syncDir, 'skills');
+
+    // Create a skill
+    await mkdir(join(skillsDir, 'test-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'test-skill', 'SKILL.md'), '# Test');
+
+    // Create config with agent and link
+    await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: { claude: join(homeDir, '.claude', 'skills') },
+        links: { 'test-skill': ['*'] },
+        sources: {},
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    // Run link --all
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all'], { from: 'node' });
+
+    // Check skills-index.json was created
+    const indexPath = join(syncDir, 'skills-index.json');
+    const index = JSON.parse(await readFile(indexPath, 'utf-8'));
+    expect(index.version).toBe(1);
+    expect(index.skills['test-skill']).toBeDefined();
+    expect(index.skills['test-skill'].origin).toBe('manual');
+  });
+
+  it('generates skills-index.json after discover', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-index-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const skillsDir = join(syncDir, 'skills');
+
+    // Create a skill not in links
+    await mkdir(join(skillsDir, 'new-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'new-skill', 'SKILL.md'), '# New');
+
+    // Create minimal config
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: { claude: join(homeDir, '.claude', 'skills') },
+        links: {},
+        sources: {},
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    // Run discover
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'discover'], { from: 'node' });
+
+    // Check skills-index.json was created
+    const indexPath = join(syncDir, 'skills-index.json');
+    const index = JSON.parse(await readFile(indexPath, 'utf-8'));
+    expect(index.skills['new-skill']).toBeDefined();
   });
 });
