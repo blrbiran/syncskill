@@ -53,6 +53,7 @@ syncskill/
 ├── manifests/                     # 各服务器同步状态 (JSON per server)
 │   └── <server>.json
 ├── manifest_history.json          # hash 变更历史
+├── skills-index.json              # skill → 来源映射索引（由 link --all / discover 自动生成）
 └── .tmp/                          # 临时文件（运行时创建，自动清理）
 ```
 
@@ -273,13 +274,14 @@ syncskill/
 
 - **Git 来源**：克隆前通过 `git ls-remote --symref <url> HEAD` 自动探测远程默认分支名（可能是 `main`、`master` 或其他），然后执行 `git clone --single-branch --depth 1 --branch <detected>`；`source update` 时用 `git fetch --depth=1 origin <branch> && git reset --hard origin/<branch>`，确保始终只拉当前分支最新单条提交，不增长历史
 - **HTTP 来源**：`fetch()` 下载 → `tar` / `node:zlib` + `node:stream` 解压
-- **Local 来源**：通过软链接直接指向本地指定目录（不复制），适合共享网络盘或未推送到 git 的本地 skill 仓库；推送到远程服务器时才会实际复制文件内容
+- **Local 来源**：以 `store` 为基准目录，通过 `store` 和 `skill_subdir` 定位 skills；推送到远程服务器时实际复制文件内容。`--path` 和 `--store` 对 local 类型等效：未指定 `--store` 时默认使用 `--path` 的值。`store` 目录也支持 git 类型的自动检测逻辑（见下方"多 skill 目录自动检测流程"）
 - 支持 `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.zip`
 - 解压使用 Node 原生模块，不依赖系统工具
 
 **`source add` 命令参数增强：**
 
-- `--store` 可选：`--type` 为 git 或 http 且未指定时，默认为 `~/.syncskill/sources/<github_repo_name>`（从 URL 提取仓库名，如无法提取则回退到 skill 名称）
+- `--store` 可选：`--type` 为 git 或 http 且未指定时，默认为 `~/.syncskill/sources/<github_repo_name>`（从 URL 提取仓库名，如无法提取则回退到 skill 名称）；`--type` 为 local 且未指定时，默认使用 `--path` 的值
+- `--path` 可选：local 类型下等效于 `--store`，两者指定其一即可
 - `--skill-subdir` 可选：手动指定来源仓库内某个子目录作为 skill 目录
 - 支持 GitHub URL 直接解析：`syncskill source add https://github.com/openclaw/openclaw/tree/main/.agents/skills/openclaw-ghsa-maintainer` 等价于 `syncskill source add openclaw-ghsa-maintainer --type git --url https://github.com/openclaw/openclaw.git --store ~/.syncskill/sources/openclaw --skill-subdir .agents/skills/openclaw-ghsa-maintainer`
 - 无法解析为标准 GitHub URL 模式时，打印错误提示并列出期望格式（`https://github.com/<org>/<repo>/tree/<branch>/<path>` 或 `https://github.com/<org>/<repo>.git`），回退到 `--type git` 默认行为等待用户输入
@@ -302,9 +304,28 @@ syncskill/
 
 **同仓库合并：**
 
-- 如果已有 source 配置使用相同 URL，提示用户选择合并到已有 source 或创建新条目（默认合并到已有）
-- 合并时共用同一 `url` 和 `store`，通过 `skill_subdir` 区分不同 skill 子目录
-- 合并前若 `--type` 为 git，先执行 `git pull`（或 `git fetch + reset`）将本地 store 仓库更新到最新版本，确保后续 skill 发现基于最新代码
+总原则：同一 git 仓库只保留一份 clone（共享 `url` 和 `store`）。合并时根据新旧 `skill_subdir` 的层级关系，分为 4 种场景：
+
+> 目录类型判断规则：目录下有 `SKILL.md` → 单 skill 目录；目录下没有 `SKILL.md` 但子目录中有 `SKILL.md` → 多 skills 目录。
+
+| 场景 | 现有 `skill_subdir` | 新请求 `skill_subdir` | 关系 | 处理 |
+|------|---------------------|----------------------|------|------|
+| **1** | `skills/`（多 skills） | `skills/skill1`（单 skill） | 新 ⊂ 现有 | 若 `skill1` 在 ignore list 中 → 从 ignore 移除，检查重名后加入 links（走场景1逻辑可恢复之前被忽略的 skill）；若不在 ignore list 中 → 该 skill 已被覆盖，提示用户 |
+| **1.1** | `skills/`（多 skills） | `skills/skill1`（单 skill） | 新 ⊂ 现有 | 同上 |
+| **2** | `skills/skill1`（单 skill） | `skills/`（多 skills） | 新 ⊃ 现有 | 修改 `skill_subdir` 为新的多 skills 目录，列出新增 skills 清单；不重名的加入 links，重名的加入 ignore |
+| **3** | `skills/skill1`（单 skill） | `skills/skill2`（单 skill） | 同父目录相邻 | 提示用户确认；询问是否引入同父目录下其他 skills（默认不引入）。引入 → `skill_subdir` = 共同父目录，发现所有 skills；不引入 → `skill_subdir` = 共同父目录，其他兄弟 skills 加入 ignore，新 skill 加入 links |
+| **4** | `skills/skill1`（单 skill） | `examples/skill2`（单 skill） | 不同父目录 | 创建新 source entry：相同 `type`/`url`/`store`，不同 `skill_subdir`；source name 加数字后缀（`nuwa-skill` → `nuwa-skill.2` → `nuwa-skill.3`）。不修改现有 source |
+
+**命名规则：**
+
+- 多 skills 目录 → source name = git 仓库名（从 URL 提取）
+- 单个 skill 目录 → source name = skill 目录名
+- 数字后缀递增：已有 `.2` 则用 `.3`，以此类推
+
+**其他：**
+
+- 合并前若 `--type` 为 git，先执行 `git fetch + reset` 将本地 store 仓库更新到最新版本
+- 重名检查：新增 skill 加入 links 前检查是否与 `~/.syncskill/skills/` 或其他 sources 重名
 
 **`source remove` 命令行为（交互式确认）：**
 
@@ -330,6 +351,33 @@ syncskill/
 **全局 skill 发现：**
 
 配置好 source 后，`syncskill config link`、`syncskill config remote`、`syncskill discover`、`syncskill status` 等所有涉及 skill 列表的命令都能自动检测到来源中的 skills。统一通过集中的 skill 发现函数 `discoverAllSkills(config)`，合并 `~/.syncskill/skills/` 和所有 sources 的 skill。
+
+**Skills 索引文件（`skills-index.json`）：**
+
+当 `link --all` 或 `discover` 命令执行时，自动生成 `~/.syncskill/skills-index.json` 文件，方便用户确认每个 skill 的出处。
+
+```json
+{
+  "version": 1,
+  "skills": {
+    "manual-skill": {
+      "path": "~/.syncskill/skills/manual-skill",
+      "origin": "manual",
+      "type": "manual"
+    },
+    "source-skill": {
+      "path": "~/.syncskill/sources/my-repo/.claude/source-skill",
+      "origin": "my-repo",
+      "type": "local"
+    }
+  }
+}
+```
+
+- `path`：skill 目录的绝对路径
+- `origin`：来源标识——`"manual"` 表示 `~/.syncskill/skills/` 手动管理，否则为 source 名称
+- `type`：`"manual"` | `"git"` | `"http"` | `"local"`
+- 手动目录的 skill 优先级高于来源中的同名 skill
 
 ### 3.8 `sync_engine.ts` — 核心同步流程
 
