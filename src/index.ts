@@ -232,19 +232,38 @@ export function createProgram(homeDir?: string): Command {
     })
     .option('--url <url>', 'Source URL (if different from first argument)')
     .option('--store <store>', 'Materialized store path')
+    .option('--path <path>', 'Local path (equivalent to --store for local type)')
     .option('--skill-subdir <dir>', 'Subdirectory within source containing skills')
     .option('--ref <ref>', 'Git ref (branch/tag)')
     .action(async (nameOrUrl: string, options: {
       type?: SourceType;
       url?: string;
       store?: string;
+      path?: string;
       skillSubdir?: string;
       ref?: string;
     }) => {
-      const { name } = await addSourceFromUrl(resolvedHomeDir, options.url ?? nameOrUrl, {
-        name: options.url ? nameOrUrl : undefined,
+      // For local type, --path sets the URL (directory path) and defaults store to '.'
+      // --store always takes precedence if explicitly provided
+      let effectiveUrl = options.url ?? nameOrUrl;
+      let effectiveStore = options.store;
+
+      if (options.type === 'local' && options.path) {
+        // --path provides the local directory path (becomes url)
+        // Only use path if url wasn't explicitly provided
+        if (!options.url) {
+          effectiveUrl = options.path;
+        }
+        // If --store wasn't provided, default to '.' (root of the path)
+        if (!options.store) {
+          effectiveStore = '.';
+        }
+      }
+
+      const { name } = await addSourceFromUrl(resolvedHomeDir, effectiveUrl, {
+        name: options.url ? nameOrUrl : (options.path ? nameOrUrl : undefined),
         type: options.type,
-        store: options.store,
+        store: effectiveStore,
         skillSubdir: options.skillSubdir,
         ref: options.ref
       });

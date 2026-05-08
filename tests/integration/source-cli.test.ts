@@ -350,6 +350,96 @@ describe('source CLI', () => {
   });
 });
 
+describe('source add --path option', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('treats --path as shorthand for --url + --store=. for local sources', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-path-'));
+    tempDirs.push(homeDir);
+    const localSkillDir = join(homeDir, 'my-local-skills');
+
+    // Create a local skill directory with a skill
+    await mkdir(join(localSkillDir, 'local-skill'), { recursive: true });
+    await writeFile(join(localSkillDir, 'local-skill', 'SKILL.md'), '# Local Skill');
+
+    // Create minimal config
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    // Run source add with --path (shorthand for --url <path> --store .)
+    await createProgram(homeDir).parseAsync(
+      [
+        'node',
+        'syncskill',
+        'source',
+        'add',
+        'my-local',
+        '--type',
+        'local',
+        '--path',
+        localSkillDir
+      ],
+      { from: 'node' }
+    );
+
+    // Verify source was added: url = path value, store = '.'
+    const config = await loadConfig(homeDir);
+    expect(config.sources['my-local']).toBeDefined();
+    const source = config.sources['my-local'] as Record<string, unknown>;
+    expect(source.type).toBe('local');
+    expect(source.url).toBe(localSkillDir);
+    expect(source.store).toBe('.');
+
+    // Verify skill was materialized
+    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'local-skill'))).resolves.toBe(join(localSkillDir, 'local-skill'));
+  });
+
+  it('--store takes precedence over default when --path is also provided', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-path-precedence-'));
+    tempDirs.push(homeDir);
+    const pathDir = join(homeDir, 'path-dir');
+
+    // Create a skill in pathDir/skills subdirectory
+    await mkdir(join(pathDir, 'skills', 'skill-x'), { recursive: true });
+    await writeFile(join(pathDir, 'skills', 'skill-x', 'SKILL.md'), '# X');
+
+    // Create minimal config
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    // Run source add with both --path and explicit --store
+    // --path sets the url, --store overrides the default '.'
+    await createProgram(homeDir).parseAsync(
+      [
+        'node',
+        'syncskill',
+        'source',
+        'add',
+        'local-src',
+        '--type',
+        'local',
+        '--path',
+        pathDir,
+        '--store',
+        'skills'
+      ],
+      { from: 'node' }
+    );
+
+    // Verify --store takes precedence over default
+    const config = await loadConfig(homeDir);
+    const source = config.sources['local-src'] as Record<string, unknown>;
+    expect(source.url).toBe(pathDir);
+    expect(source.store).toBe('skills');
+
+    // Verify skill was materialized from the skills subdirectory
+    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'skill-x'))).resolves.toBe(join(pathDir, 'skills', 'skill-x'));
+  });
+});
+
 describe('skills-index generation', () => {
   const tempDirs: string[] = [];
 
