@@ -202,6 +202,14 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (typeof options.unlink === 'string') {
+        const confirmed = await confirm({
+          message: `Unlink skill "${options.unlink}" from all agents?`,
+          default: false,
+        });
+        if (!confirmed) {
+          console.log('Cancelled.');
+          return;
+        }
         await unlinkSkill(resolvedHomeDir, options.unlink);
         return;
       }
@@ -521,6 +529,12 @@ export function createProgram(homeDir?: string): Command {
       }
 
       const servers = await listTrackedServers(resolvedHomeDir);
+
+      if (servers.length === 0) {
+        console.error('No tracked servers found. Run "syncskill refresh" first to track server manifests.');
+        process.exit(1);
+      }
+
       const updatedAt = new Date().toISOString();
       let resolved = false;
 

@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-08T13:24:45.341Z
-> Files: 63 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-08T14:05:29.967Z
+> Files: 60 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -30,29 +30,23 @@
 - `design-guide.md` — Design Guide (~620 tok)
 - `usage-guide.md` — Usage Guide (~974 tok)
 
-## docs/superpowers/plans/
-
-- `2026-05-07-spec-alignment.md` — Spec Alignment Implementation Plan (~10312 tok)
-- `2026-05-08-source-remove-interactive.md` — Source Remove Interactive Confirmation Implementation Plan (~5799 tok)
-- `2026-05-08-spec-remaining-features.md` — Spec Remaining Features Implementation Plan (~12466 tok)
-
 ## docs/superpowers/specs/
 
 - `syncskill-design.md` — syncskill — TypeScript 实现设计 (~4113 tok)
 
 ## src/
 
-- `config-ui.ts` — Exports PromptApi, createPromptApi, SafeSelectResult, safeSelect + 11 more (~3968 tok)
+- `config-ui.ts` — Exports PromptApi, createPromptApi, SafeSelectResult, safeSelect + 11 more (~4050 tok)
 - `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 12 more (~2035 tok)
 - `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 5 more (~1129 tok)
-- `index.ts` — Exports createProgram (~6050 tok)
+- `index.ts` — Exports createProgram (~6280 tok)
 - `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, listLocalSkills + 5 more (~1253 tok)
 - `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3315 tok)
 - `matrix-editor.ts` — Exports MatrixEditorConfig, MatrixEditorResult, renderMatrixLine, createMatrixEditor (~1495 tok)
 - `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1324 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~729 tok)
 - `server.ts` — Exports ProbeLine, formatServerListLines, formatServerShowLines, formatProbeLines + 3 more (~438 tok)
-- `source.ts` — Exports SkillIndexEntry, SkillsIndex, loadSkillsIndex, saveSkillsIndex, buildSkillsIndex, ExistingSourceMatch, findExistingSourceByUrl, SameRepoScenario, classifySameRepoScenario, SameRepoMergeOptions, SameRepoMergeResult, handleSameRepoMerge, RemovalAction, SourceDefinition, SourceEntry, addSource, removeSource, materializeSource, updateSource, discoverSourceSkills, parseGitHubUrl, addSourceFromUrl, findOrphanSkills + 8 more (~11621 tok)
+- `source.ts` — Git only: Convert source from git to local, keep store directory (~11605 tok)
 - `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 5 more (~2963 tok)
 - `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer + 6 more (~3216 tok)
 
@@ -77,7 +71,7 @@
 - `remote-refresh.test.ts` — Declares tempDirs (~669 tok)
 - `repo.test.ts` — Declares tempDirs (~1236 tok)
 - `server-cli.test.ts` — Declares tempDirs (~1061 tok)
-- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~5064 tok)
+- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6160 tok)
 - `source-remove.test.ts` — Declares SyncSkillConfig (~3145 tok)
 - `sync-cli.test.ts` — Declares tempDirs (~1314 tok)
 - `sync-engine.test.ts` — TransportRuntime: createRuntime (~3568 tok)
@@ -96,5 +90,5 @@
 - `refresh.test.ts` — Declares tempDirs (~5658 tok)
 - `server.test.ts` (~406 tok)
 - `source-github-url.test.ts` — Declares result (~1311 tok)
-- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~13794 tok)
+- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~16058 tok)
 - `test-tiers.test.ts` — Declares rootDir (~368 tok)

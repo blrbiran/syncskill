@@ -151,3 +151,5 @@ vite.config.ts.timestamp-*
 .wolf/hooks/_session.json
 .wolf/memory.md
 .wolf/token-ledger.json
+
+docs/issue.md

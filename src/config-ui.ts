@@ -73,7 +73,10 @@ export async function editAgents(config: SyncSkillConfig, prompts: PromptApi): P
       message: 'Remove agent',
       choices: agentNames.map((agentName) => ({ name: agentName, value: agentName }))
     });
-    delete config.agents[agentToRemove];
+    const confirmed = await prompts.confirm({ message: `Remove agent "${agentToRemove}"?`, default: false });
+    if (confirmed) {
+      delete config.agents[agentToRemove];
+    }
   }
 }
 
@@ -121,7 +124,10 @@ export async function editLinks(config: SyncSkillConfig, prompts: PromptApi): Pr
       message: 'Remove link mapping',
       choices: skills.map((skill) => ({ name: skill, value: skill }))
     });
-    delete config.links[skillToRemove];
+    const confirmed = await prompts.confirm({ message: `Remove link mapping for "${skillToRemove}"?`, default: false });
+    if (confirmed) {
+      delete config.links[skillToRemove];
+    }
   }
 }
 
