@@ -320,13 +320,25 @@ export async function loadSkillOwnershipState(homeDir: string): Promise<SkillOwn
   }
 }
 
+function normalizeSkillsIndex(value: unknown): SkillsIndex {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    (value as Record<string, unknown>).version !== 1 ||
+    typeof (value as Record<string, unknown>).skills !== 'object'
+  ) {
+    return { version: 1, skills: {} };
+  }
+  return value as SkillsIndex;
+}
+
 export async function loadSkillsIndex(homeDir = homedir()): Promise<SkillsIndex> {
   const { syncDir } = getSyncPaths(homeDir);
   const indexFile = join(syncDir, 'skills-index.json');
 
   try {
     const raw = await readFile(indexFile, 'utf-8');
-    return JSON.parse(raw) as SkillsIndex;
+    return normalizeSkillsIndex(JSON.parse(raw));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return { version: 1, skills: {} };
@@ -339,7 +351,7 @@ export async function saveSkillsIndex(homeDir = homedir(), index: SkillsIndex): 
   const { syncDir } = getSyncPaths(homeDir);
   await mkdir(syncDir, { recursive: true });
   const indexFile = join(syncDir, 'skills-index.json');
-  await writeFile(indexFile, JSON.stringify(index, null, 2));
+  await writeFile(indexFile, JSON.stringify(index, null, 2) + '\n');
 }
 
 async function saveSkillOwnershipState(homeDir: string, state: SkillOwnershipState): Promise<void> {
