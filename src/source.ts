@@ -44,6 +44,17 @@ export interface SkillOwnershipState {
   owners: Record<string, string>; // skill name -> source name
 }
 
+export interface SkillIndexEntry {
+  path: string;
+  origin: string;
+  type: 'manual' | 'git' | 'http' | 'local';
+}
+
+export interface SkillsIndex {
+  version: 1;
+  skills: Record<string, SkillIndexEntry>;
+}
+
 export async function listSources(homeDir = homedir()): Promise<SourceEntry[]> {
   const config = await loadConfig(homeDir);
 
@@ -307,6 +318,28 @@ export async function loadSkillOwnershipState(homeDir: string): Promise<SkillOwn
 
     throw error;
   }
+}
+
+export async function loadSkillsIndex(homeDir = homedir()): Promise<SkillsIndex> {
+  const { syncDir } = getSyncPaths(homeDir);
+  const indexFile = join(syncDir, 'skills-index.json');
+
+  try {
+    const raw = await readFile(indexFile, 'utf-8');
+    return JSON.parse(raw) as SkillsIndex;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { version: 1, skills: {} };
+    }
+    throw error;
+  }
+}
+
+export async function saveSkillsIndex(homeDir = homedir(), index: SkillsIndex): Promise<void> {
+  const { syncDir } = getSyncPaths(homeDir);
+  await mkdir(syncDir, { recursive: true });
+  const indexFile = join(syncDir, 'skills-index.json');
+  await writeFile(indexFile, JSON.stringify(index, null, 2));
 }
 
 async function saveSkillOwnershipState(homeDir: string, state: SkillOwnershipState): Promise<void> {

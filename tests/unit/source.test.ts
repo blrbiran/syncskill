@@ -9,7 +9,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findOrphanSkills, listSources, loadSourceState, materializeSource, resolveSkillPath, updateSource } from '../../src/source.js';
+import { detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findOrphanSkills, listSources, loadSourceState, loadSkillsIndex, materializeSource, resolveSkillPath, saveSkillsIndex, updateSource } from '../../src/source.js';
+import type { SkillsIndex } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -903,5 +904,73 @@ describe('findOrphanSkills', () => {
     const orphans = findOrphanSkills('source-one', config, ownershipState, localSkills);
 
     expect(orphans).toEqual([]);
+  });
+});
+
+describe('skills-index', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('saves skills index with manual and source skills', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-index-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    await mkdir(syncDir, { recursive: true });
+
+    const index: SkillsIndex = {
+      version: 1,
+      skills: {
+        'manual-skill': {
+          path: join(syncDir, 'skills', 'manual-skill'),
+          origin: 'manual',
+          type: 'manual',
+        },
+        'source-skill': {
+          path: join(syncDir, 'sources', 'my-repo', '.claude', 'source-skill'),
+          origin: 'my-repo',
+          type: 'git',
+        },
+      },
+    };
+
+    await saveSkillsIndex(homeDir, index);
+
+    const saved = JSON.parse(await readFile(join(syncDir, 'skills-index.json'), 'utf-8'));
+    expect(saved).toEqual(index);
+  });
+
+  it('loads existing skills index', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-index-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    await mkdir(syncDir, { recursive: true });
+
+    const index: SkillsIndex = {
+      version: 1,
+      skills: {
+        'test-skill': {
+          path: '/some/path',
+          origin: 'manual',
+          type: 'manual',
+        },
+      },
+    };
+    await writeFile(join(syncDir, 'skills-index.json'), JSON.stringify(index));
+
+    const loaded = await loadSkillsIndex(homeDir);
+    expect(loaded).toEqual(index);
+  });
+
+  it('returns empty index when file does not exist', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-index-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    await mkdir(syncDir, { recursive: true });
+
+    const loaded = await loadSkillsIndex(homeDir);
+    expect(loaded).toEqual({ version: 1, skills: {} });
   });
 });
