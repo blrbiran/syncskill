@@ -1263,4 +1263,81 @@ describe('handleSameRepoMerge', () => {
     expect(result.action).toBe('expanded-to-multi');
     expect(result.newSkills).toContain('skill2');
   });
+
+  it('scenario 3: adds sibling skill with shared parent', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-merge-sibling-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const sourcesDir = join(syncDir, '.sources', 'existing-source');
+
+    // Create checkout with two sibling skills
+    await mkdir(join(sourcesDir, 'checkout', 'skills', 'skill1'), { recursive: true });
+    await mkdir(join(sourcesDir, 'checkout', 'skills', 'skill2'), { recursive: true });
+    await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill1', 'SKILL.md'), '# Skill 1');
+    await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill2', 'SKILL.md'), '# Skill 2');
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: { skill1: ['*'] },
+        sources: {
+          'existing-source': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'skills/skill1',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    const result = await handleSameRepoMerge(homeDir, {
+      existingName: 'existing-source',
+      existingSubdir: 'skills/skill1',
+      newSubdir: 'skills/skill2',
+      scenario: SameRepoScenario.SameParentSiblings,
+      expandToParent: false,
+    });
+
+    expect(result.action).toBe('added-sibling');
+    expect(result.skillName).toBe('skill2');
+  });
+
+  it('scenario 4: creates new source entry for different parent', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-merge-diff-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: { skill1: ['*'] },
+        sources: {
+          'existing-source': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'skills/skill1',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    const result = await handleSameRepoMerge(homeDir, {
+      existingName: 'existing-source',
+      existingSubdir: 'skills/skill1',
+      newSubdir: 'examples/skill2',
+      scenario: SameRepoScenario.DifferentParents,
+    });
+
+    expect(result.action).toBe('created-new-entry');
+    expect(result.newSourceName).toBe('existing-source.2');
+  });
 });

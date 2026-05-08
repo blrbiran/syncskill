@@ -1181,5 +1181,91 @@ export async function handleSameRepoMerge(
     return { action: 'expanded-to-multi', newSkills };
   }
 
+  if (scenario === SameRepoScenario.SameParentSiblings) {
+    const newSkillName = newSubdir.split('/').pop()!;
+
+    if (options.expandToParent) {
+      // Expand to shared parent directory
+      const parentDir = dirname(existingSubdir);
+      sourceRaw.store = parentDir.endsWith('/') ? parentDir : parentDir + '/';
+
+      const { syncDir } = getSyncPaths(homeDir);
+      const sourceDir = join(syncDir, '.sources', existingName, 'checkout');
+      const allSkills = await listSkillDirectoriesWithSkillMd(join(sourceDir, parentDir));
+
+      const ownershipState = await loadSkillOwnershipState(homeDir);
+      const conflicting: string[] = [];
+      for (const skill of allSkills) {
+        if (config.links[skill]) continue;
+        if (ownershipState.owners[skill] && ownershipState.owners[skill] !== existingName) {
+          conflicting.push(skill);
+        } else {
+          config.links[skill] = ['*'];
+          ownershipState.owners[skill] = existingName;
+        }
+      }
+
+      if (conflicting.length > 0) {
+        const existingIgnore = (sourceRaw.ignore as string[] | undefined) ?? [];
+        sourceRaw.ignore = [...new Set([...existingIgnore, ...conflicting])];
+      }
+
+      await saveConfig(config, homeDir);
+      await saveSkillOwnershipState(homeDir, ownershipState);
+      return { action: 'expanded-to-multi', newSkills: allSkills };
+    }
+
+    // Just add the new sibling skill, update store to parent, ignore others
+    const parentDir = dirname(existingSubdir);
+    const existingSkillName = existingSubdir.split('/').pop()!;
+    sourceRaw.store = parentDir.endsWith('/') ? parentDir : parentDir + '/';
+
+    const { syncDir } = getSyncPaths(homeDir);
+    const sourceDir = join(syncDir, '.sources', existingName, 'checkout');
+    const allSkills = await listSkillDirectoriesWithSkillMd(join(sourceDir, parentDir));
+    const ignoredSkills = allSkills.filter(s => s !== existingSkillName && s !== newSkillName);
+
+    if (ignoredSkills.length > 0) {
+      const existingIgnore = (sourceRaw.ignore as string[] | undefined) ?? [];
+      sourceRaw.ignore = [...new Set([...existingIgnore, ...ignoredSkills])];
+    }
+
+    config.links[newSkillName] = ['*'];
+    const ownershipState = await loadSkillOwnershipState(homeDir);
+    ownershipState.owners[newSkillName] = existingName;
+
+    await saveConfig(config, homeDir);
+    await saveSkillOwnershipState(homeDir, ownershipState);
+    return { action: 'added-sibling', skillName: newSkillName };
+  }
+
+  if (scenario === SameRepoScenario.DifferentParents) {
+    const existingSource = normalizeSourceEntry(existingName, sourceRaw)[0]!;
+
+    let suffix = 2;
+    let newName = `${existingName}.${suffix}`;
+    while (config.sources[newName]) {
+      suffix++;
+      newName = `${existingName}.${suffix}`;
+    }
+
+    config.sources[newName] = {
+      type: existingSource.type,
+      url: existingSource.url,
+      store: newSubdir,
+      ...(existingSource.ref ? { ref: existingSource.ref } : {}),
+    };
+
+    const newSkillName = newSubdir.split('/').pop()!;
+    config.links[newSkillName] = ['*'];
+
+    const ownershipState = await loadSkillOwnershipState(homeDir);
+    ownershipState.owners[newSkillName] = newName;
+
+    await saveConfig(config, homeDir);
+    await saveSkillOwnershipState(homeDir, ownershipState);
+    return { action: 'created-new-entry', newSourceName: newName, skillName: newSkillName };
+  }
+
   throw new Error(`Unhandled scenario: ${scenario}`);
 }
