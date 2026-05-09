@@ -28,12 +28,12 @@ export function renderMatrixLine(
   const cells = columns.map((col, idx) => {
     const isSelected = selectedColumns.includes(col);
     const isActive = isActiveRow && idx === activeCol;
-    const check = isSelected ? '✓' : ' ';
+    const mark = isSelected ? '✓' : '·';
 
     if (isActive) {
-      return `[ ${check} ]`.padEnd(colWidth);
+      return `[${mark}]`.padEnd(colWidth);
     }
-    return (isSelected ? '[✓]' : '[ ]').padEnd(colWidth);
+    return ` ${mark} `.padEnd(colWidth);
   });
 
   return `${prefix}${paddedName}  ${cells.join('')}`;

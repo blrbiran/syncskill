@@ -23,22 +23,28 @@ describe('MatrixEditor types', () => {
 });
 
 describe('renderMatrixLine', () => {
-  it('renders row with checkmarks for selected columns', () => {
+  it('renders row with checkmarks for selected columns and dots for unselected', () => {
     const line = renderMatrixLine('skill-a', ['claude', 'hermes'], ['claude'], false, 0, 10, 8);
     expect(line).toContain('skill-a');
-    expect(line).toContain('[✓]');
-    expect(line).toContain('[ ]');
+    expect(line).toContain(' ✓ ');
+    expect(line).toContain(' · ');
   });
 
-  it('highlights active cell when row is active', () => {
+  it('highlights active cell with brackets when row is active', () => {
     const line = renderMatrixLine('skill-a', ['claude', 'hermes'], ['claude'], true, 0, 10, 8);
-    expect(line).toContain('[ ✓ ]');
+    expect(line).toContain('[✓]');
     expect(line).toContain('→');
   });
 
-  it('shows unselected active cell with spaces', () => {
+  it('shows unselected active cell with dot in brackets', () => {
     const line = renderMatrixLine('skill-a', ['claude', 'hermes'], [], true, 0, 10, 8);
-    expect(line).toContain('[   ]');
+    expect(line).toContain('[·]');
+  });
+
+  it('uses spaces for non-active cells and brackets for active cell', () => {
+    const line = renderMatrixLine('skill-a', ['claude', 'hermes'], ['hermes'], true, 0, 10, 8);
+    expect(line).toContain('[·]');
+    expect(line).toContain(' ✓ ');
   });
 
   it('pads row name to specified width', () => {
