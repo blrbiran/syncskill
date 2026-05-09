@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
-import { discoverSkills } from '../../src/linker.js';
+import { discoverSkills, findUnmanagedSkills } from '../../src/linker.js';
 
 describe('discoverSkills', () => {
   const tempDirs: string[] = [];
@@ -150,5 +150,123 @@ describe('discoverSkills', () => {
 
     const entries = await readdir(skillsDir);
     expect(entries).toEqual(['existing-skill']);
+  });
+});
+
+describe('findUnmanagedSkills', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('detects unmanaged skills in agent directories', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-unmanaged-'));
+    tempDirs.push(homeDir);
+
+    // Create agent directory with an unmanaged skill
+    const agentSkillsDir = join(homeDir, '.claude', 'skills');
+    await mkdir(join(agentSkillsDir, 'unmanaged-skill'), { recursive: true });
+    await writeFile(join(agentSkillsDir, 'unmanaged-skill', 'SKILL.md'), '# Unmanaged Skill');
+
+    // Create syncskill directory with a managed skill
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    await mkdir(join(skillsDir, 'managed-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'managed-skill', 'SKILL.md'), '# Managed');
+
+    // Configure the agent in config
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, {}),
+        agents: { claude: agentSkillsDir },
+        links: { 'managed-skill': ['claude'] }
+      },
+      homeDir
+    );
+
+    const unmanaged = await findUnmanagedSkills(homeDir);
+
+    expect(unmanaged.length).toBe(1);
+    expect(unmanaged[0].name).toBe('unmanaged-skill');
+    expect(unmanaged[0].path).toBe(join(agentSkillsDir, 'unmanaged-skill'));
+    expect(unmanaged[0].agent).toBe('claude');
+  });
+
+  it('skips symlinks pointing to managed skills', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-unmanaged-'));
+    tempDirs.push(homeDir);
+
+    // Create syncskill directory with a managed skill
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    await mkdir(join(skillsDir, 'managed-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'managed-skill', 'SKILL.md'), '# Managed');
+
+    // Create agent directory with a symlink to managed skill
+    const agentSkillsDir = join(homeDir, '.claude', 'skills');
+    await mkdir(agentSkillsDir, { recursive: true });
+    await symlink(join(skillsDir, 'managed-skill'), join(agentSkillsDir, 'managed-skill'));
+
+    // Configure the agent in config
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, {}),
+        agents: { claude: agentSkillsDir },
+        links: { 'managed-skill': ['claude'] }
+      },
+      homeDir
+    );
+
+    const unmanaged = await findUnmanagedSkills(homeDir);
+
+    expect(unmanaged.length).toBe(0);
+  });
+
+  it('skips directories without SKILL.md', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-unmanaged-'));
+    tempDirs.push(homeDir);
+
+    // Create agent directory with a directory that is NOT a skill
+    const agentSkillsDir = join(homeDir, '.claude', 'skills');
+    await mkdir(join(agentSkillsDir, 'not-a-skill'), { recursive: true });
+    await writeFile(join(agentSkillsDir, 'not-a-skill', 'README.md'), '# Not a skill');
+
+    // Create syncskill directory
+    await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
+
+    // Configure the agent in config
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, {}),
+        agents: { claude: agentSkillsDir },
+        links: {}
+      },
+      homeDir
+    );
+
+    const unmanaged = await findUnmanagedSkills(homeDir);
+
+    expect(unmanaged.length).toBe(0);
+  });
+
+  it('handles non-existent agent directories gracefully', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-unmanaged-'));
+    tempDirs.push(homeDir);
+
+    // Create syncskill directory
+    await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
+
+    // Configure an agent with a non-existent path
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, {}),
+        agents: { nonexistent: join(homeDir, 'does-not-exist') },
+        links: {}
+      },
+      homeDir
+    );
+
+    const unmanaged = await findUnmanagedSkills(homeDir);
+
+    expect(unmanaged.length).toBe(0);
   });
 });

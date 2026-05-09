@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, readdir, readlink, rm, stat, symlink } from 'node:fs/promises';
+import { cp, lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, saveConfig, type SyncSkillConfig } from './config.js';
@@ -210,4 +210,58 @@ export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> 
   }
 
   return results;
+}
+
+export interface UnmanagedSkill {
+  name: string;
+  path: string;
+  agent: string;
+}
+
+export async function findUnmanagedSkills(homeDir: string): Promise<UnmanagedSkill[]> {
+  const config = await loadConfig(homeDir);
+  const { skillsDir } = getSyncPaths(homeDir);
+  const managedSkills = new Set(await listLocalSkills(homeDir));
+  const unmanaged: UnmanagedSkill[] = [];
+
+  for (const [agentName, agentPath] of Object.entries(config.agents)) {
+    const resolvedPath = agentPath.replace(/^~/, homeDir);
+
+    try {
+      const entries = await readdir(resolvedPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+
+        const skillPath = join(resolvedPath, entry.name);
+
+        // Check if it's a symlink pointing to our managed skills
+        try {
+          const linkTarget = await readlink(skillPath);
+          if (linkTarget.startsWith(skillsDir)) continue;
+        } catch {
+          // Not a symlink, or error reading - continue checking
+        }
+
+        // Check if skill has SKILL.md (valid skill directory)
+        try {
+          await readFile(join(skillPath, 'SKILL.md'), 'utf8');
+
+          if (!managedSkills.has(entry.name)) {
+            unmanaged.push({
+              name: entry.name,
+              path: skillPath,
+              agent: agentName
+            });
+          }
+        } catch {
+          // No SKILL.md, skip
+        }
+      }
+    } catch {
+      // Agent directory doesn't exist or not accessible
+    }
+  }
+
+  return unmanaged;
 }
