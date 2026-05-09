@@ -147,8 +147,9 @@ export function createProgram(homeDir?: string): Command {
 
   configCommand
     .command('link')
-    .description('Edit skill → agent links (matrix editor)')
+    .description('Edit skill → agent links (matrix editor) [deprecated: use "link" instead]')
     .action(async () => {
+      console.log('Note: "config link" is deprecated. Use "syncskill link" instead.');
       await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'link' });
     });
 
@@ -186,11 +187,13 @@ export function createProgram(homeDir?: string): Command {
 
   program
     .command('link [skill]')
-    .description('Link configured skills into target agent directories')
+    .description('Manage skill → agent links. No args or --edit opens matrix editor')
+    .option('--edit', 'Open matrix editor (same as no args)')
     .option('--all', 'Link all configured skills')
     .option('--status', 'Show link status')
     .option('--unlink <skill>', 'Remove links for one skill')
-    .action(async (skill: string | undefined, options: { all?: boolean; status?: boolean; unlink?: string }) => {
+    .option('--dry-run', 'Preview changes without applying')
+    .action(async (skill: string | undefined, options: { edit?: boolean; all?: boolean; status?: boolean; unlink?: string; dryRun?: boolean }) => {
       if (options.status) {
         const statuses = await collectLinkStatus(resolvedHomeDir);
 
@@ -202,6 +205,10 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (typeof options.unlink === 'string') {
+        if (options.dryRun) {
+          console.log(`[dry-run] Would unlink skill "${options.unlink}" from all agents`);
+          return;
+        }
         const confirmed = await confirm({
           message: `Unlink skill "${options.unlink}" from all agents?`,
           default: false,
@@ -215,16 +222,25 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (options.all) {
+        if (options.dryRun) {
+          console.log('[dry-run] Would link all configured skills');
+          return;
+        }
         await linkConfiguredSkills(resolvedHomeDir, { all: true });
         return;
       }
 
       if (typeof skill === 'string') {
+        if (options.dryRun) {
+          console.log(`[dry-run] Would link skill "${skill}"`);
+          return;
+        }
         await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skill });
         return;
       }
 
-      throw new Error('link requires <skill>, --all, --status, or --unlink <skill>');
+      // No args or --edit: open matrix editor
+      await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'link' });
     });
 
   const sourceCommand = program.command('source').description('Manage configured sources');
