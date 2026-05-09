@@ -601,6 +601,63 @@ describe('same-repo merge detection', () => {
   });
 });
 
+describe('source add with -y flag', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('should add all skills without prompting when -y is used', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-y-flag-'));
+    tempDirs.push(homeDir);
+
+    // Create a local source directory with multiple skills
+    const sourceDir = join(homeDir, 'local-source');
+    await mkdir(join(sourceDir, 'skill-a'), { recursive: true });
+    await mkdir(join(sourceDir, 'skill-b'), { recursive: true });
+    await writeFile(join(sourceDir, 'skill-a', 'SKILL.md'), '# Skill A');
+    await writeFile(join(sourceDir, 'skill-b', 'SKILL.md'), '# Skill B');
+
+    // Create minimal config
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    // Run source add with -y flag and local type
+    await createProgram(homeDir).parseAsync(
+      [
+        'node',
+        'syncskill',
+        'source',
+        'add',
+        'test-source',
+        '--type',
+        'local',
+        '--path',
+        sourceDir,
+        '-y'
+      ],
+      { from: 'node' }
+    );
+
+    // Verify source was added
+    const config = await loadConfig(homeDir);
+    expect(config.sources['test-source']).toBeDefined();
+    const source = config.sources['test-source'] as Record<string, unknown>;
+    expect(source.type).toBe('local');
+    expect(source.url).toBe(sourceDir);
+
+    // Verify both skills were materialized (symlinked)
+    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'skill-a'))).resolves.toBe(join(sourceDir, 'skill-a'));
+    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'skill-b'))).resolves.toBe(join(sourceDir, 'skill-b'));
+
+    // Verify source state contains both skills
+    const state = await loadSourceState(homeDir, 'test-source');
+    expect(state.materialized_skills).toContain('skill-a');
+    expect(state.materialized_skills).toContain('skill-b');
+  });
+});
+
 describe('source add --path auto-detect local type', () => {
   const tempDirs: string[] = [];
 
