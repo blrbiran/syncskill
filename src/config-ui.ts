@@ -428,6 +428,14 @@ export async function editServers(config: SyncSkillConfig, prompts: PromptApi, h
       }
 
       config.servers[name] = server;
+
+      // Show hint when adding 3rd+ server
+      const serverCount = Object.keys(config.servers).length;
+      if (serverCount >= 3) {
+        console.log('\nNote: With 3+ servers, auto-refresh may be slow.');
+        console.log('Use --no-refresh to skip, then run `syncskill refresh` manually.\n');
+      }
+
       continue;
     }
 
