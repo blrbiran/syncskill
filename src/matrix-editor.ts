@@ -104,11 +104,38 @@ export const createMatrixEditor = () =>
             setCursorRow(cursorRow + 1);
           }
         }
-      } else if (key.name === 'a') {
+      } else if (key.name === 'a' && !key.shift) {
+        // Toggle all columns for current row
         const rowName = pageRows[cursorRow];
         const current = selected[rowName] ?? [];
         const allSelected = columns.every((c) => current.includes(c));
         setSelected({ ...selected, [rowName]: allSelected ? [] : [...columns] });
+      } else if (key.name === 'a' && key.shift) {
+        // Toggle all rows for current column (Shift+A)
+        const colName = columns[cursorCol];
+        const allHaveCol = rows.every((r) => (selected[r] ?? []).includes(colName));
+        const newSelected: Record<string, string[]> = {};
+        for (const row of rows) {
+          const current = selected[row] ?? [];
+          if (allHaveCol) {
+            // Deselect this column from all rows
+            newSelected[row] = current.filter((c) => c !== colName);
+          } else {
+            // Select this column for all rows
+            newSelected[row] = current.includes(colName) ? current : [...current, colName];
+          }
+        }
+        setSelected(newSelected);
+      } else if (key.name === 'g' && !key.shift) {
+        // Jump to first row
+        setCurrentPage(0);
+        setCursorRow(0);
+      } else if (key.name === 'g' && key.shift) {
+        // Jump to last row (Shift+G)
+        const lastPage = totalPages - 1;
+        const rowsOnLastPage = rows.length - lastPage * pageSize;
+        setCurrentPage(lastPage);
+        setCursorRow(rowsOnLastPage - 1);
       } else if (key.name === 'pagedown' || key.name === 'n') {
         if (currentPage < totalPages - 1) {
           setCurrentPage(currentPage + 1);
@@ -135,7 +162,7 @@ export const createMatrixEditor = () =>
 
     const pageInfo = totalPages > 1 ? `  Page ${currentPage + 1}/${totalPages}` : '';
     const titleLine = `${title}${pageInfo}`;
-    const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  Enter/Esc: save';
+    const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  g/G: first/last  Enter/Esc: save';
 
     const lines = pageRows.map((rowName, idx) => {
       const rowSelected = selected[rowName] ?? [];
