@@ -158,7 +158,7 @@ describe('sync CLI', () => {
     ]);
   });
 
-  it('pull without server argument pulls from all servers', async () => {
+  it('pull with -y flag pulls from all servers without prompting', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
     tempDirs.push(homeDir);
 
@@ -195,9 +195,9 @@ describe('sync CLI', () => {
       }
     ]);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull', '-y'], { from: 'node' });
 
-    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, undefined, { dryRun: undefined });
+    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], { dryRun: undefined });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpull\tin-sync'],
       ['skill-b\tbeta\tpull\tin-sync']
@@ -265,7 +265,45 @@ describe('sync CLI', () => {
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull', '--all'], { from: 'node' });
 
-    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, undefined, { dryRun: undefined });
+    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], { dryRun: undefined });
+  });
+
+  it('pull with single server auto-selects that server without prompting', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const pullFromServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pullFromServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pulled_skills: ['skill-a'],
+        skipped_skills: [],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      }
+    ]);
+
+    // No server arg, no -y flag, but single server - should auto-select
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull'], { from: 'node' });
+
+    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], { dryRun: undefined });
+    expect(consoleLog.mock.calls).toEqual([
+      ['skill-a\talpha\tpull\tin-sync']
+    ]);
   });
 
   it('push -y skips prompts and pushes to all servers', async () => {

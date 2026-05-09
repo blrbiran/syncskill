@@ -61,7 +61,7 @@ describe('createMatrixEditor', () => {
 });
 
 describe('matrix editor shortcuts', () => {
-  describe('column toggle (A key)', () => {
+  describe('column toggle (c key)', () => {
     it('should toggle all rows for a given column', () => {
       // Test the logic: given a column index, toggling means:
       // - If all rows have that column selected -> deselect all
@@ -147,22 +147,25 @@ describe('matrix editor shortcuts', () => {
   });
 
   describe('help line includes new shortcuts', () => {
-    it('should document A for column toggle', () => {
-      // This will fail until we update the help line
-      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  /: search  g/G: first/last  Enter/Esc: save';
-      expect(helpLine).toContain('A: toggle col');
+    it('should document r for row toggle', () => {
+      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  r: toggle row  c: toggle col  /: search  g/G: first/last  Enter/Esc: save';
+      expect(helpLine).toContain('r: toggle row');
+    });
+
+    it('should document c for column toggle', () => {
+      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  r: toggle row  c: toggle col  /: search  g/G: first/last  Enter/Esc: save';
+      expect(helpLine).toContain('c: toggle col');
     });
 
     it('should document g/G for jump navigation', () => {
-      // This will fail until we update the help line
-      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  /: search  g/G: first/last  Enter/Esc: save';
+      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  r: toggle row  c: toggle col  /: search  g/G: first/last  Enter/Esc: save';
       expect(helpLine).toContain('g/G: first/last');
     });
   });
 
   describe('search functionality', () => {
     it('should include search in help line', () => {
-      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  /: search  g/G: first/last  Enter/Esc: save';
+      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  r: toggle row  c: toggle col  /: search  g/G: first/last  Enter/Esc: save';
       expect(helpLine).toContain('/: search');
     });
 

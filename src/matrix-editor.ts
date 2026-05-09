@@ -146,14 +146,14 @@ export const createMatrixEditor = () =>
             setCursorRow(cursorRow + 1);
           }
         }
-      } else if (key.name === 'a' && !key.shift) {
-        // Toggle all columns for current row
+      } else if (key.name === 'r') {
+        // Toggle all columns for current row (r = row)
         const rowName = pageRows[cursorRow];
         const current = selected[rowName] ?? [];
         const allSelected = columns.every((c) => current.includes(c));
         setSelected({ ...selected, [rowName]: allSelected ? [] : [...columns] });
-      } else if (key.name === 'a' && key.shift) {
-        // Toggle all rows for current column (Shift+A)
+      } else if (key.name === 'c') {
+        // Toggle all rows for current column (c = column)
         const colName = columns[cursorCol];
         const allHaveCol = rows.every((r) => (selected[r] ?? []).includes(colName));
         const newSelected: Record<string, string[]> = {};
@@ -206,7 +206,7 @@ export const createMatrixEditor = () =>
     const searchIndicator = searchMode ? `  [Search: ${searchQuery}_]` : '';
     const helpLine = searchMode
       ? 'Type to search, Enter to confirm, Esc to cancel'
-      : '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  /: search  g/G: first/last  Enter/Esc: save';
+      : '↑↓←→ navigate  Space: toggle  Tab: next  r: toggle row  c: toggle col  /: search  g/G: first/last  Enter/Esc: save';
     const titleLine = `${title}${searchMode ? searchIndicator : pageInfo}`;
 
     const lines = pageRows.map((rowName, idx) => {

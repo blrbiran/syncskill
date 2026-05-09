@@ -270,3 +270,53 @@ describe('findUnmanagedSkills', () => {
     expect(unmanaged.length).toBe(0);
   });
 });
+
+describe('scan CLI command', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('scan without --migrate shows hint but does not migrate', async () => {
+    const { vi } = await import('vitest');
+    const { createProgram } = await import('../../src/index.js');
+
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-cli-'));
+    tempDirs.push(homeDir);
+
+    // Create agent directory with an unmanaged skill
+    const agentSkillsDir = join(homeDir, '.claude', 'skills');
+    await mkdir(join(agentSkillsDir, 'unmanaged-skill'), { recursive: true });
+    await writeFile(join(agentSkillsDir, 'unmanaged-skill', 'SKILL.md'), '# Unmanaged Skill');
+
+    // Create syncskill directory with an existing skill (non-empty to prevent auto-migration)
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    await mkdir(join(skillsDir, 'existing-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'existing-skill', 'SKILL.md'), '# Existing Skill');
+
+    // Configure the agent in config with existing skill already linked
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, {}),
+        agents: { claude: agentSkillsDir },
+        links: { 'existing-skill': ['claude'] }
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
+
+    // Should show hint to use --migrate
+    const allOutput = consoleLog.mock.calls.flat().join('\n');
+    expect(allOutput).toContain('Use `syncskill scan --migrate` to migrate unmanaged skills.');
+
+    // Unmanaged skill should NOT be migrated
+    const entries = await readdir(skillsDir);
+    expect(entries).toEqual(['existing-skill']);
+
+    vi.restoreAllMocks();
+  });
+});

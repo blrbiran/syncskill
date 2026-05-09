@@ -170,13 +170,13 @@ export function createProgram(homeDir?: string): Command {
     });
 
   program
-    .command('discover')
-    .description('Discover skills in ~/.syncskill/skills/ and configured sources, register to config links')
-    .option('--all-agents', 'Link new skills to all configured agents')
-    .action(async (options: { allAgents?: boolean }) => {
+    .command('scan')
+    .description('Scan for new skills in ~/.syncskill/skills/ and sources, register to config links')
+    .option('--migrate', 'Migrate unmanaged skills from agent directories to ~/.syncskill/skills/')
+    .action(async (options: { migrate?: boolean }) => {
       // Discover skills from sources and manual directory
       const addedSkills = await discoverSkills(resolvedHomeDir, {
-        allAgents: Boolean(options.allAgents)
+        allAgents: true
       });
 
       if (addedSkills.length > 0) {
@@ -205,34 +205,38 @@ export function createProgram(homeDir?: string): Command {
           console.log(`  ${skill.path}`);
         }
 
-        const confirmed = await confirm({
-          message: `Migrate ${unmanaged.length} skill(s) to ~/.syncskill/skills/?`,
-          default: true
-        });
+        if (options.migrate) {
+          const confirmed = await confirm({
+            message: `Migrate ${unmanaged.length} skill(s) to ~/.syncskill/skills/?`,
+            default: true
+          });
 
-        if (confirmed) {
-          const { skillsDir } = getSyncPaths(resolvedHomeDir);
+          if (confirmed) {
+            const { skillsDir } = getSyncPaths(resolvedHomeDir);
 
-          for (const skill of unmanaged) {
-            const targetPath = join(skillsDir, skill.name);
+            for (const skill of unmanaged) {
+              const targetPath = join(skillsDir, skill.name);
 
-            // Check if skill already exists in managed directory
-            try {
-              await stat(targetPath);
-              console.log(`  ⚠ Skipping "${skill.name}" - already exists in managed skills`);
-              continue;
-            } catch {
-              // Target doesn't exist, safe to copy
+              // Check if skill already exists in managed directory
+              try {
+                await stat(targetPath);
+                console.log(`  ⚠ Skipping "${skill.name}" - already exists in managed skills`);
+                continue;
+              } catch {
+                // Target doesn't exist, safe to copy
+              }
+
+              await cp(skill.path, targetPath, { recursive: true });
+              console.log(`  ✓ Migrated "${skill.name}"`);
             }
 
-            await cp(skill.path, targetPath, { recursive: true });
-            console.log(`  ✓ Migrated "${skill.name}"`);
+            // Re-run scan to register migrated skills
+            await discoverSkills(resolvedHomeDir, {
+              allAgents: true
+            });
           }
-
-          // Re-run discover to register migrated skills
-          await discoverSkills(resolvedHomeDir, {
-            allAgents: Boolean(options.allAgents)
-          });
+        } else {
+          console.log('\nUse `syncskill scan --migrate` to migrate unmanaged skills.');
         }
       }
 
@@ -243,13 +247,12 @@ export function createProgram(homeDir?: string): Command {
 
   program
     .command('link [skill]')
-    .description('Manage skill → agent links. No args or --edit opens matrix editor')
-    .option('--edit', 'Open matrix editor (same as no args)')
+    .description('Manage skill → agent links. No args opens matrix editor')
     .option('--all', 'Link all configured skills')
     .option('--status', 'Show link status')
     .option('--unlink <skill>', 'Remove links for one skill')
     .option('--dry-run', 'Preview changes without applying')
-    .action(async (skill: string | undefined, options: { edit?: boolean; all?: boolean; status?: boolean; unlink?: string; dryRun?: boolean }) => {
+    .action(async (skill: string | undefined, options: { all?: boolean; status?: boolean; unlink?: string; dryRun?: boolean }) => {
       if (options.status) {
         const statuses = await collectLinkStatus(resolvedHomeDir);
 
@@ -295,7 +298,7 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      // No args or --edit: open matrix editor
+      // No args: open matrix editor
       await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'link' });
     });
 
@@ -611,45 +614,50 @@ export function createProgram(homeDir?: string): Command {
     });
 
   program
-    .command('resolve <skill> [side]')
+    .command('resolve <skill>')
     .description('Resolve a conflict by choosing local or remote state')
-    .option(
-      '--take <side>',
-      'Choose which side to keep (deprecated, use positional arg)',
-      (value: string) => {
-        if (value === 'local' || value === 'remote') {
-          return value;
-        }
-
-        throw new InvalidArgumentError('Expected local or remote');
-      }
-    )
-    .option('--manual', 'Create .sync-conflict marker file for manual resolution')
-    .option('--diff', 'Show hash differences for the conflict')
+    .option('--local', 'Keep local version, overwrite remote')
+    .option('--remote', 'Keep remote version, overwrite local')
+    .option('--diff', 'Show hash differences (can be combined with --local/--remote)')
     .action(
       async (
         skill: string,
-        sideArg: string | undefined,
-        options: { take?: 'local' | 'remote'; manual?: boolean; diff?: boolean }
+        options: { local?: boolean; remote?: boolean; diff?: boolean }
       ) => {
-        // Validate and merge positional side argument with --take option
-        let side: 'local' | 'remote' | undefined = options.take;
+        let side: 'local' | 'remote' | undefined;
 
-        if (sideArg !== undefined) {
-          if (sideArg !== 'local' && sideArg !== 'remote') {
-            throw new InvalidArgumentError(`Invalid side: ${sideArg}. Expected "local" or "remote".`);
-          }
-          side = sideArg;
+        if (options.local && options.remote) {
+          throw new Error('Cannot specify both --local and --remote');
+        } else if (options.local) {
+          side = 'local';
+        } else if (options.remote) {
+          side = 'remote';
         }
 
-        // Check that we have a valid action
-        if (!side && !options.manual && !options.diff) {
-          throw new Error(
-            'resolve requires a side (local|remote), --manual, or --diff\n' +
-              'Usage: syncskill resolve <skill> local|remote\n' +
-              '       syncskill resolve <skill> --manual\n' +
-              '       syncskill resolve <skill> --diff'
-          );
+        // If only --diff, just show diff and exit
+        const diffOnly = options.diff && !side;
+
+        // Track if user chose to see diff first in interactive mode
+        let showDiffThenAsk = false;
+
+        // If no options at all, enter interactive mode
+        if (!side && !options.diff) {
+          const answer = await select({
+            message: `How to resolve "${skill}"?`,
+            choices: [
+              { name: 'Keep local version', value: 'local' },
+              { name: 'Keep remote version', value: 'remote' },
+              { name: 'Show diff first', value: 'diff' }
+            ]
+          });
+
+          if (answer === 'diff') {
+            // Show diff then ask again
+            options.diff = true;
+            showDiffThenAsk = true;
+          } else {
+            side = answer as 'local' | 'remote';
+          }
         }
 
         const servers = await listTrackedServers(resolvedHomeDir);
@@ -671,40 +679,58 @@ export function createProgram(homeDir?: string): Command {
             continue;
           }
 
-          // Handle --diff option
+          // Handle --diff option (show diff)
           if (options.diff) {
             const localHash = current.local_hash ?? '-';
             const remoteHash = current.remote_hash ?? '-';
             const recordedHash = current.recorded_hash ?? '-';
             console.log(`${skill}\t${server}\tlocal:${localHash}\tremote:${remoteHash}\tbase:${recordedHash}`);
             resolved = true;
-            continue;
+
+            // If diff only (no side specified and not interactive flow), continue to next server
+            if (diffOnly && !showDiffThenAsk) {
+              continue;
+            }
           }
 
-          if (options.manual) {
-            const { skillsDir } = getSyncPaths(resolvedHomeDir);
-            const skillDir = join(skillsDir, skill);
-            await mkdir(skillDir, { recursive: true });
-            const markerPath = join(skillDir, '.sync-conflict');
-            const markerContent = formatConflictMarker({
-              skill,
-              server,
-              local_hash: current.local_hash ?? '',
-              remote_hash: current.remote_hash ?? '',
-              created_at: updatedAt
-            });
-            await writeFile(markerPath, markerContent, 'utf8');
-            console.log(`Created conflict marker: ${markerPath}`);
+          // If we have a side, apply resolution
+          if (side) {
+            const updatedManifest = applyResolution(reconciled, skill, side, updatedAt);
+            await saveServerManifest(resolvedHomeDir, updatedManifest);
+
+            const updatedSkill = updatedManifest.skills[skill];
+            console.log(`${skill}\t${server}\t${updatedSkill.direction}\t${updatedSkill.status}`);
             resolved = true;
-            continue;
           }
+        }
 
-          const updatedManifest = applyResolution(reconciled, skill, side!, updatedAt);
-          await saveServerManifest(resolvedHomeDir, updatedManifest);
+        // If user chose "Show diff first" in interactive mode, ask again after showing diff
+        if (showDiffThenAsk && resolved && !side) {
+          const answer = await select({
+            message: `Now choose how to resolve "${skill}":`,
+            choices: [
+              { name: 'Keep local version', value: 'local' },
+              { name: 'Keep remote version', value: 'remote' }
+            ]
+          });
+          side = answer as 'local' | 'remote';
 
-          const updatedSkill = updatedManifest.skills[skill];
-          console.log(`${skill}\t${server}\t${updatedSkill.direction}\t${updatedSkill.status}`);
-          resolved = true;
+          // Apply resolution to all conflicting servers
+          for (const server of servers) {
+            const manifest = await loadServerManifest(resolvedHomeDir, server);
+            const reconciled = reconcileManifest(manifest);
+            const current = reconciled.skills[skill];
+
+            if (!current || current.direction !== 'conflict') {
+              continue;
+            }
+
+            const updatedManifest = applyResolution(reconciled, skill, side, updatedAt);
+            await saveServerManifest(resolvedHomeDir, updatedManifest);
+
+            const updatedSkill = updatedManifest.skills[skill];
+            console.log(`${skill}\t${server}\t${updatedSkill.direction}\t${updatedSkill.status}`);
+          }
         }
 
         if (!resolved) {
@@ -769,9 +795,44 @@ export function createProgram(homeDir?: string): Command {
     .description('Pull remote skill changes from one server or all configured servers')
     .option('--all', 'Pull from all configured servers')
     .option('--dry-run', 'Preview changes without pulling')
-    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean }) => {
-      const servers = options.all || server === undefined ? undefined : [server];
-      const results = await pullFromServers(resolvedHomeDir, servers, { dryRun: options.dryRun });
+    .option('-y, --yes', 'Skip confirmation prompts')
+    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; yes?: boolean }) => {
+      const config = await loadConfig(resolvedHomeDir);
+      const allServers = Object.keys(config.servers).sort();
+
+      let targetServers: string[];
+
+      if (options.all) {
+        targetServers = allServers;
+      } else if (server) {
+        targetServers = [server];
+      } else if (allServers.length === 0) {
+        console.error('No servers configured.');
+        process.exit(1);
+      } else if (allServers.length === 1 || options.yes) {
+        // Single server or -y flag: no prompt needed
+        targetServers = allServers;
+      } else {
+        // Interactive selection with checkbox
+        const selected = await checkbox({
+          message: 'Select servers to pull from:',
+          choices: [
+            { name: 'All servers', value: '__all__', checked: true },
+            ...allServers.map(s => ({ name: s, value: s }))
+          ]
+        });
+
+        if (selected.includes('__all__')) {
+          targetServers = allServers;
+        } else if (selected.length === 0) {
+          console.log('No servers selected. Cancelled.');
+          return;
+        } else {
+          targetServers = selected;
+        }
+      }
+
+      const results = await pullFromServers(resolvedHomeDir, targetServers, { dryRun: options.dryRun });
 
       for (const result of results) {
         for (const line of formatSkillRows('pull', result)) {

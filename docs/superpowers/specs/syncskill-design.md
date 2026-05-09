@@ -70,18 +70,18 @@ syncskill/
 | 命令 | 说明 |
 |------|------|
 | `init [--skip-sources]` | 创建 `~/.syncskill/` 目录结构和 config.yaml |
-| `link [--edit \| <skill> \| --status \| --unlink <skill>]` | 管理 agent 目录软链接。无参数或 `--edit` 进入矩阵编辑器 |
+| `link [<skill> \| --status \| --unlink <skill>]` | 管理 agent 目录软链接。无参数进入矩阵编辑器 |
 | `source add <url-or-path> [--name <n>] [--store <p>] [--type git\|http\|local] [-y/--yes]` | 添加外部来源（支持 GitHub URL 直接解析，自动推断参数） |
 | `source update [--all \| <name>]` | 更新来源 |
 | `source list` | 列出来源 |
 | `source remove <name>` | 移除外部来源（交互式选择处理方式） |
-| `discover [--all-agents]` | 发现新 skill 目录，注册到 config links。扫描 agent 目录时询问用户确认迁移 |
+| `scan [--migrate]` | 扫描新 skill 目录，注册到 config links。`--migrate` 将 agent 目录中未纳管的 skill 迁移到 ~/.syncskill/skills/ |
 | `push [<server>] [--all] [--dry-run]` | 推送到远程；无参数时交互式选择服务器（首选项为 All servers） |
-| `pull [<server>] [--all] [--dry-run]` | 从远程拉取；无参数时默认 --all 拉取所有已配置服务器 |
+| `pull [<server>] [--all] [--dry-run]` | 从远程拉取；无参数时交互式选择服务器 |
 | `sync [<server>] [--all] [--dry-run]` | 一键全量同步：先 pull 所有远程变更到本地，再 push 本地变更到所有服务器 |
 | `status` | 显示同步状态 |
 | `diff <server>` | 显示待同步变更 |
-| `resolve <skill> local\|remote [--manual] [--diff]` | 解决冲突：位置参数指定覆盖方向，`--manual` 生成 `.sync-conflict` 标记文件，`--diff` 显示差异 |
+| `resolve <skill> [--local \| --remote] [--diff]` | 解决冲突：无参数交互式选择，`--local`/`--remote` 指定覆盖方向，`--diff` 可单独或组合使用 |
 | `refresh [--local \| --remote \| --all \| --status] [server]` | 刷新 manifest。默认 `--all` + `--status` |
 | `config [section]` | 交互式编辑配置文件（主菜单） |
 | `config show` | 打印当前配置 |
@@ -167,8 +167,8 @@ Configuration Menu
 | `←/→` | 左右移动列光标 |
 | `Space` | 切换当前单元格选中/未选中 |
 | `Tab` | 切换并移到下一列 |
-| `a` | 全选/全不选当前行（skill 的所有 agents） |
-| `A` (Shift+A) | 全选/全不选当前列（agent 的所有 skills） |
+| `r` | 全选/全不选当前行（row，skill 的所有 agents） |
+| `c` | 全选/全不选当前列（column，agent 的所有 skills） |
 | `/` | 搜索 skill 名称并跳转 |
 | `g` | 跳转到第一行 |
 | `G` | 跳转到最后一行 |
@@ -180,7 +180,7 @@ Configuration Menu
 
 **config link 保存时的通配符优化**：如果某个 skill 选中了所有已配置的 agents，保存时写入 `["*"]` 而不是逐个列出所有 agent 名称。
 
-**`link`**（无参数或 `--edit`）：直接调用矩阵编辑器。
+**`link`**（无参数）：直接调用矩阵编辑器。
 
 **`config server`**：直接进入服务器管理菜单。
 
@@ -507,10 +507,12 @@ Summary: 1 skill changed, 2 files added, 1 file modified, 1 file deleted
 
 **resolve 命令语法**：
 ```bash
-syncskill resolve <skill> local     # 本地覆盖远程
-syncskill resolve <skill> remote    # 远程覆盖本地
-syncskill resolve <skill> --manual  # 手动模式，生成 .sync-conflict 文件
-syncskill resolve <skill> --diff    # 显示差异
+syncskill resolve <skill>                   # 交互式选择解决方式
+syncskill resolve <skill> --local           # 本地覆盖远程
+syncskill resolve <skill> --remote          # 远程覆盖本地
+syncskill resolve <skill> --diff            # 只显示差异，不解决
+syncskill resolve <skill> --local --diff    # 先显示差异，再用本地覆盖
+syncskill resolve <skill> --remote --diff   # 先显示差异，再用远程覆盖
 ```
 
 ### 3.11 `refresh.ts` — 自动刷新钩子
@@ -545,9 +547,11 @@ syncskill refresh --status # 仅显示状态，不刷新
 - 确保 `node` 可用
 - 验证权限
 
-### 3.14 `discover` 命令行为
+### 3.14 `scan` 命令行为
 
 ```
+syncskill scan
+
 Scanning for new skills...
 
 Found 2 new skills in sources:
@@ -557,12 +561,21 @@ Found 2 new skills in sources:
 Found 1 unmanaged skill in agent directories:
   ~/.claude/skills/local-experiment
 
+Use `syncskill scan --migrate` to migrate unmanaged skills.
+```
+
+```
+syncskill scan --migrate
+
+Found 1 unmanaged skill in agent directories:
+  ~/.claude/skills/local-experiment
+
 Migrate to ~/.syncskill/skills/? [Y/n]
 ```
 
 - 扫描 sources → 发现新 skill → 直接注册到 links
 - 扫描 ~/.syncskill/skills/ → 发现新 skill → 直接注册到 links
-- 扫描 agent 目录 → 发现未纳管的 skill → **询问用户**是否迁移
+- 扫描 agent 目录 → 发现未纳管的 skill → 仅提示，使用 `--migrate` 才询问迁移
 
 ## 4. 同步协议
 

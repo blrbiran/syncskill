@@ -482,8 +482,8 @@ describe('skills-index generation', () => {
     expect(index.skills['test-skill'].origin).toBe('manual');
   });
 
-  it('generates skills-index.json after discover', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-index-'));
+  it('generates skills-index.json after scan', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-index-'));
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
     const skillsDir = join(syncDir, 'skills');
@@ -505,8 +505,8 @@ describe('skills-index generation', () => {
       })
     );
 
-    // Run discover
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'discover'], { from: 'node' });
+    // Run scan
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
 
     // Check skills-index.json was created
     const indexPath = join(syncDir, 'skills-index.json');
