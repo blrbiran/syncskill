@@ -149,6 +149,26 @@ describe('transport', () => {
     );
   });
 
+  it('deployReceiver propagates bootstrap script errors', async () => {
+    const runtime: TransportRuntime = {
+      async exec(_file, args, _options) {
+        // Simulate bootstrap script failure (e.g., permission denied)
+        if (args.includes('sh') && args.includes('-s')) {
+          throw new Error('syncskill: cannot write to /home/user/.syncskill');
+        }
+        return { stdout: '', stderr: '' };
+      }
+    };
+
+    const server = {
+      name: 'test-server',
+      host: 'test.example.com',
+      remote_agents: {}
+    };
+
+    await expect(deployReceiver(server, runtime)).rejects.toThrow('cannot write');
+  });
+
   it('fetchRemoteManifest reads manifest JSON through the receiver command', async () => {
     const manifestJson = JSON.stringify(createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z'));
     const runtime = createRuntime({
