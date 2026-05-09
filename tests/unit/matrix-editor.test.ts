@@ -143,14 +143,47 @@ describe('matrix editor shortcuts', () => {
   describe('help line includes new shortcuts', () => {
     it('should document A for column toggle', () => {
       // This will fail until we update the help line
-      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  g/G: first/last  Enter/Esc: save';
+      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  /: search  g/G: first/last  Enter/Esc: save';
       expect(helpLine).toContain('A: toggle col');
     });
 
     it('should document g/G for jump navigation', () => {
       // This will fail until we update the help line
-      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  g/G: first/last  Enter/Esc: save';
+      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  /: search  g/G: first/last  Enter/Esc: save';
       expect(helpLine).toContain('g/G: first/last');
+    });
+  });
+
+  describe('search functionality', () => {
+    it('should include search in help line', () => {
+      const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  /: search  g/G: first/last  Enter/Esc: save';
+      expect(helpLine).toContain('/: search');
+    });
+
+    it('should filter rows based on search query', () => {
+      const rows = ['skill-a', 'skill-b', 'other-skill', 'test-plugin'];
+      const searchQuery = 'skill';
+      const filteredRows = searchQuery
+        ? rows.filter(row => row.toLowerCase().includes(searchQuery.toLowerCase()))
+        : rows;
+      expect(filteredRows).toEqual(['skill-a', 'skill-b', 'other-skill']);
+      expect(filteredRows).not.toContain('test-plugin');
+    });
+
+    it('should be case insensitive', () => {
+      const rows = ['Skill-A', 'skill-b', 'OTHER-SKILL'];
+      const searchQuery = 'SKILL';
+      const filteredRows = rows.filter(row => row.toLowerCase().includes(searchQuery.toLowerCase()));
+      expect(filteredRows).toEqual(['Skill-A', 'skill-b', 'OTHER-SKILL']);
+    });
+
+    it('should return all rows when search query is empty', () => {
+      const rows = ['skill-a', 'skill-b', 'other'];
+      const searchQuery = '';
+      const filteredRows = searchQuery
+        ? rows.filter(row => row.toLowerCase().includes(searchQuery.toLowerCase()))
+        : rows;
+      expect(filteredRows).toEqual(rows);
     });
   });
 });

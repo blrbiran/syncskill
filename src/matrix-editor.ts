@@ -45,6 +45,8 @@ export const createMatrixEditor = () =>
     const [cursorRow, setCursorRow] = useState(0);
     const [cursorCol, setCursorCol] = useState(0);
     const [currentPage, setCurrentPage] = useState(0);
+    const [searchMode, setSearchMode] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     const [selected, setSelected] = useState<Record<string, string[]>>(() => {
       const copy: Record<string, string[]> = {};
       for (const key of Object.keys(initialSelected)) {
@@ -53,12 +55,49 @@ export const createMatrixEditor = () =>
       return copy;
     });
 
-    const totalPages = Math.ceil(rows.length / pageSize);
+    const filteredRows = searchQuery
+      ? rows.filter(row => row.toLowerCase().includes(searchQuery.toLowerCase()))
+      : rows;
+
+    const totalPages = Math.ceil(filteredRows.length / pageSize);
     const pageStart = currentPage * pageSize;
-    const pageEnd = Math.min(pageStart + pageSize, rows.length);
-    const pageRows = rows.slice(pageStart, pageEnd);
+    const pageEnd = Math.min(pageStart + pageSize, filteredRows.length);
+    const pageRows = filteredRows.slice(pageStart, pageEnd);
 
     useKeypress((key) => {
+      // Search mode handling
+      if (searchMode) {
+        if (key.name === 'escape') {
+          setSearchMode(false);
+          setSearchQuery('');
+          return;
+        }
+        if (key.name === 'return') {
+          setSearchMode(false);
+          setCursorRow(0);
+          setCurrentPage(0);
+          return;
+        }
+        if (key.name === 'backspace') {
+          setSearchQuery(searchQuery.slice(0, -1));
+          return;
+        }
+        if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
+          setSearchQuery(searchQuery + key.sequence);
+          setCursorRow(0);
+          setCurrentPage(0);
+          return;
+        }
+        return;
+      }
+
+      // Enter search mode
+      if (key.sequence === '/') {
+        setSearchMode(true);
+        setSearchQuery('');
+        return;
+      }
+
       if (key.name === 'escape') {
         done({ cancelled: false, selected });
         return;
@@ -161,8 +200,11 @@ export const createMatrixEditor = () =>
     const separator = '─'.repeat(header.length);
 
     const pageInfo = totalPages > 1 ? `  Page ${currentPage + 1}/${totalPages}` : '';
-    const titleLine = `${title}${pageInfo}`;
-    const helpLine = '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  g/G: first/last  Enter/Esc: save';
+    const searchIndicator = searchMode ? `  [Search: ${searchQuery}_]` : '';
+    const helpLine = searchMode
+      ? 'Type to search, Enter to confirm, Esc to cancel'
+      : '↑↓←→ navigate  Space: toggle  Tab: next  a: toggle row  A: toggle col  /: search  g/G: first/last  Enter/Esc: save';
+    const titleLine = `${title}${searchMode ? searchIndicator : pageInfo}`;
 
     const lines = pageRows.map((rowName, idx) => {
       const rowSelected = selected[rowName] ?? [];
