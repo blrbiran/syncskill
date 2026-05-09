@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { access, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, readFile, readdir, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import process from 'node:process';
@@ -39,6 +39,10 @@ async function collectFileEntries(rootDir, currentDir = rootDir) {
   for (const entry of entries) {
     const fullPath = join(currentDir, entry.name);
 
+    if (entry.isSymbolicLink()) {
+      continue;
+    }
+
     if (entry.isDirectory()) {
       files.push(...(await collectFileEntries(rootDir, fullPath)));
       continue;
@@ -55,6 +59,44 @@ async function collectFileEntries(rootDir, currentDir = rootDir) {
   }
 
   return files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
+async function collectSkillData(rootDir, currentDir = rootDir) {
+  const entries = await readdir(currentDir, { withFileTypes: true });
+  const files = [];
+  const symlinks = [];
+
+  for (const entry of entries) {
+    const fullPath = join(currentDir, entry.name);
+    const relativePath = relative(rootDir, fullPath).replaceAll('\\', '/');
+
+    if (entry.isSymbolicLink()) {
+      const target = await readlink(fullPath);
+      symlinks.push({ relativePath, target });
+      continue;
+    }
+
+    if (entry.isDirectory()) {
+      const nested = await collectSkillData(rootDir, fullPath);
+      files.push(...nested.files);
+      symlinks.push(...nested.symlinks);
+      continue;
+    }
+
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    files.push({
+      relativePath,
+      contents: await readFile(fullPath)
+    });
+  }
+
+  files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  symlinks.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+
+  return { files, symlinks };
 }
 
 async function hashSkillDirectory(skillDir) {
@@ -83,39 +125,60 @@ async function writeManifestFromStdin() {
   await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }
 
+function validateRelativePath(basePath, relativePath) {
+  if (isAbsolute(relativePath)) {
+    throw new Error(`Invalid skill entry: ${relativePath}`);
+  }
+
+  const destination = resolve(basePath, relativePath);
+  const relativeDestination = relative(basePath, destination);
+
+  if (relativeDestination === '..' || relativeDestination.startsWith('../') || relativeDestination.startsWith('..\\')) {
+    throw new Error(`Invalid skill entry: ${relativePath}`);
+  }
+
+  return destination;
+}
+
 async function importSkill(name) {
-  const files = JSON.parse(await readStdin());
+  const data = JSON.parse(await readStdin());
   const targetDir = join(skillsDir, name);
 
   await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
 
+  // Handle both new format (with files/symlinks) and legacy format (just files)
+  const files = data.files ?? data;
+  const symlinks = data.symlinks ?? {};
+
   for (const [relativePath, base64] of Object.entries(files)) {
-    if (isAbsolute(relativePath)) {
-      throw new Error(`Invalid skill entry: ${relativePath}`);
-    }
-
-    const destination = resolve(targetDir, relativePath);
-    const relativeDestination = relative(targetDir, destination);
-
-    if (relativeDestination === '..' || relativeDestination.startsWith('../') || relativeDestination.startsWith('..\\')) {
-      throw new Error(`Invalid skill entry: ${relativePath}`);
-    }
-
+    const destination = validateRelativePath(targetDir, relativePath);
     await mkdir(dirname(destination), { recursive: true });
     await writeFile(destination, Buffer.from(base64, 'base64'));
+  }
+
+  for (const [relativePath, target] of Object.entries(symlinks)) {
+    const destination = validateRelativePath(targetDir, relativePath);
+    await mkdir(dirname(destination), { recursive: true });
+    await symlink(target, destination);
   }
 }
 
 async function exportSkill(name) {
   const targetDir = join(skillsDir, name);
-  const files = {};
+  const data = await collectSkillData(targetDir);
 
-  for (const entry of await collectFileEntries(targetDir)) {
+  const files = {};
+  for (const entry of data.files) {
     files[entry.relativePath] = entry.contents.toString('base64');
   }
 
-  process.stdout.write(`${JSON.stringify(files)}\n`);
+  const symlinks = {};
+  for (const entry of data.symlinks) {
+    symlinks[entry.relativePath] = entry.target;
+  }
+
+  process.stdout.write(`${JSON.stringify({ files, symlinks })}\n`);
 }
 
 async function scanSkills() {

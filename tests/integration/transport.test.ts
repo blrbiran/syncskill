@@ -584,6 +584,82 @@ describe('transport', () => {
     ).rejects.toThrow('Invalid skill entry: ../escape.txt');
   });
 
+  it('receiver import-skill creates symlinks from the new format', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+    const syncRoot = join(homeDir, '.syncskill');
+    const skillDir = join(syncRoot, 'skills', 'welcome');
+
+    await withMockedHomeDir(homeDir, async () => {
+      const argv = process.argv.slice();
+      const stdin = process.stdin;
+      const stream = Readable.from([
+        JSON.stringify({
+          files: {
+            'SKILL.md': Buffer.from('# welcome\n').toString('base64'),
+            'main.ts': Buffer.from('export const x = 1;\n').toString('base64')
+          },
+          symlinks: {
+            'index.ts': 'main.ts'
+          }
+        })
+      ]);
+      Object.defineProperty(process, 'stdin', { value: stream, configurable: true });
+      process.argv = ['node', receiverPath, 'import-skill', 'welcome'];
+
+      try {
+        await importReceiverModule();
+      } finally {
+        process.argv = argv;
+        Object.defineProperty(process, 'stdin', { value: stdin, configurable: true });
+      }
+    });
+
+    await expect(readFile(join(skillDir, 'SKILL.md'), 'utf8')).resolves.toBe('# welcome\n');
+    await expect(readFile(join(skillDir, 'main.ts'), 'utf8')).resolves.toBe('export const x = 1;\n');
+    const { lstat, readlink } = await import('node:fs/promises');
+    const linkStat = await lstat(join(skillDir, 'index.ts'));
+    expect(linkStat.isSymbolicLink()).toBe(true);
+    await expect(readlink(join(skillDir, 'index.ts'))).resolves.toBe('main.ts');
+  });
+
+  it('receiver export-skill includes symlinks in the output', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+    const syncRoot = join(homeDir, '.syncskill');
+    const skillDir = join(syncRoot, 'skills', 'welcome');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# welcome\n', 'utf8');
+    await writeFile(join(skillDir, 'main.ts'), 'export const x = 1;\n', 'utf8');
+    await symlink('main.ts', join(skillDir, 'index.ts'));
+
+    const output = await withMockedHomeDir(homeDir, async () => {
+      const argv = process.argv.slice();
+      const stdoutWrite = process.stdout.write.bind(process.stdout);
+      let stdout = '';
+      process.argv = ['node', receiverPath, 'export-skill', 'welcome'];
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        stdout += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+        return true;
+      }) as typeof process.stdout.write;
+
+      try {
+        await importReceiverModule();
+        return stdout;
+      } finally {
+        process.argv = argv;
+        process.stdout.write = stdoutWrite;
+      }
+    });
+
+    const data = JSON.parse(output);
+    expect(data.files).toBeDefined();
+    expect(data.symlinks).toBeDefined();
+    expect(data.files['SKILL.md']).toBe(Buffer.from('# welcome\n').toString('base64'));
+    expect(data.files['main.ts']).toBe(Buffer.from('export const x = 1;\n').toString('base64'));
+    expect(data.symlinks['index.ts']).toBe('main.ts');
+  });
+
   it('probeServerAccess reports probe-access parse failures as probe failures', async () => {
     const runtime = createRuntime({
       'ssh alpha.example.com true': '',
@@ -654,5 +730,117 @@ describe('transport', () => {
 
     await expect(readFile(join(agentDir, 'welcome', 'SKILL.md'), 'utf8')).resolves.toBe('# welcome\n');
     await expect(readFile(join(agentDir, 'stale', 'SKILL.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('pushSkillDirectory fallback includes symlinks in the transmitted data', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
+    tempDirs.push(homeDir);
+    const sourceDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'SKILL.md'), '# welcome\n', 'utf8');
+    await writeFile(join(sourceDir, 'main.ts'), 'export const x = 1;\n', 'utf8');
+    await symlink('main.ts', join(sourceDir, 'index.ts'));
+
+    const runtime = createRuntime();
+    const rsyncUnavailable = Object.assign(new Error('spawn rsync ENOENT'), { code: 'ENOENT' });
+    runtime.exec = vi
+      .fn<TransportRuntime['exec']>()
+      .mockRejectedValueOnce(rsyncUnavailable)
+      .mockResolvedValue({ stdout: '', stderr: '' });
+
+    await pushSkillDirectory(
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        remote_agents: {}
+      },
+      sourceDir,
+      'welcome',
+      runtime
+    );
+
+    const importCall = (runtime.exec as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call: unknown[]) => call[1]?.includes?.('import-skill')
+    );
+    expect(importCall).toBeDefined();
+    const stdinData = JSON.parse(importCall[2].stdin);
+    expect(stdinData.files).toBeDefined();
+    expect(stdinData.symlinks).toBeDefined();
+    expect(stdinData.files['SKILL.md']).toBeDefined();
+    expect(stdinData.files['main.ts']).toBeDefined();
+    expect(stdinData.symlinks['index.ts']).toBe('main.ts');
+  });
+
+  it('pullSkillDirectory fallback creates symlinks from the new format', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
+    tempDirs.push(homeDir);
+    const targetDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+
+    const runtime = createRuntime();
+    const rsyncUnavailable = Object.assign(new Error('spawn rsync ENOENT'), { code: 'ENOENT' });
+    runtime.exec = vi
+      .fn<TransportRuntime['exec']>()
+      .mockRejectedValueOnce(rsyncUnavailable)
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          files: {
+            'SKILL.md': Buffer.from('# welcome\n').toString('base64'),
+            'main.ts': Buffer.from('export const x = 1;\n').toString('base64')
+          },
+          symlinks: {
+            'index.ts': 'main.ts'
+          }
+        }),
+        stderr: ''
+      });
+
+    await pullSkillDirectory(
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        remote_agents: {}
+      },
+      'welcome',
+      targetDir,
+      runtime
+    );
+
+    await expect(readFile(join(targetDir, 'SKILL.md'), 'utf8')).resolves.toBe('# welcome\n');
+    await expect(readFile(join(targetDir, 'main.ts'), 'utf8')).resolves.toBe('export const x = 1;\n');
+    const { lstat, readlink } = await import('node:fs/promises');
+    const linkStat = await lstat(join(targetDir, 'index.ts'));
+    expect(linkStat.isSymbolicLink()).toBe(true);
+    await expect(readlink(join(targetDir, 'index.ts'))).resolves.toBe('main.ts');
+  });
+
+  it('pullSkillDirectory fallback handles legacy format without symlinks', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
+    tempDirs.push(homeDir);
+    const targetDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+
+    const runtime = createRuntime();
+    const rsyncUnavailable = Object.assign(new Error('spawn rsync ENOENT'), { code: 'ENOENT' });
+    runtime.exec = vi
+      .fn<TransportRuntime['exec']>()
+      .mockRejectedValueOnce(rsyncUnavailable)
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          'SKILL.md': Buffer.from('# welcome\n').toString('base64')
+        }),
+        stderr: ''
+      });
+
+    await pullSkillDirectory(
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        remote_agents: {}
+      },
+      'welcome',
+      targetDir,
+      runtime
+    );
+
+    await expect(readFile(join(targetDir, 'SKILL.md'), 'utf8')).resolves.toBe('# welcome\n');
   });
 });

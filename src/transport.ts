@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -245,7 +245,7 @@ export async function pushSkillDirectory(
     }
 
     await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'import-skill', skill]), {
-      stdin: JSON.stringify(await collectSkillFiles(sourceDir))
+      stdin: JSON.stringify(await collectSkillData(sourceDir))
     });
   }
 }
@@ -302,28 +302,53 @@ export async function pullSkillDirectory(
     }
 
     const exported = await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'export-skill', skill]), {});
-    const files = JSON.parse(exported.stdout || '{}') as Record<string, string>;
+    const data = JSON.parse(exported.stdout || '{}') as SkillData | Record<string, string>;
 
     await rm(targetDir, { recursive: true, force: true });
     await mkdir(targetDir, { recursive: true });
+
+    // Handle both new format (with files/symlinks) and legacy format (just files)
+    const files = 'files' in data ? data.files : data;
+    const symlinks = 'symlinks' in data ? data.symlinks : {};
 
     for (const [relativePath, base64] of Object.entries(files)) {
       const destination = resolveSkillDestination(targetDir, relativePath);
       await mkdir(dirname(destination), { recursive: true });
       await writeFile(destination, Buffer.from(base64, 'base64'));
     }
+
+    for (const [relativePath, target] of Object.entries(symlinks)) {
+      const destination = resolveSkillDestination(targetDir, relativePath);
+      await mkdir(dirname(destination), { recursive: true });
+      await symlink(target, destination);
+    }
   }
 }
 
-async function collectSkillFiles(skillDir: string, currentDir = skillDir): Promise<Record<string, string>> {
+interface SkillData {
+  files: Record<string, string>;
+  symlinks: Record<string, string>;
+}
+
+async function collectSkillData(skillDir: string, currentDir = skillDir): Promise<SkillData> {
   const entries = await readdir(currentDir, { withFileTypes: true });
   const files: Record<string, string> = {};
+  const symlinks: Record<string, string> = {};
 
   for (const entry of entries) {
     const fullPath = join(currentDir, entry.name);
+    const relativePath = relative(skillDir, fullPath).replaceAll('\\', '/');
+
+    if (entry.isSymbolicLink()) {
+      const target = await readlink(fullPath);
+      symlinks[relativePath] = target;
+      continue;
+    }
 
     if (entry.isDirectory()) {
-      Object.assign(files, await collectSkillFiles(skillDir, fullPath));
+      const nested = await collectSkillData(skillDir, fullPath);
+      Object.assign(files, nested.files);
+      Object.assign(symlinks, nested.symlinks);
       continue;
     }
 
@@ -331,8 +356,8 @@ async function collectSkillFiles(skillDir: string, currentDir = skillDir): Promi
       continue;
     }
 
-    files[relative(skillDir, fullPath).replaceAll('\\', '/')] = (await readFile(fullPath)).toString('base64');
+    files[relativePath] = (await readFile(fullPath)).toString('base64');
   }
 
-  return files;
+  return { files, symlinks };
 }
