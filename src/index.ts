@@ -376,40 +376,31 @@ export function createProgram(homeDir?: string): Command {
 
       if (options.force) {
         action = RemovalAction.RemoveAll;
-      } else if (isGitSource) {
-        // Git source: 3 options
-        const choice = await select({
-          message: `How do you want to remove source "${name}"?`,
-          choices: [
-            {
-              name: 'Convert to local source (keep files, no more git updates)',
-              value: RemovalAction.ConvertToLocal,
-            },
-            {
-              name: 'Remove config + links only (keep skill files on disk)',
-              value: RemovalAction.RemoveConfigKeepFiles,
-            },
-            {
-              name: 'Remove everything (config, links, and skill files)',
-              value: RemovalAction.RemoveAll,
-            },
-          ],
-        });
-        action = choice;
       } else {
-        // HTTP/Local source: 2 options
+        // Unified options for all source types
+        // Non-git sources filter out the convert option since @inquirer/prompts doesn't support disabled
+        const choices = [
+          ...(isGitSource
+            ? [
+                {
+                  name: 'Convert to local source (keep files, no more git updates)',
+                  value: RemovalAction.ConvertToLocal,
+                },
+              ]
+            : []),
+          {
+            name: 'Remove config + links only (keep skill files on disk)',
+            value: RemovalAction.RemoveConfigKeepFiles,
+          },
+          {
+            name: 'Remove everything (config, links, and skill files)',
+            value: RemovalAction.RemoveAll,
+          },
+        ];
+
         const choice = await select({
-          message: `How do you want to remove source "${name}"?`,
-          choices: [
-            {
-              name: 'Remove config + links only (keep skill files on disk)',
-              value: RemovalAction.RemoveConfigKeepFiles,
-            },
-            {
-              name: 'Remove everything (config, links, and skill files)',
-              value: RemovalAction.RemoveAll,
-            },
-          ],
+          message: `How do you want to remove source "${name}" (type: ${sourceType})?`,
+          choices,
         });
         action = choice;
       }
