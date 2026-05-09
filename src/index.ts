@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { Command, InvalidArgumentError } from 'commander';
@@ -10,7 +10,7 @@ import { checkbox, select, confirm } from '@inquirer/prompts';
 import { applyResolution, formatConflictMarker, reconcileManifest } from './conflict.js';
 import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
 import { createPromptApi, runConfigUi } from './config-ui.js';
-import { collectLinkStatus, discoverSkills, linkConfiguredSkills, unlinkSkill } from './linker.js';
+import { collectLinkStatus, discoverSkills, findUnmanagedSkills, linkConfiguredSkills, unlinkSkill } from './linker.js';
 import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './manifest.js';
 import { formatProbeLines, formatServerListLines, formatServerShowLines, listServers, probeServer, showServer } from './server.js';
 import { initializeRepo } from './repo.js';
@@ -172,12 +172,66 @@ export function createProgram(homeDir?: string): Command {
     .description('Discover skills in ~/.syncskill/skills/ and configured sources, register to config links')
     .option('--all-agents', 'Link new skills to all configured agents')
     .action(async (options: { allAgents?: boolean }) => {
+      // Discover skills from sources and manual directory
       const addedSkills = await discoverSkills(resolvedHomeDir, {
         allAgents: Boolean(options.allAgents)
       });
 
-      for (const skillName of addedSkills) {
-        console.log(skillName);
+      if (addedSkills.length > 0) {
+        console.log('Found new skills in sources:');
+        for (const skillName of addedSkills) {
+          console.log(`  + Added "${skillName}"`);
+        }
+      }
+
+      // Check for unmanaged skills in agent directories
+      const unmanagedRaw = await findUnmanagedSkills(resolvedHomeDir);
+
+      // Deduplicate by skill name (same skill may exist in multiple agent directories)
+      const seenNames = new Set<string>();
+      const unmanaged = unmanagedRaw.filter((skill) => {
+        if (seenNames.has(skill.name)) {
+          return false;
+        }
+        seenNames.add(skill.name);
+        return true;
+      });
+
+      if (unmanaged.length > 0) {
+        console.log('\nFound unmanaged skills in agent directories:');
+        for (const skill of unmanaged) {
+          console.log(`  ${skill.path}`);
+        }
+
+        const confirmed = await confirm({
+          message: `Migrate ${unmanaged.length} skill(s) to ~/.syncskill/skills/?`,
+          default: true
+        });
+
+        if (confirmed) {
+          const { skillsDir } = getSyncPaths(resolvedHomeDir);
+
+          for (const skill of unmanaged) {
+            const targetPath = join(skillsDir, skill.name);
+
+            // Check if skill already exists in managed directory
+            try {
+              await stat(targetPath);
+              console.log(`  ⚠ Skipping "${skill.name}" - already exists in managed skills`);
+              continue;
+            } catch {
+              // Target doesn't exist, safe to copy
+            }
+
+            await cp(skill.path, targetPath, { recursive: true });
+            console.log(`  ✓ Migrated "${skill.name}"`);
+          }
+
+          // Re-run discover to register migrated skills
+          await discoverSkills(resolvedHomeDir, {
+            allAgents: Boolean(options.allAgents)
+          });
+        }
       }
 
       // Generate skills-index.json
