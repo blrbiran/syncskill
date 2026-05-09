@@ -25,6 +25,7 @@ import {
 import {
   addSourceFromUrl,
   buildSkillsIndex,
+  DiscoveredSkill,
   findOrphanSkills,
   formatSourceListLines,
   listSources,
@@ -32,6 +33,7 @@ import {
   RemovalAction,
   removeSource,
   saveSkillsIndex,
+  scanSkillsInSource,
   SourceType,
   updateAllSources,
   updateSource,
@@ -355,7 +357,39 @@ export function createProgram(homeDir?: string): Command {
         type: effectiveType,
         store: effectiveStore,
         skillSubdir: options.skillSubdir,
-        ref: options.ref
+        ref: options.ref,
+        skipPrompt: options.yes,
+        onSelectSkills: async (skills: DiscoveredSkill[], existingSkills: Set<string>) => {
+          // Filter out duplicates
+          const available = skills.filter(s => !existingSkills.has(s.name));
+          const duplicates = skills.filter(s => existingSkills.has(s.name));
+
+          if (available.length === 0) {
+            console.log('All skills from this source already exist.');
+            return [];
+          }
+
+          console.log(`\nFound ${skills.length} skill(s) in source:\n`);
+
+          if (duplicates.length > 0) {
+            console.log('Duplicates (will be skipped):');
+            for (const skill of duplicates) {
+              console.log(`  - ${skill.name} (${skill.relativePath})`);
+            }
+            console.log('');
+          }
+
+          const selected = await checkbox({
+            message: 'Select skills to add:',
+            choices: available.map(s => ({
+              name: `${s.name} (${s.relativePath})`,
+              value: s.name,
+              checked: true
+            }))
+          });
+
+          return selected;
+        }
       });
 
       if (result.restoredFromIgnore) {
