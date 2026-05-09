@@ -28,6 +28,7 @@ import {
 export interface SyncEngineOptions {
   runtime?: TransportRuntime;
   now?: string;
+  dryRun?: boolean;
 }
 
 export interface PushResult {
@@ -72,6 +73,37 @@ export async function pushToServers(homeDir: string, servers?: string[], options
     const conflictedSkills = listSkillsByDirection(manifest, 'conflict');
     const pushedSkills = listSkillsByDirection(manifest, 'push');
 
+    // Dry-run mode: show what would happen without executing
+    if (options.dryRun) {
+      console.log(`\n[dry-run] push to ${serverName}:\n`);
+
+      for (const skill of pushedSkills) {
+        const state = manifest.skills[skill];
+        // + for new (local exists, no remote), - for delete (no local, remote exists), ~ for update
+        const action = state.local_hash && !state.remote_hash ? '+' :
+                       !state.local_hash && state.remote_hash ? '-' : '~';
+        console.log(`  ${action} ${skill}`);
+      }
+
+      for (const skill of conflictedSkills) {
+        console.log(`  ! ${skill} (conflict)`);
+      }
+
+      if (pushedSkills.length === 0 && conflictedSkills.length === 0) {
+        console.log('  (no changes)');
+      }
+
+      // Skip actual push, return result with empty pushed_skills
+      results.push({
+        server: serverName,
+        pushed_skills: [],
+        skipped_skills: [...pushedSkills, ...listSkillsByDirection(manifest, 'skip')],
+        conflicted_skills: conflictedSkills,
+        manifest
+      });
+      continue;
+    }
+
     for (const skill of pushedSkills) {
       await pushSkillDirectory(server, join(getSkillsDir(homeDir), skill), skill, runtime);
     }
@@ -100,6 +132,36 @@ export async function pullFromServer(homeDir: string, serverName: string, option
   const manifest = applyConflictPolicy(updated.manifest, config.conflict_resolution, updated.updatedAt);
   const conflictedSkills = listSkillsByDirection(manifest, 'conflict');
   const pulledSkills = listSkillsByDirection(manifest, 'pull');
+
+  // Dry-run mode: show what would happen without executing
+  if (options.dryRun) {
+    console.log(`\n[dry-run] pull from ${serverName}:\n`);
+
+    for (const skill of pulledSkills) {
+      const state = manifest.skills[skill];
+      // + for new (remote exists, no local), - for delete (no remote, local exists), ~ for update
+      const action = state.remote_hash && !state.local_hash ? '+' :
+                     !state.remote_hash && state.local_hash ? '-' : '~';
+      console.log(`  ${action} ${skill}`);
+    }
+
+    for (const skill of conflictedSkills) {
+      console.log(`  ! ${skill} (conflict)`);
+    }
+
+    if (pulledSkills.length === 0 && conflictedSkills.length === 0) {
+      console.log('  (no changes)');
+    }
+
+    // Skip actual pull, return result with empty pulled_skills
+    return {
+      server: serverName,
+      pulled_skills: [],
+      skipped_skills: [...pulledSkills, ...listSkillsByDirection(manifest, 'skip')],
+      conflicted_skills: conflictedSkills,
+      manifest
+    };
+  }
 
   for (const skill of pulledSkills) {
     await pullSkillDirectory(server, skill, join(getSkillsDir(homeDir), skill), runtime);

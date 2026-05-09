@@ -660,13 +660,7 @@ export function createProgram(homeDir?: string): Command {
         }
       }
 
-      // Note: --dry-run implementation is in Task 8
-      if (options.dryRun) {
-        console.log(`[dry-run] Would push to servers: ${targetServers.join(', ')}`);
-        return;
-      }
-
-      const results = await pushToServers(resolvedHomeDir, targetServers);
+      const results = await pushToServers(resolvedHomeDir, targetServers, { dryRun: options.dryRun });
 
       for (const result of results) {
         for (const line of formatSkillRows('push', result)) {
@@ -679,9 +673,10 @@ export function createProgram(homeDir?: string): Command {
     .command('pull [server]')
     .description('Pull remote skill changes from one server or all configured servers')
     .option('--all', 'Pull from all configured servers')
-    .action(async (server: string | undefined, options: { all?: boolean }) => {
+    .option('--dry-run', 'Preview changes without pulling')
+    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean }) => {
       const servers = options.all || server === undefined ? undefined : [server];
-      const results = await pullFromServers(resolvedHomeDir, servers);
+      const results = await pullFromServers(resolvedHomeDir, servers, { dryRun: options.dryRun });
 
       for (const result of results) {
         for (const line of formatSkillRows('pull', result)) {
@@ -694,9 +689,10 @@ export function createProgram(homeDir?: string): Command {
     .command('sync [server]')
     .description('Pull then push changes for one server or all configured servers')
     .option('--all', 'Sync all configured servers')
-    .action(async (server: string | undefined, options: { all?: boolean }) => {
+    .option('--dry-run', 'Preview changes without syncing')
+    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean }) => {
       const servers = options.all || server === undefined ? undefined : [server];
-      const results = await syncServers(resolvedHomeDir, servers);
+      const results = await syncServers(resolvedHomeDir, servers, { dryRun: options.dryRun });
 
       for (const result of results) {
         for (const line of formatSkillRows('pull', result.pull)) {

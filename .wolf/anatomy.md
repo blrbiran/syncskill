@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-09T12:11:52.425Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-09T12:15:45.308Z
 > Files: 64 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -47,7 +47,7 @@
 - `config-ui.ts` — Exports PromptApi, createPromptApi, SafeSelectResult, safeSelect + 8 more (~5776 tok)
 - `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 13 more (~2037 tok)
 - `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 5 more (~1129 tok)
-- `index.ts` — Exports createProgram (~7268 tok)
+- `index.ts` — Exports createProgram (~7282 tok)
 - `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, listLocalSkills + 5 more (~1754 tok)
 - `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3315 tok)
 - `matrix-editor.ts` — Exports MatrixEditorConfig, MatrixEditorResult, renderMatrixLine, createMatrixEditor (~1847 tok)
@@ -56,7 +56,7 @@
 - `server.ts` — Exports ProbeLine, formatServerListLines, formatServerShowLines, formatProbeLines + 3 more (~438 tok)
 - `skills-ignore.ts` — Exports IgnoredSkillEntry, SkillsIgnore, getSkillsIgnorePath, loadSkillsIgnore + 4 more (~518 tok)
 - `source.ts` — Git only: Convert source from git to local, keep store directory (~11989 tok)
-- `sync_engine.ts` — Push/pull/sync with pullFromServers for multi-server pull. Exports pushToServers, pullFromServer, pullFromServers, syncServers + 4 more (~3300 tok)
+- `sync_engine.ts` — Push/pull/sync engine with dryRun support. Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 6 more (~3686 tok)
 - `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer + 6 more (~3216 tok)
 
 ## src/receiver/
@@ -82,7 +82,7 @@
 - `server-cli.test.ts` — Declares tempDirs (~1061 tok)
 - `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6160 tok)
 - `source-remove.test.ts` — Declares SyncSkillConfig (~3145 tok)
-- `sync-cli.test.ts` — Declares tempDirs (~3718 tok)
+- `sync-cli.test.ts` — Declares tempDirs (~3879 tok)
 - `sync-engine.test.ts` — TransportRuntime: createRuntime (~3568 tok)
 - `transport.test.ts` — receiverPath: importReceiverModule, runReceiverCommand, runReceiverApply, createReceiverManifest, createRuntime (~6110 tok)
 

@@ -59,7 +59,7 @@ describe('sync CLI', () => {
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', 'alpha'], { from: 'node' });
 
-    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha']);
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], { dryRun: undefined });
     expect(consoleLog.mock.calls).toEqual([
       ['welcome\talpha\tpush\tin-sync'],
       ['docs\talpha\tpush\tin-sync']
@@ -151,7 +151,7 @@ describe('sync CLI', () => {
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'sync', '--all'], { from: 'node' });
 
-    expect(syncServersSpy).toHaveBeenCalledWith(homeDir, undefined);
+    expect(syncServersSpy).toHaveBeenCalledWith(homeDir, undefined, { dryRun: undefined });
     expect(consoleLog.mock.calls).toEqual([
       ['remote-docs\talpha\tpull\tin-sync'],
       ['welcome\talpha\tpush\tin-sync']
@@ -197,7 +197,7 @@ describe('sync CLI', () => {
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull'], { from: 'node' });
 
-    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, undefined);
+    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, undefined, { dryRun: undefined });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpull\tin-sync'],
       ['skill-b\tbeta\tpull\tin-sync']
@@ -236,7 +236,7 @@ describe('sync CLI', () => {
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull', 'alpha'], { from: 'node' });
 
-    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha']);
+    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], { dryRun: undefined });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpull\tin-sync']
     ]);
@@ -265,7 +265,7 @@ describe('sync CLI', () => {
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull', '--all'], { from: 'node' });
 
-    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, undefined);
+    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, undefined, { dryRun: undefined });
   });
 
   it('push -y skips prompts and pushes to all servers', async () => {
@@ -308,7 +308,7 @@ describe('sync CLI', () => {
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', '-y'], { from: 'node' });
 
     // -y flag should push to all servers without prompting
-    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta']);
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], { dryRun: undefined });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpush\tin-sync'],
       ['skill-b\tbeta\tpush\tin-sync']
@@ -334,16 +334,28 @@ describe('sync CLI', () => {
       homeDir
     );
 
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const pushToServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pushToServers').mockImplementation(async () => []);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const pushToServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pushed_skills: [],
+        skipped_skills: ['skill-a'],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      },
+      {
+        server: 'beta',
+        pushed_skills: [],
+        skipped_skills: ['skill-b'],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'beta', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      }
+    ]);
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', '-y', '--dry-run'], { from: 'node' });
 
-    // --dry-run should NOT call pushToServers
-    expect(pushToServersSpy).not.toHaveBeenCalled();
-    expect(consoleLog.mock.calls).toEqual([
-      ['[dry-run] Would push to servers: alpha, beta']
-    ]);
+    // --dry-run should call pushToServers with dryRun: true
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], { dryRun: true });
   });
 
   it('push with single server configured does not prompt', async () => {
@@ -378,7 +390,7 @@ describe('sync CLI', () => {
     // No -y flag, but only one server configured - should not prompt
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push'], { from: 'node' });
 
-    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha']);
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], { dryRun: undefined });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpush\tin-sync']
     ]);
