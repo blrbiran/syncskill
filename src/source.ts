@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 
 import type { SyncSkillConfig } from './config.js';
 import { getSyncPaths, loadConfig, saveConfig } from './config.js';
+import { isSkillIgnored, loadSkillsIgnore, removeIgnoredSkill, saveSkillsIgnore } from './skills-ignore.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -1036,11 +1037,19 @@ export interface AddSourceFromUrlOptions {
   ref?: string;
 }
 
+export interface AddSourceFromUrlResult {
+  name: string;
+  source: SourceDefinition;
+  sameRepoMatch?: ExistingSourceMatch;
+  restoredFromIgnore?: boolean;
+  restoredSkill?: string;
+}
+
 export async function addSourceFromUrl(
   homeDir = homedir(),
   urlOrName: string,
   options: AddSourceFromUrlOptions = {}
-): Promise<{ name: string; source: SourceDefinition; sameRepoMatch?: ExistingSourceMatch }> {
+): Promise<AddSourceFromUrlResult> {
   const { syncDir } = getSyncPaths(homeDir);
   const parsed = parseGitHubUrl(urlOrName);
 
@@ -1049,7 +1058,30 @@ export async function addSourceFromUrl(
     const existingMatch = await findExistingSourceByUrl(homeDir, parsed.cloneUrl);
 
     if (existingMatch) {
-      // Return the match for CLI to handle interactively
+      // Check if the requested skill is in the ignore list
+      const ignore = await loadSkillsIgnore(homeDir);
+      const requestedSkillName = parsed.skillName;
+
+      if (requestedSkillName && isSkillIgnored(ignore, requestedSkillName)) {
+        // Restore from ignore list
+        const updatedIgnore = removeIgnoredSkill(ignore, requestedSkillName);
+        await saveSkillsIgnore(homeDir, updatedIgnore);
+
+        // Add to links
+        const config = await loadConfig(homeDir);
+        config.links[requestedSkillName] = ['*'];
+        await saveConfig(config, homeDir);
+
+        return {
+          name: existingMatch.name,
+          source: existingMatch.source,
+          sameRepoMatch: existingMatch,
+          restoredFromIgnore: true,
+          restoredSkill: requestedSkillName
+        };
+      }
+
+      // Not in ignore - return for CLI to handle interactively
       return {
         name: existingMatch.name,
         source: existingMatch.source,

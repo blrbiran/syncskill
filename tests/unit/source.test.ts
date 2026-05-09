@@ -10,8 +10,9 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { buildSkillsIndex, classifySameRepoScenario, detectArchiveFormat, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, normalizeSkillsIndex, resolveSkillPath, SameRepoScenario, saveSkillsIndex, scanSkillsInDirectory, updateSource } from '../../src/source.js';
+import { addSourceFromUrl, buildSkillsIndex, classifySameRepoScenario, detectArchiveFormat, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, normalizeSkillsIndex, resolveSkillPath, SameRepoScenario, saveSkillsIndex, scanSkillsInDirectory, updateSource } from '../../src/source.js';
 import type { SkillsIndex } from '../../src/source.js';
+import { addIgnoredSkill, isSkillIgnored, loadSkillsIgnore, saveSkillsIgnore } from '../../src/skills-ignore.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -1833,5 +1834,144 @@ describe('scanSkillsInDirectory', () => {
 
     const skills = await scanSkillsInDirectory(baseDir);
     expect(skills).toEqual([]);
+  });
+});
+
+describe('addSourceFromUrl with skills-ignore', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('restores skill from ignore list when same-repo detected', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-ignore-restore-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+
+    // Setup: Create config with existing source
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: { 'skill-a': ['*'] },
+        sources: {
+          'org-repo': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'skills/',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    // Add skill-b to ignore list
+    let ignore = await loadSkillsIgnore(homeDir);
+    ignore = addIgnoredSkill(ignore, 'skill-b', {
+      path: 'skills/skill-b',
+      source: 'org-repo',
+      reason: 'user-choice'
+    });
+    await saveSkillsIgnore(homeDir, ignore);
+
+    // Verify skill-b is in ignore list
+    const beforeIgnore = await loadSkillsIgnore(homeDir);
+    expect(isSkillIgnored(beforeIgnore, 'skill-b')).toBe(true);
+
+    // Try to add same repo with ignored skill path
+    const result = await addSourceFromUrl(homeDir,
+      'https://github.com/org/repo/tree/main/skills/skill-b');
+
+    expect(result.restoredFromIgnore).toBe(true);
+    expect(result.restoredSkill).toBe('skill-b');
+    expect(result.sameRepoMatch).toBeDefined();
+    expect(result.sameRepoMatch?.name).toBe('org-repo');
+
+    // Verify skill is no longer in ignore
+    const updatedIgnore = await loadSkillsIgnore(homeDir);
+    expect(isSkillIgnored(updatedIgnore, 'skill-b')).toBe(false);
+
+    // Verify skill is in links
+    const config = await loadConfig(homeDir);
+    expect('skill-b' in config.links).toBe(true);
+    expect(config.links['skill-b']).toEqual(['*']);
+  });
+
+  it('does not restore when skill is not in ignore list', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-ignore-no-restore-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+
+    // Setup: Create config with existing source
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: { 'skill-a': ['*'] },
+        sources: {
+          'org-repo': {
+            type: 'git',
+            url: 'https://github.com/org/repo.git',
+            store: 'skills/',
+          },
+        },
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    // Try to add same repo with a skill that's NOT in ignore list
+    const result = await addSourceFromUrl(homeDir,
+      'https://github.com/org/repo/tree/main/skills/skill-c');
+
+    // Should return sameRepoMatch but NOT restoredFromIgnore
+    expect(result.restoredFromIgnore).toBeUndefined();
+    expect(result.sameRepoMatch).toBeDefined();
+    expect(result.sameRepoMatch?.name).toBe('org-repo');
+
+    // skill-c should NOT be added to links (CLI handles this case interactively)
+    const config = await loadConfig(homeDir);
+    expect('skill-c' in config.links).toBe(false);
+  });
+
+  it('adds new source when no existing source matches', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-new-source-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const sourcesDir = join(syncDir, 'sources');
+
+    // Setup: Create empty config
+    await mkdir(syncDir, { recursive: true });
+    await mkdir(sourcesDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: {},
+        sources: {},
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    // Add a new source (no existing source with this URL)
+    const result = await addSourceFromUrl(homeDir,
+      'https://github.com/neworg/newrepo/tree/main/skills/new-skill');
+
+    // Should add new source, not return sameRepoMatch
+    expect(result.sameRepoMatch).toBeUndefined();
+    expect(result.restoredFromIgnore).toBeUndefined();
+    expect(result.name).toBe('new-skill');
+
+    // Verify source was added
+    const config = await loadConfig(homeDir);
+    expect('new-skill' in config.sources).toBe(true);
   });
 });

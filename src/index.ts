@@ -358,6 +358,11 @@ export function createProgram(homeDir?: string): Command {
         ref: options.ref
       });
 
+      if (result.restoredFromIgnore) {
+        console.log(`Restored skill "${result.restoredSkill}" from ignore list`);
+        return;
+      }
+
       if (result.sameRepoMatch) {
         console.log(`\nA source already exists for this repository: ${result.sameRepoMatch.name}`);
         console.log(`Existing store: ${result.sameRepoMatch.source.store}`);
