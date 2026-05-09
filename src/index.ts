@@ -509,11 +509,11 @@ export function createProgram(homeDir?: string): Command {
     });
 
   program
-    .command('resolve <skill>')
-    .description('Resolve one tracked conflict by choosing local or remote state')
+    .command('resolve <skill> [side]')
+    .description('Resolve a conflict by choosing local or remote state')
     .option(
       '--take <side>',
-      'Choose which side to keep',
+      'Choose which side to keep (deprecated, use positional arg)',
       (value: string) => {
         if (value === 'local' || value === 'remote') {
           return value;
@@ -523,60 +523,93 @@ export function createProgram(homeDir?: string): Command {
       }
     )
     .option('--manual', 'Create .sync-conflict marker file for manual resolution')
-    .action(async (skill: string, options: { take?: 'local' | 'remote'; manual?: boolean }) => {
-      if (!options.take && !options.manual) {
-        throw new Error('resolve requires --take <local|remote> or --manual');
-      }
+    .option('--diff', 'Show hash differences for the conflict')
+    .action(
+      async (
+        skill: string,
+        sideArg: string | undefined,
+        options: { take?: 'local' | 'remote'; manual?: boolean; diff?: boolean }
+      ) => {
+        // Validate and merge positional side argument with --take option
+        let side: 'local' | 'remote' | undefined = options.take;
 
-      const servers = await listTrackedServers(resolvedHomeDir);
-
-      if (servers.length === 0) {
-        console.error('No tracked servers found. Run "syncskill refresh" first to track server manifests.');
-        process.exit(1);
-      }
-
-      const updatedAt = new Date().toISOString();
-      let resolved = false;
-
-      for (const server of servers) {
-        const manifest = await loadServerManifest(resolvedHomeDir, server);
-        const reconciled = reconcileManifest(manifest);
-        const current = reconciled.skills[skill];
-
-        if (!current || current.direction !== 'conflict') {
-          continue;
+        if (sideArg !== undefined) {
+          if (sideArg !== 'local' && sideArg !== 'remote') {
+            throw new InvalidArgumentError(`Invalid side: ${sideArg}. Expected "local" or "remote".`);
+          }
+          side = sideArg;
         }
 
-        if (options.manual) {
-          const { skillsDir } = getSyncPaths(resolvedHomeDir);
-          const skillDir = join(skillsDir, skill);
-          await mkdir(skillDir, { recursive: true });
-          const markerPath = join(skillDir, '.sync-conflict');
-          const markerContent = formatConflictMarker({
-            skill,
-            server,
-            local_hash: current.local_hash ?? '',
-            remote_hash: current.remote_hash ?? '',
-            created_at: updatedAt
-          });
-          await writeFile(markerPath, markerContent, 'utf8');
-          console.log(`Created conflict marker: ${markerPath}`);
+        // Check that we have a valid action
+        if (!side && !options.manual && !options.diff) {
+          throw new Error(
+            'resolve requires a side (local|remote), --manual, or --diff\n' +
+              'Usage: syncskill resolve <skill> local|remote\n' +
+              '       syncskill resolve <skill> --manual\n' +
+              '       syncskill resolve <skill> --diff'
+          );
+        }
+
+        const servers = await listTrackedServers(resolvedHomeDir);
+
+        if (servers.length === 0) {
+          console.error('No tracked servers found. Run "syncskill refresh" first to track server manifests.');
+          process.exit(1);
+        }
+
+        const updatedAt = new Date().toISOString();
+        let resolved = false;
+
+        for (const server of servers) {
+          const manifest = await loadServerManifest(resolvedHomeDir, server);
+          const reconciled = reconcileManifest(manifest);
+          const current = reconciled.skills[skill];
+
+          if (!current || current.direction !== 'conflict') {
+            continue;
+          }
+
+          // Handle --diff option
+          if (options.diff) {
+            const localHash = current.local_hash ?? '-';
+            const remoteHash = current.remote_hash ?? '-';
+            const recordedHash = current.recorded_hash ?? '-';
+            console.log(`${skill}\t${server}\tlocal:${localHash}\tremote:${remoteHash}\tbase:${recordedHash}`);
+            resolved = true;
+            continue;
+          }
+
+          if (options.manual) {
+            const { skillsDir } = getSyncPaths(resolvedHomeDir);
+            const skillDir = join(skillsDir, skill);
+            await mkdir(skillDir, { recursive: true });
+            const markerPath = join(skillDir, '.sync-conflict');
+            const markerContent = formatConflictMarker({
+              skill,
+              server,
+              local_hash: current.local_hash ?? '',
+              remote_hash: current.remote_hash ?? '',
+              created_at: updatedAt
+            });
+            await writeFile(markerPath, markerContent, 'utf8');
+            console.log(`Created conflict marker: ${markerPath}`);
+            resolved = true;
+            continue;
+          }
+
+          const updatedManifest = applyResolution(reconciled, skill, side!, updatedAt);
+          await saveServerManifest(resolvedHomeDir, updatedManifest);
+
+          const updatedSkill = updatedManifest.skills[skill];
+          console.log(`${skill}\t${server}\t${updatedSkill.direction}\t${updatedSkill.status}`);
           resolved = true;
-          continue;
         }
 
-        const updatedManifest = applyResolution(reconciled, skill, options.take!, updatedAt);
-        await saveServerManifest(resolvedHomeDir, updatedManifest);
-
-        const updatedSkill = updatedManifest.skills[skill];
-        console.log(`${skill}\t${server}\t${updatedSkill.direction}\t${updatedSkill.status}`);
-        resolved = true;
+        if (!resolved) {
+          throw new Error(`No tracked conflict found for skill: ${skill}`);
+        }
       }
-
-      if (!resolved) {
-        throw new Error(`No tracked conflict found for skill: ${skill}`);
-      }
-    });
+    );
 
   program
     .command('push [server]')

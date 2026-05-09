@@ -529,4 +529,204 @@ describe('reconciliation CLI', () => {
     expect(marker).toContain('remote_hash: remote-hash');
     expect(consoleLog.mock.calls[0][0]).toContain('Created conflict marker:');
   });
+
+  it('resolve <skill> <side> accepts positional side argument', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-positional-'));
+    tempDirs.push(homeDir);
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: 'local-alpha',
+          remote_hash: 'remote-alpha',
+          recorded_hash: 'base-alpha',
+          direction: 'conflict',
+          status: 'conflict'
+        }
+      }
+    });
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    // Test positional "local" argument
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'resolve', 'welcome', 'local'], {
+      from: 'node'
+    });
+
+    expect(consoleLog.mock.calls).toEqual([['welcome\talpha\tpush\tlocal-changed']]);
+
+    await expect(loadServerManifest(homeDir, 'alpha')).resolves.toMatchObject({
+      skills: {
+        welcome: {
+          local_hash: null,
+          remote_hash: 'remote-alpha',
+          recorded_hash: 'remote-alpha',
+          direction: 'push',
+          status: 'local-changed'
+        }
+      }
+    });
+  });
+
+  it('resolve <skill> <side> accepts positional remote argument', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-positional-'));
+    tempDirs.push(homeDir);
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'beta',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        deploy: {
+          local_hash: 'local-beta',
+          remote_hash: 'remote-beta',
+          recorded_hash: 'base-beta',
+          direction: 'conflict',
+          status: 'conflict'
+        }
+      }
+    });
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    // Test positional "remote" argument
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'resolve', 'deploy', 'remote'], {
+      from: 'node'
+    });
+
+    expect(consoleLog.mock.calls).toEqual([['deploy\tbeta\tpull\tnew']]);
+
+    await expect(loadServerManifest(homeDir, 'beta')).resolves.toMatchObject({
+      skills: {
+        deploy: {
+          local_hash: null,
+          remote_hash: 'remote-beta',
+          recorded_hash: null,
+          direction: 'pull',
+          status: 'new'
+        }
+      }
+    });
+  });
+
+  it('resolve <skill> rejects invalid positional side argument', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-invalid-'));
+    tempDirs.push(homeDir);
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: 'local-alpha',
+          remote_hash: 'remote-alpha',
+          recorded_hash: 'base-alpha',
+          direction: 'conflict',
+          status: 'conflict'
+        }
+      }
+    });
+
+    await expect(
+      createProgram(homeDir).parseAsync(['node', 'syncskill', 'resolve', 'welcome', 'invalid'], {
+        from: 'node'
+      })
+    ).rejects.toThrow('Invalid side: invalid. Expected "local" or "remote".');
+  });
+
+  it('resolve <skill> --diff shows hash differences for conflict', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-diff-'));
+    tempDirs.push(homeDir);
+
+    // Create a real conflict: local and remote both differ from recorded
+    // local_hash != remote_hash != recorded_hash
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: 'abc123',
+          remote_hash: 'def456',
+          recorded_hash: 'base789',
+          direction: 'conflict',
+          status: 'conflict'
+        }
+      }
+    });
+
+    // Create local skill directory so local_hash gets recalculated
+    const { skillsDir } = getSyncPaths(homeDir);
+    await mkdir(join(skillsDir, 'welcome'), { recursive: true });
+    await writeFile(join(skillsDir, 'welcome', 'SKILL.md'), '# welcome conflict version\n', 'utf8');
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'resolve', 'welcome', '--diff'], {
+      from: 'node'
+    });
+
+    // Uses stored hashes from manifest (--no-refresh skips auto-refresh)
+    expect(consoleLog.mock.calls).toEqual([['welcome\talpha\tlocal:abc123\tremote:def456\tbase:base789']]);
+  });
+
+  it('resolve <skill> --diff handles null local hash', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-diff-null-'));
+    tempDirs.push(homeDir);
+
+    // A conflict where local is deleted but remote and recorded differ
+    // This happens when: local=null, remote changed from recorded
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'beta',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        deploy: {
+          local_hash: null,
+          remote_hash: 'remote-new',
+          recorded_hash: 'base-old',
+          direction: 'conflict',
+          status: 'conflict'
+        }
+      }
+    });
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'resolve', 'deploy', '--diff'], {
+      from: 'node'
+    });
+
+    expect(consoleLog.mock.calls).toEqual([['deploy\tbeta\tlocal:-\tremote:remote-new\tbase:base-old']]);
+  });
+
+  it('resolve <skill> without side, --manual, or --diff shows helpful error', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-error-'));
+    tempDirs.push(homeDir);
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: 'local-alpha',
+          remote_hash: 'remote-alpha',
+          recorded_hash: 'base-alpha',
+          direction: 'conflict',
+          status: 'conflict'
+        }
+      }
+    });
+
+    await expect(
+      createProgram(homeDir).parseAsync(['node', 'syncskill', 'resolve', 'welcome'], {
+        from: 'node'
+      })
+    ).rejects.toThrow('resolve requires a side (local|remote), --manual, or --diff');
+  });
 });
