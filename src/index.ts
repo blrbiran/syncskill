@@ -313,6 +313,7 @@ export function createProgram(homeDir?: string): Command {
     .option('--path <path>', 'Local path (equivalent to --store for local type)')
     .option('--skill-subdir <dir>', 'Subdirectory within source containing skills')
     .option('--ref <ref>', 'Git ref (branch/tag)')
+    .option('-y, --yes', 'Skip confirmation prompts, select all skills')
     .action(async (nameOrUrl: string, options: {
       type?: SourceType;
       url?: string;
@@ -320,6 +321,7 @@ export function createProgram(homeDir?: string): Command {
       path?: string;
       skillSubdir?: string;
       ref?: string;
+      yes?: boolean;
     }) => {
       // Auto-detect local type when --path is provided without --type
       // If not a GitHub URL pattern and --path is provided, default to local type

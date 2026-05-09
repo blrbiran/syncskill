@@ -10,7 +10,7 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { buildSkillsIndex, classifySameRepoScenario, detectArchiveFormat, detectGitDefaultBranch, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, normalizeSkillsIndex, resolveSkillPath, SameRepoScenario, saveSkillsIndex, updateSource } from '../../src/source.js';
+import { buildSkillsIndex, classifySameRepoScenario, detectArchiveFormat, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, normalizeSkillsIndex, resolveSkillPath, SameRepoScenario, saveSkillsIndex, scanSkillsInDirectory, updateSource } from '../../src/source.js';
 import type { SkillsIndex } from '../../src/source.js';
 
 const execFileAsync = promisify(execFile);
@@ -1610,5 +1610,228 @@ describe('detectArchiveFormat', () => {
   it('handles case-insensitive extensions', () => {
     expect(detectArchiveFormat('https://example.com/archive.TAR.GZ')).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
     expect(detectArchiveFormat('https://example.com/archive.ZIP')).toEqual({ type: 'zip', extension: '.zip' });
+  });
+});
+
+describe('detectSourceType', () => {
+  it('detects local absolute paths', () => {
+    const result = detectSourceType('/path/to/skills');
+    expect(result?.type).toBe('local');
+    expect(result?.url).toBe('/path/to/skills');
+  });
+
+  it('detects local paths with ~ prefix', () => {
+    const result = detectSourceType('~/code/my-skills');
+    expect(result?.type).toBe('local');
+    expect(result?.url).toBe('~/code/my-skills');
+  });
+
+  it('detects relative paths starting with ./', () => {
+    const result = detectSourceType('./local-skills');
+    expect(result?.type).toBe('local');
+    expect(result?.url).toBe('./local-skills');
+  });
+
+  it('detects relative paths starting with ../', () => {
+    const result = detectSourceType('../shared-skills');
+    expect(result?.type).toBe('local');
+    expect(result?.url).toBe('../shared-skills');
+  });
+
+  it('detects github URL as git type', () => {
+    const result = detectSourceType('https://github.com/org/repo');
+    expect(result?.type).toBe('git');
+    expect(result?.url).toBe('https://github.com/org/repo.git');
+  });
+
+  it('detects github URL with .git suffix', () => {
+    const result = detectSourceType('https://github.com/org/repo.git');
+    expect(result?.type).toBe('git');
+    expect(result?.url).toBe('https://github.com/org/repo.git');
+  });
+
+  it('parses /tree/<branch> format from github', () => {
+    const result = detectSourceType('https://github.com/org/repo/tree/main/skills');
+    expect(result?.type).toBe('git');
+    expect(result?.url).toBe('https://github.com/org/repo.git');
+    expect(result?.ref).toBe('main');
+  });
+
+  it('parses /tree/<branch> format without path', () => {
+    const result = detectSourceType('https://github.com/org/repo/tree/develop');
+    expect(result?.type).toBe('git');
+    expect(result?.url).toBe('https://github.com/org/repo.git');
+    expect(result?.ref).toBe('develop');
+  });
+
+  it('detects gitlab URL as git type', () => {
+    const result = detectSourceType('https://gitlab.com/org/repo');
+    expect(result?.type).toBe('git');
+    expect(result?.url).toBe('https://gitlab.com/org/repo.git');
+  });
+
+  it('parses /tree/<branch> format from gitlab', () => {
+    const result = detectSourceType('https://gitlab.com/org/repo/tree/main/skills');
+    expect(result?.type).toBe('git');
+    expect(result?.url).toBe('https://gitlab.com/org/repo.git');
+    expect(result?.ref).toBe('main');
+  });
+
+  it('detects generic .git URLs', () => {
+    const result = detectSourceType('https://example.com/custom/repo.git');
+    expect(result?.type).toBe('git');
+    expect(result?.url).toBe('https://example.com/custom/repo.git');
+  });
+
+  it('detects archive URLs (tar.gz)', () => {
+    const result = detectSourceType('https://example.com/skills.tar.gz');
+    expect(result?.type).toBe('http');
+    expect(result?.url).toBe('https://example.com/skills.tar.gz');
+  });
+
+  it('detects archive URLs (tgz)', () => {
+    const result = detectSourceType('https://example.com/skills.tgz');
+    expect(result?.type).toBe('http');
+  });
+
+  it('detects archive URLs (zip)', () => {
+    const result = detectSourceType('https://example.com/skills.zip');
+    expect(result?.type).toBe('http');
+  });
+
+  it('detects archive URLs (tar.xz)', () => {
+    const result = detectSourceType('https://example.com/skills.tar.xz');
+    expect(result?.type).toBe('http');
+  });
+
+  it('detects archive URLs (tar.bz2)', () => {
+    const result = detectSourceType('https://example.com/skills.tar.bz2');
+    expect(result?.type).toBe('http');
+  });
+
+  it('handles case-insensitive archive extensions', () => {
+    const result = detectSourceType('https://example.com/skills.TAR.GZ');
+    expect(result?.type).toBe('http');
+  });
+
+  it('returns null for unknown format', () => {
+    const result = detectSourceType('unknown-format');
+    expect(result).toBeNull();
+  });
+
+  it('returns null for plain https URLs without recognizable patterns', () => {
+    const result = detectSourceType('https://example.com/some/path');
+    expect(result).toBeNull();
+  });
+
+  it('returns null for plain domain names', () => {
+    const result = detectSourceType('example.com');
+    expect(result).toBeNull();
+  });
+});
+
+describe('scanSkillsInDirectory', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('finds skills with SKILL.md in top-level directories', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-'));
+    tempDirs.push(homeDir);
+
+    const baseDir = join(homeDir, 'skills');
+    await mkdir(join(baseDir, 'skill-a'), { recursive: true });
+    await mkdir(join(baseDir, 'skill-b'), { recursive: true });
+    await writeFile(join(baseDir, 'skill-a', 'SKILL.md'), '# Skill A');
+    await writeFile(join(baseDir, 'skill-b', 'SKILL.md'), '# Skill B');
+
+    const skills = await scanSkillsInDirectory(baseDir);
+
+    expect(skills).toHaveLength(2);
+    expect(skills.map(s => s.name).sort()).toEqual(['skill-a', 'skill-b']);
+    expect(skills.find(s => s.name === 'skill-a')?.relativePath).toBe('skill-a');
+    expect(skills.find(s => s.name === 'skill-a')?.absolutePath).toBe(join(baseDir, 'skill-a'));
+  });
+
+  it('finds skills in nested directories', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-'));
+    tempDirs.push(homeDir);
+
+    const baseDir = join(homeDir, 'repo');
+    await mkdir(join(baseDir, 'packages', 'skills', 'my-skill'), { recursive: true });
+    await writeFile(join(baseDir, 'packages', 'skills', 'my-skill', 'SKILL.md'), '# My Skill');
+
+    const skills = await scanSkillsInDirectory(baseDir);
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0].name).toBe('my-skill');
+    expect(skills[0].relativePath).toBe('packages/skills/my-skill');
+    expect(skills[0].absolutePath).toBe(join(baseDir, 'packages', 'skills', 'my-skill'));
+  });
+
+  it('skips directories without SKILL.md', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-'));
+    tempDirs.push(homeDir);
+
+    const baseDir = join(homeDir, 'skills');
+    await mkdir(join(baseDir, 'valid-skill'), { recursive: true });
+    await mkdir(join(baseDir, 'not-a-skill'), { recursive: true });
+    await writeFile(join(baseDir, 'valid-skill', 'SKILL.md'), '# Valid');
+    await writeFile(join(baseDir, 'not-a-skill', 'README.md'), '# Not a skill');
+
+    const skills = await scanSkillsInDirectory(baseDir);
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0].name).toBe('valid-skill');
+  });
+
+  it('skips hidden directories (starting with .)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-'));
+    tempDirs.push(homeDir);
+
+    const baseDir = join(homeDir, 'skills');
+    await mkdir(join(baseDir, 'visible-skill'), { recursive: true });
+    await mkdir(join(baseDir, '.hidden-skill'), { recursive: true });
+    await writeFile(join(baseDir, 'visible-skill', 'SKILL.md'), '# Visible');
+    await writeFile(join(baseDir, '.hidden-skill', 'SKILL.md'), '# Hidden');
+
+    const skills = await scanSkillsInDirectory(baseDir);
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0].name).toBe('visible-skill');
+  });
+
+  it('stops recursion once SKILL.md is found', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-'));
+    tempDirs.push(homeDir);
+
+    const baseDir = join(homeDir, 'skills');
+    // Parent skill with nested sub-skill (should only find parent)
+    await mkdir(join(baseDir, 'parent-skill', 'nested-skill'), { recursive: true });
+    await writeFile(join(baseDir, 'parent-skill', 'SKILL.md'), '# Parent');
+    await writeFile(join(baseDir, 'parent-skill', 'nested-skill', 'SKILL.md'), '# Nested');
+
+    const skills = await scanSkillsInDirectory(baseDir);
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0].name).toBe('parent-skill');
+  });
+
+  it('returns empty array for non-existent directory', async () => {
+    const skills = await scanSkillsInDirectory('/non/existent/path');
+    expect(skills).toEqual([]);
+  });
+
+  it('returns empty array for empty directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-'));
+    tempDirs.push(homeDir);
+
+    const baseDir = join(homeDir, 'empty');
+    await mkdir(baseDir, { recursive: true });
+
+    const skills = await scanSkillsInDirectory(baseDir);
+    expect(skills).toEqual([]);
   });
 });

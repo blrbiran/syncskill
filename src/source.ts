@@ -65,6 +65,97 @@ export function classifySameRepoScenario(
 
 export type SourceType = 'local' | 'git' | 'http';
 
+export interface DetectedSourceType {
+  type: SourceType;
+  url: string;
+  ref?: string;
+}
+
+/**
+ * Auto-detect source type from a URL or path string.
+ * Returns null if the format is unknown and requires interactive prompting.
+ */
+export function detectSourceType(input: string): DetectedSourceType | null {
+  // File system paths
+  if (input.startsWith('/') || input.startsWith('~') || input.startsWith('./') || input.startsWith('../')) {
+    return { type: 'local', url: input };
+  }
+
+  // GitHub/GitLab URLs - delegate to existing parseGitHubUrl for detailed parsing
+  const gitHostMatch = input.match(/^https?:\/\/(github\.com|gitlab\.com)\/([^\/]+)\/([^\/]+)/);
+  if (gitHostMatch) {
+    // Check for /tree/<branch>/<path> pattern
+    const treeMatch = input.match(/\/tree\/([^\/]+)(\/.*)?$/);
+    if (treeMatch) {
+      const branch = treeMatch[1];
+      const repoBase = input.replace(/\/tree\/.*$/, '');
+      return { type: 'git', url: `${repoBase}.git`, ref: branch };
+    }
+
+    // Plain repo URL
+    const url = input.endsWith('.git') ? input : `${input}.git`;
+    return { type: 'git', url };
+  }
+
+  // .git suffix
+  if (input.endsWith('.git')) {
+    return { type: 'git', url: input };
+  }
+
+  // Archive files
+  if (/\.(tar\.gz|tgz|tar\.xz|tar\.bz2|zip)$/i.test(input)) {
+    return { type: 'http', url: input };
+  }
+
+  // Unknown - return null to trigger interactive prompt
+  return null;
+}
+
+export interface DiscoveredSkill {
+  name: string;
+  relativePath: string;
+  absolutePath: string;
+}
+
+/**
+ * Recursively scan a directory for skills (directories containing SKILL.md).
+ * Returns all discovered skills with their paths.
+ */
+export async function scanSkillsInDirectory(baseDir: string): Promise<DiscoveredSkill[]> {
+  const skills: DiscoveredSkill[] = [];
+
+  async function scanDir(dir: string, relPath: string = ''): Promise<void> {
+    try {
+      const entries = await readdir(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (entry.name.startsWith('.')) continue;
+
+        const fullPath = join(dir, entry.name);
+        const relativePath = relPath ? `${relPath}/${entry.name}` : entry.name;
+
+        try {
+          await readFile(join(fullPath, 'SKILL.md'), 'utf8');
+          skills.push({
+            name: entry.name,
+            relativePath,
+            absolutePath: fullPath
+          });
+        } catch {
+          // No SKILL.md, recurse into subdirectory
+          await scanDir(fullPath, relativePath);
+        }
+      }
+    } catch {
+      // Directory not accessible
+    }
+  }
+
+  await scanDir(baseDir);
+  return skills;
+}
+
 export interface SourceDefinition {
   type: SourceType;
   url: string;
