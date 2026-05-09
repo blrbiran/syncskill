@@ -65,6 +65,9 @@ export const createMatrixEditor = () =>
     const pageRows = filteredRows.slice(pageStart, pageEnd);
 
     useKeypress((key) => {
+      // Cast key to include optional properties that may not be in the type definition
+      const keyAny = key as typeof key & { sequence?: string; meta?: boolean };
+
       // Search mode handling
       if (searchMode) {
         if (key.name === 'escape') {
@@ -82,8 +85,8 @@ export const createMatrixEditor = () =>
           setSearchQuery(searchQuery.slice(0, -1));
           return;
         }
-        if (key.sequence && key.sequence.length === 1 && !key.ctrl && !key.meta) {
-          setSearchQuery(searchQuery + key.sequence);
+        if (keyAny.sequence && keyAny.sequence.length === 1 && !key.ctrl && !keyAny.meta) {
+          setSearchQuery(searchQuery + keyAny.sequence);
           setCursorRow(0);
           setCurrentPage(0);
           return;
@@ -92,7 +95,7 @@ export const createMatrixEditor = () =>
       }
 
       // Enter search mode
-      if (key.sequence === '/') {
+      if (keyAny.sequence === '/') {
         setSearchMode(true);
         setSearchQuery('');
         return;
