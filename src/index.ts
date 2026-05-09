@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { Command, InvalidArgumentError } from 'commander';
 
-import { select, confirm } from '@inquirer/prompts';
+import { checkbox, select, confirm } from '@inquirer/prompts';
 
 import { applyResolution, formatConflictMarker, reconcileManifest } from './conflict.js';
 import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
@@ -615,9 +615,51 @@ export function createProgram(homeDir?: string): Command {
     .command('push [server]')
     .description('Push local skill changes to one server or all configured servers')
     .option('--all', 'Push to all configured servers')
-    .action(async (server: string | undefined, options: { all?: boolean }) => {
-      const servers = options.all || server === undefined ? undefined : [server];
-      const results = await pushToServers(resolvedHomeDir, servers);
+    .option('--dry-run', 'Preview changes without pushing')
+    .option('-y, --yes', 'Skip confirmation prompts')
+    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; yes?: boolean }) => {
+      const config = await loadConfig(resolvedHomeDir);
+      const allServers = Object.keys(config.servers).sort();
+
+      let targetServers: string[];
+
+      if (options.all) {
+        targetServers = allServers;
+      } else if (server) {
+        targetServers = [server];
+      } else if (allServers.length === 0) {
+        console.error('No servers configured.');
+        process.exit(1);
+      } else if (allServers.length === 1 || options.yes) {
+        // Single server or -y flag: no prompt needed
+        targetServers = allServers;
+      } else {
+        // Interactive selection with checkbox
+        const selected = await checkbox({
+          message: 'Select servers to push:',
+          choices: [
+            { name: 'All servers', value: '__all__', checked: true },
+            ...allServers.map(s => ({ name: s, value: s }))
+          ]
+        });
+
+        if (selected.includes('__all__')) {
+          targetServers = allServers;
+        } else if (selected.length === 0) {
+          console.log('No servers selected. Cancelled.');
+          return;
+        } else {
+          targetServers = selected;
+        }
+      }
+
+      // Note: --dry-run implementation is in Task 8
+      if (options.dryRun) {
+        console.log(`[dry-run] Would push to servers: ${targetServers.join(', ')}`);
+        return;
+      }
+
+      const results = await pushToServers(resolvedHomeDir, targetServers);
 
       for (const result of results) {
         for (const line of formatSkillRows('push', result)) {

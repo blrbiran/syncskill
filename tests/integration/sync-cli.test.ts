@@ -267,4 +267,147 @@ describe('sync CLI', () => {
 
     expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, undefined);
   });
+
+  it('push -y skips prompts and pushes to all servers', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} },
+          beta: { host: 'beta.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const pushToServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pushed_skills: ['skill-a'],
+        skipped_skills: [],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      },
+      {
+        server: 'beta',
+        pushed_skills: ['skill-b'],
+        skipped_skills: [],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'beta', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      }
+    ]);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', '-y'], { from: 'node' });
+
+    // -y flag should push to all servers without prompting
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta']);
+    expect(consoleLog.mock.calls).toEqual([
+      ['skill-a\talpha\tpush\tin-sync'],
+      ['skill-b\tbeta\tpush\tin-sync']
+    ]);
+  });
+
+  it('push --dry-run shows what would be pushed without actually pushing', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} },
+          beta: { host: 'beta.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const pushToServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pushToServers').mockImplementation(async () => []);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', '-y', '--dry-run'], { from: 'node' });
+
+    // --dry-run should NOT call pushToServers
+    expect(pushToServersSpy).not.toHaveBeenCalled();
+    expect(consoleLog.mock.calls).toEqual([
+      ['[dry-run] Would push to servers: alpha, beta']
+    ]);
+  });
+
+  it('push with single server configured does not prompt', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const pushToServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pushed_skills: ['skill-a'],
+        skipped_skills: [],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      }
+    ]);
+
+    // No -y flag, but only one server configured - should not prompt
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push'], { from: 'node' });
+
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha']);
+    expect(consoleLog.mock.calls).toEqual([
+      ['skill-a\talpha\tpush\tin-sync']
+    ]);
+  });
+
+  it('push with no servers configured exits with error', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push'], { from: 'node' });
+
+    expect(consoleError.mock.calls).toEqual([
+      ['No servers configured.']
+    ]);
+    expect(processExit).toHaveBeenCalledWith(1);
+  });
 });
