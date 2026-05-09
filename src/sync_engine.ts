@@ -1,3 +1,4 @@
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getConfiguredServer, loadConfig, type ConfiguredServer, type ConflictResolution } from './config.js';
@@ -29,6 +30,33 @@ export interface SyncEngineOptions {
   runtime?: TransportRuntime;
   now?: string;
   dryRun?: boolean;
+}
+
+async function collectLocalFileList(dir: string): Promise<string[]> {
+  const files: string[] = [];
+
+  async function walk(currentDir: string, prefix: string = ''): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const fullPath = join(currentDir, entry.name);
+
+      if (entry.isDirectory()) {
+        await walk(fullPath, relativePath);
+      } else if (entry.isFile()) {
+        files.push(relativePath);
+      }
+    }
+  }
+
+  await walk(dir);
+  return files.sort();
 }
 
 export interface PushResult {
@@ -77,20 +105,55 @@ export async function pushToServers(homeDir: string, servers?: string[], options
     if (options.dryRun) {
       console.log(`\n[dry-run] push to ${serverName}:\n`);
 
+      let totalAdded = 0;
+      let totalModified = 0;
+      let totalDeleted = 0;
+
       for (const skill of pushedSkills) {
         const state = manifest.skills[skill];
-        // + for new (local exists, no remote), - for delete (no local, remote exists), ~ for update
-        const action = state.local_hash && !state.remote_hash ? '+' :
-                       !state.local_hash && state.remote_hash ? '-' : '~';
-        console.log(`  ${action} ${skill}`);
+        const isNew = state.local_hash && !state.remote_hash;
+        const isDelete = !state.local_hash && state.remote_hash;
+
+        console.log(`  ${skill}:`);
+
+        if (isNew) {
+          // New skill: list all local files
+          const skillDir = join(getSkillsDir(homeDir), skill);
+          const files = await collectLocalFileList(skillDir);
+          for (const file of files) {
+            console.log(`    + ${file} (new)`);
+            totalAdded++;
+          }
+          if (files.length === 0) {
+            console.log('    (empty skill)');
+          }
+        } else if (isDelete) {
+          console.log('    (skill deleted)');
+          totalDeleted++;
+        } else {
+          // Modified skill - we don't have remote file list without fetching
+          console.log('    ~ (modified)');
+          totalModified++;
+        }
       }
 
       for (const skill of conflictedSkills) {
-        console.log(`  ! ${skill} (conflict)`);
+        console.log(`  ${skill}:`);
+        console.log('    ! (conflict)');
       }
 
       if (pushedSkills.length === 0 && conflictedSkills.length === 0) {
         console.log('  (no changes)');
+      } else {
+        // Summary line
+        const parts: string[] = [];
+        if (totalAdded > 0) parts.push(`${totalAdded} added`);
+        if (totalModified > 0) parts.push(`${totalModified} modified`);
+        if (totalDeleted > 0) parts.push(`${totalDeleted} deleted`);
+        if (conflictedSkills.length > 0) parts.push(`${conflictedSkills.length} conflict(s)`);
+
+        const skillCount = pushedSkills.length + conflictedSkills.length;
+        console.log(`\nSummary: ${skillCount} skill(s), ${parts.join(', ')}`);
       }
 
       // Skip actual push, return result with empty pushed_skills
@@ -137,20 +200,56 @@ export async function pullFromServer(homeDir: string, serverName: string, option
   if (options.dryRun) {
     console.log(`\n[dry-run] pull from ${serverName}:\n`);
 
+    let totalAdded = 0;
+    let totalModified = 0;
+    let totalDeleted = 0;
+
     for (const skill of pulledSkills) {
       const state = manifest.skills[skill];
-      // + for new (remote exists, no local), - for delete (no remote, local exists), ~ for update
-      const action = state.remote_hash && !state.local_hash ? '+' :
-                     !state.remote_hash && state.local_hash ? '-' : '~';
-      console.log(`  ${action} ${skill}`);
+      const isNew = state.remote_hash && !state.local_hash;
+      const isDelete = !state.remote_hash && state.local_hash;
+
+      console.log(`  ${skill}:`);
+
+      if (isNew) {
+        // New skill from remote - we don't have remote file list
+        console.log('    + (new skill)');
+        totalAdded++;
+      } else if (isDelete) {
+        // Local skill will be deleted
+        const skillDir = join(getSkillsDir(homeDir), skill);
+        const files = await collectLocalFileList(skillDir);
+        for (const file of files) {
+          console.log(`    - ${file} (deleted)`);
+          totalDeleted++;
+        }
+        if (files.length === 0) {
+          console.log('    (skill deleted)');
+        }
+      } else {
+        // Modified skill - we don't have remote file list without fetching
+        console.log('    ~ (modified)');
+        totalModified++;
+      }
     }
 
     for (const skill of conflictedSkills) {
-      console.log(`  ! ${skill} (conflict)`);
+      console.log(`  ${skill}:`);
+      console.log('    ! (conflict)');
     }
 
     if (pulledSkills.length === 0 && conflictedSkills.length === 0) {
       console.log('  (no changes)');
+    } else {
+      // Summary line
+      const parts: string[] = [];
+      if (totalAdded > 0) parts.push(`${totalAdded} added`);
+      if (totalModified > 0) parts.push(`${totalModified} modified`);
+      if (totalDeleted > 0) parts.push(`${totalDeleted} deleted`);
+      if (conflictedSkills.length > 0) parts.push(`${conflictedSkills.length} conflict(s)`);
+
+      const skillCount = pulledSkills.length + conflictedSkills.length;
+      console.log(`\nSummary: ${skillCount} skill(s), ${parts.join(', ')}`);
     }
 
     // Skip actual pull, return result with empty pulled_skills
