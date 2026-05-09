@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-09T12:15:45.308Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-09T12:31:36.955Z
 > Files: 64 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -47,15 +47,15 @@
 - `config-ui.ts` — Exports PromptApi, createPromptApi, SafeSelectResult, safeSelect + 8 more (~5776 tok)
 - `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 13 more (~2037 tok)
 - `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 5 more (~1129 tok)
-- `index.ts` — Exports createProgram (~7282 tok)
-- `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, listLocalSkills + 5 more (~1754 tok)
+- `index.ts` — Exports createProgram (~7887 tok)
+- `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, UnmanagedSkill, listLocalSkills, findUnmanagedSkills + 6 more (~2200 tok)
 - `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3315 tok)
 - `matrix-editor.ts` — Exports MatrixEditorConfig, MatrixEditorResult, renderMatrixLine, createMatrixEditor (~1847 tok)
 - `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1324 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~810 tok)
 - `server.ts` — Exports ProbeLine, formatServerListLines, formatServerShowLines, formatProbeLines + 3 more (~438 tok)
 - `skills-ignore.ts` — Exports IgnoredSkillEntry, SkillsIgnore, getSkillsIgnorePath, loadSkillsIgnore + 4 more (~518 tok)
-- `source.ts` — Git only: Convert source from git to local, keep store directory (~11989 tok)
+- `source.ts` — Exports AddSourceFromUrlResult, addSourceFromUrl + source management functions. Supports restoring skills from ignore list on same-repo add (~13300 tok)
 - `sync_engine.ts` — Push/pull/sync engine with dryRun support. Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 6 more (~3686 tok)
 - `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer + 6 more (~3216 tok)
 
@@ -73,7 +73,7 @@
 
 - `config-cli.test.ts` — Declares homeDir (~1079 tok)
 - `config-ui.test.ts` — PromptStub: createTestHome (~4014 tok)
-- `discover.test.ts` — Declares tempDirs (~1694 tok)
+- `discover.test.ts` — Declares tempDirs (~2848 tok)
 - `help-output.test.ts` — Declares help (~152 tok)
 - `README.md` — Project documentation (~37 tok)
 - `reconciliation-cli.test.ts` — Declares tempDirs (~6308 tok)
@@ -100,5 +100,5 @@
 - `server.test.ts` (~406 tok)
 - `skills-ignore.test.ts` — Declares ignore (~510 tok)
 - `source-github-url.test.ts` — Declares result (~1311 tok)
-- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~16620 tok)
+- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture. Tests addSourceFromUrl with skills-ignore restoration (~20800 tok)
 - `test-tiers.test.ts` — Declares rootDir (~368 tok)
