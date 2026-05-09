@@ -140,6 +140,18 @@ function validateRelativePath(basePath, relativePath) {
   return destination;
 }
 
+function validateSymlinkTarget(targetDir, linkPath, target) {
+  if (isAbsolute(target)) {
+    throw new Error(`Invalid symlink target (absolute path): ${target}`);
+  }
+  const linkDir = dirname(resolve(targetDir, linkPath));
+  const resolvedTarget = resolve(linkDir, target);
+  const relativeResolved = relative(targetDir, resolvedTarget);
+  if (relativeResolved === '..' || relativeResolved.startsWith('../') || relativeResolved.startsWith('..\\')) {
+    throw new Error(`Invalid symlink target (escapes skill directory): ${target}`);
+  }
+}
+
 async function importSkill(name) {
   const data = JSON.parse(await readStdin());
   const targetDir = join(skillsDir, name);
@@ -159,6 +171,7 @@ async function importSkill(name) {
 
   for (const [relativePath, target] of Object.entries(symlinks)) {
     const destination = validateRelativePath(targetDir, relativePath);
+    validateSymlinkTarget(targetDir, relativePath, target);
     await mkdir(dirname(destination), { recursive: true });
     await symlink(target, destination);
   }

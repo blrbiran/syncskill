@@ -282,6 +282,17 @@ function isOutsideDirectory(baseDir: string, targetPath: string): boolean {
   return relativePath === '..' || relativePath.startsWith('../') || relativePath.startsWith('..\\');
 }
 
+function validateSymlinkTarget(targetDir: string, linkPath: string, target: string): void {
+  if (isAbsolute(target)) {
+    throw new Error(`Refusing to create symlink with absolute target: ${target}`);
+  }
+  const linkDir = dirname(resolve(targetDir, linkPath));
+  const resolvedTarget = resolve(linkDir, target);
+  if (isOutsideDirectory(targetDir, resolvedTarget)) {
+    throw new Error(`Refusing to create symlink that escapes skill directory: ${target}`);
+  }
+}
+
 export async function pullSkillDirectory(
   server: ConfiguredServer,
   skill: string,
@@ -319,6 +330,7 @@ export async function pullSkillDirectory(
 
     for (const [relativePath, target] of Object.entries(symlinks)) {
       const destination = resolveSkillDestination(targetDir, relativePath);
+      validateSymlinkTarget(targetDir, relativePath, target);
       await mkdir(dirname(destination), { recursive: true });
       await symlink(target, destination);
     }

@@ -660,6 +660,116 @@ describe('transport', () => {
     expect(data.symlinks['index.ts']).toBe('main.ts');
   });
 
+  it('receiver import-skill rejects symlinks with absolute target', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+
+    await expect(
+      withMockedHomeDir(homeDir, async () => {
+        const argv = process.argv.slice();
+        const stdin = process.stdin;
+        const stream = Readable.from([
+          JSON.stringify({
+            files: { 'SKILL.md': Buffer.from('# test\n').toString('base64') },
+            symlinks: { 'config': '/etc/passwd' }
+          })
+        ]);
+        Object.defineProperty(process, 'stdin', { value: stream, configurable: true });
+        process.argv = ['node', receiverPath, 'import-skill', 'welcome'];
+
+        try {
+          await importReceiverModule();
+        } finally {
+          process.argv = argv;
+          Object.defineProperty(process, 'stdin', { value: stdin, configurable: true });
+        }
+      })
+    ).rejects.toThrow('Invalid symlink target (absolute path)');
+  });
+
+  it('receiver import-skill rejects symlinks that escape skill directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+
+    await expect(
+      withMockedHomeDir(homeDir, async () => {
+        const argv = process.argv.slice();
+        const stdin = process.stdin;
+        const stream = Readable.from([
+          JSON.stringify({
+            files: { 'SKILL.md': Buffer.from('# test\n').toString('base64') },
+            symlinks: { 'escape': '../../etc/passwd' }
+          })
+        ]);
+        Object.defineProperty(process, 'stdin', { value: stream, configurable: true });
+        process.argv = ['node', receiverPath, 'import-skill', 'welcome'];
+
+        try {
+          await importReceiverModule();
+        } finally {
+          process.argv = argv;
+          Object.defineProperty(process, 'stdin', { value: stdin, configurable: true });
+        }
+      })
+    ).rejects.toThrow('Invalid symlink target (escapes skill directory)');
+  });
+
+  it('pullSkillDirectory rejects symlinks with absolute target', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
+    tempDirs.push(homeDir);
+    const targetDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+
+    const runtime = createRuntime();
+    const rsyncUnavailable = Object.assign(new Error('spawn rsync ENOENT'), { code: 'ENOENT' });
+    runtime.exec = vi
+      .fn<TransportRuntime['exec']>()
+      .mockRejectedValueOnce(rsyncUnavailable)
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          files: { 'SKILL.md': Buffer.from('# test\n').toString('base64') },
+          symlinks: { 'config': '/etc/passwd' }
+        }),
+        stderr: ''
+      });
+
+    await expect(
+      pullSkillDirectory(
+        { name: 'alpha', host: 'alpha.example.com', remote_agents: {} },
+        'welcome',
+        targetDir,
+        runtime
+      )
+    ).rejects.toThrow('Refusing to create symlink with absolute target');
+  });
+
+  it('pullSkillDirectory rejects symlinks that escape skill directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
+    tempDirs.push(homeDir);
+    const targetDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+
+    const runtime = createRuntime();
+    const rsyncUnavailable = Object.assign(new Error('spawn rsync ENOENT'), { code: 'ENOENT' });
+    runtime.exec = vi
+      .fn<TransportRuntime['exec']>()
+      .mockRejectedValueOnce(rsyncUnavailable)
+      .mockResolvedValueOnce({
+        stdout: JSON.stringify({
+          files: { 'SKILL.md': Buffer.from('# test\n').toString('base64') },
+          symlinks: { 'escape': '../../etc/passwd' }
+        }),
+        stderr: ''
+      });
+
+    await expect(
+      pullSkillDirectory(
+        { name: 'alpha', host: 'alpha.example.com', remote_agents: {} },
+        'welcome',
+        targetDir,
+        runtime
+      )
+    ).rejects.toThrow('Refusing to create symlink that escapes skill directory');
+  });
+
   it('probeServerAccess reports probe-access parse failures as probe failures', async () => {
     const runtime = createRuntime({
       'ssh alpha.example.com true': '',
@@ -760,10 +870,10 @@ describe('transport', () => {
     );
 
     const importCall = (runtime.exec as ReturnType<typeof vi.fn>).mock.calls.find(
-      (call: unknown[]) => call[1]?.includes?.('import-skill')
+      (call: unknown[]) => Array.isArray(call[1]) && (call[1] as string[]).includes('import-skill')
     );
     expect(importCall).toBeDefined();
-    const stdinData = JSON.parse(importCall[2].stdin);
+    const stdinData = JSON.parse((importCall![2] as { stdin: string }).stdin);
     expect(stdinData.files).toBeDefined();
     expect(stdinData.symlinks).toBeDefined();
     expect(stdinData.files['SKILL.md']).toBeDefined();
