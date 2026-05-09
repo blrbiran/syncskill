@@ -489,9 +489,10 @@ Summary: 1 skill changed, 2 files added, 1 file modified, 1 file deleted
 
 **Symlink 传输规则**：
 - **rsync 路径**：`rsync -avz` 中 `-a` 包含 `-l`（保持 symlink 原样传输），skill 目录内部的 symlink 会被保持为 symlink
-- **scp fallback push**：使用 `lstatSync` 检测 symlink，通过 SSH `ln -sf` 在远端重建 symlink（而非拷贝目标内容）
-- **scp fallback pull**：通过 `find -type l` 发现远端 symlink，在本地使用 `symlinkSync` 重建
+- **scp fallback push**：使用 `readlink` 读取 symlink target，通过 JSON 格式 `{files: {...}, symlinks: {...}}` 传递给 receiver，receiver 使用 `symlink()` 重建
+- **scp fallback pull**：receiver 导出 `{files, symlinks}` 格式，本地使用 `symlink()` 重建
 - **Skill 目录本身是 symlink**：调用方传入已解析的实际路径，rsync/scp 传输的是实际内容
+- **安全验证**：创建 symlink 前必须验证 target 不是绝对路径且不会逃逸出 skill 目录（防止路径穿越攻击）
 
 ### 3.10 `conflict.ts` — 冲突检测与解决
 
