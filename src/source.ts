@@ -157,6 +157,16 @@ export async function scanSkillsInDirectory(baseDir: string): Promise<Discovered
   return skills;
 }
 
+/**
+ * Alias for scanSkillsInDirectory.
+ * Recursively scan a source directory for skills (directories containing SKILL.md).
+ * Returns all discovered skills sorted by name.
+ */
+export async function scanSkillsInSource(sourceDir: string): Promise<DiscoveredSkill[]> {
+  const skills = await scanSkillsInDirectory(sourceDir);
+  return skills.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export interface SourceDefinition {
   type: SourceType;
   url: string;
@@ -1035,6 +1045,10 @@ export interface AddSourceFromUrlOptions {
   store?: string;
   skillSubdir?: string;
   ref?: string;
+  /** Skip interactive skill selection, select all non-duplicate skills */
+  skipPrompt?: boolean;
+  /** Callback for interactive skill selection (when not skipPrompt) */
+  onSelectSkills?: (skills: DiscoveredSkill[], existingSkills: Set<string>) => Promise<string[]>;
 }
 
 export interface AddSourceFromUrlResult {

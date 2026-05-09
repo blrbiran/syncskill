@@ -10,7 +10,7 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { addSourceFromUrl, buildSkillsIndex, classifySameRepoScenario, detectArchiveFormat, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, normalizeSkillsIndex, resolveSkillPath, SameRepoScenario, saveSkillsIndex, scanSkillsInDirectory, updateSource } from '../../src/source.js';
+import { addSourceFromUrl, buildSkillsIndex, classifySameRepoScenario, detectArchiveFormat, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, normalizeSkillsIndex, resolveSkillPath, SameRepoScenario, saveSkillsIndex, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
 import type { SkillsIndex } from '../../src/source.js';
 import { addIgnoredSkill, isSkillIgnored, loadSkillsIgnore, saveSkillsIgnore } from '../../src/skills-ignore.js';
 
@@ -1834,6 +1834,49 @@ describe('scanSkillsInDirectory', () => {
 
     const skills = await scanSkillsInDirectory(baseDir);
     expect(skills).toEqual([]);
+  });
+});
+
+describe('scanSkillsInSource', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('should find all skills with SKILL.md in source directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-scan-'));
+    tempDirs.push(homeDir);
+
+    const sourceDir = join(homeDir, 'test-source');
+    await mkdir(join(sourceDir, 'skill-a'), { recursive: true });
+    await mkdir(join(sourceDir, 'skill-b'), { recursive: true });
+    await mkdir(join(sourceDir, 'not-a-skill'), { recursive: true });
+    await writeFile(join(sourceDir, 'skill-a', 'SKILL.md'), '# Skill A');
+    await writeFile(join(sourceDir, 'skill-b', 'SKILL.md'), '# Skill B');
+
+    const skills = await scanSkillsInSource(sourceDir);
+
+    expect(skills).toHaveLength(2);
+    expect(skills.map(s => s.name).sort()).toEqual(['skill-a', 'skill-b']);
+  });
+
+  it('should return skills sorted by name', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-scan-'));
+    tempDirs.push(homeDir);
+
+    const sourceDir = join(homeDir, 'test-source');
+    await mkdir(join(sourceDir, 'zebra-skill'), { recursive: true });
+    await mkdir(join(sourceDir, 'alpha-skill'), { recursive: true });
+    await mkdir(join(sourceDir, 'beta-skill'), { recursive: true });
+    await writeFile(join(sourceDir, 'zebra-skill', 'SKILL.md'), '# Zebra');
+    await writeFile(join(sourceDir, 'alpha-skill', 'SKILL.md'), '# Alpha');
+    await writeFile(join(sourceDir, 'beta-skill', 'SKILL.md'), '# Beta');
+
+    const skills = await scanSkillsInSource(sourceDir);
+
+    expect(skills).toHaveLength(3);
+    expect(skills.map(s => s.name)).toEqual(['alpha-skill', 'beta-skill', 'zebra-skill']);
   });
 });
 
