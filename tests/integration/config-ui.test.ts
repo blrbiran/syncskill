@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
 import type { PromptApi, SSHHostConfig } from '../../src/config-ui.js';
@@ -321,6 +321,39 @@ describe('editServers', () => {
     await editServers(config, prompts);
 
     expect(config.servers['old-server']).toBeUndefined();
+  });
+
+  it('shows hint when adding 3rd server', async () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: {},
+      servers: {
+        'server1': { host: 'a.example.com', user: 'root', port: 22, remote_agents: {} },
+        'server2': { host: 'b.example.com', user: 'root', port: 22, remote_agents: {} }
+      },
+      sources: {}
+    };
+
+    const prompts = new PromptStub([
+      'add',
+      'server3',
+      'c.example.com',
+      'root',
+      '22',
+      '',
+      'back'
+    ]) as unknown as PromptApi;
+
+    const consoleSpy = vi.spyOn(console, 'log');
+
+    await editServers(config, prompts);
+
+    expect(config.servers['server3']).toBeDefined();
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('3+ servers'));
+
+    consoleSpy.mockRestore();
   });
 });
 
