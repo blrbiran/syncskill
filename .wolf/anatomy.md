@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-08T14:05:29.967Z
-> Files: 60 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-09T01:29:31.446Z
+> Files: 61 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -30,24 +30,28 @@
 - `design-guide.md` — Design Guide (~620 tok)
 - `usage-guide.md` — Usage Guide (~974 tok)
 
+## docs/temp/
+
+- `ux-optimization-proposals.md` — UX 优化提案存档（已合并到 syncskill-design.md）(~1919 tok)
+
 ## docs/superpowers/specs/
 
-- `syncskill-design.md` — syncskill — TypeScript 实现设计 (~4113 tok)
+- `syncskill-design.md` — Syncskill TypeScript 实现设计，含 UX 优化（source add 流程、push 交互、--dry-run 等）(~5500 tok)
 
 ## src/
 
-- `config-ui.ts` — Exports PromptApi, createPromptApi, SafeSelectResult, safeSelect + 11 more (~4050 tok)
-- `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 12 more (~2035 tok)
+- `config-ui.ts` — Exports PromptApi, createPromptApi, SafeSelectResult, safeSelect + 8 more (~5687 tok)
+- `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 13 more (~2037 tok)
 - `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 5 more (~1129 tok)
-- `index.ts` — Exports createProgram (~6280 tok)
-- `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, listLocalSkills + 5 more (~1253 tok)
+- `index.ts` — CLI entry with pull [server] --all support. Exports createProgram (~6450 tok)
+- `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, listLocalSkills + 5 more (~1754 tok)
 - `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3315 tok)
 - `matrix-editor.ts` — Exports MatrixEditorConfig, MatrixEditorResult, renderMatrixLine, createMatrixEditor (~1495 tok)
 - `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1324 tok)
-- `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~729 tok)
+- `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~810 tok)
 - `server.ts` — Exports ProbeLine, formatServerListLines, formatServerShowLines, formatProbeLines + 3 more (~438 tok)
-- `source.ts` — Git only: Convert source from git to local, keep store directory (~11605 tok)
-- `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 5 more (~2963 tok)
+- `source.ts` — Git only: Convert source from git to local, keep store directory (~11989 tok)
+- `sync_engine.ts` — Push/pull/sync with pullFromServers for multi-server pull. Exports pushToServers, pullFromServer, pullFromServers, syncServers + 4 more (~3300 tok)
 - `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer + 6 more (~3216 tok)
 
 ## src/receiver/
@@ -63,8 +67,8 @@
 ## tests/integration/
 
 - `config-cli.test.ts` — Declares homeDir (~1079 tok)
-- `config-ui.test.ts` — Declares PromptStub (~3001 tok)
-- `discover.test.ts` — Declares tempDirs (~646 tok)
+- `config-ui.test.ts` — PromptStub: createTestHome (~4014 tok)
+- `discover.test.ts` — Declares tempDirs (~1694 tok)
 - `help-output.test.ts` — Declares help (~152 tok)
 - `README.md` — Project documentation (~37 tok)
 - `reconciliation-cli.test.ts` — Declares tempDirs (~4490 tok)
@@ -73,7 +77,7 @@
 - `server-cli.test.ts` — Declares tempDirs (~1061 tok)
 - `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6160 tok)
 - `source-remove.test.ts` — Declares SyncSkillConfig (~3145 tok)
-- `sync-cli.test.ts` — Declares tempDirs (~1314 tok)
+- `sync-cli.test.ts` — Declares tempDirs (~2355 tok)
 - `sync-engine.test.ts` — TransportRuntime: createRuntime (~3568 tok)
 - `transport.test.ts` — receiverPath: importReceiverModule, runReceiverCommand, runReceiverApply, createReceiverManifest, createRuntime (~6110 tok)
 
@@ -90,5 +94,5 @@
 - `refresh.test.ts` — Declares tempDirs (~5658 tok)
 - `server.test.ts` (~406 tok)
 - `source-github-url.test.ts` — Declares result (~1311 tok)
-- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~16058 tok)
+- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~16620 tok)
 - `test-tiers.test.ts` — Declares rootDir (~368 tok)
