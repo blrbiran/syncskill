@@ -223,11 +223,15 @@ Configuration Menu
 
 **Hash 算法**（与 Python/Hermes 完全兼容）：
 ```
-遍历 skill 目录 sorted 文件
+遍历 skill 目录 sorted 文件（使用 lstatSync 检测文件类型）
   对每个文件：md5.update(相对路径_utf8 + 文件内容)
-  忽略目录和软链接，只 hash 普通文件
+  忽略目录和软链接（lstatSync + isSymbolicLink），只 hash 普通文件
   返回 hex digest (32 字符)
 ```
+
+**Symlink 处理规则**：
+- **Skill 目录本身是软链接**：跟随 symlink，对实际目录内容计算 hash（由调用方解析路径）
+- **Skill 目录内部的软链接**：忽略，不参与 hash 计算（使用 `lstatSync` 检测）
 
 **Manifest 格式**：
 ```json
@@ -474,14 +478,20 @@ Summary: 1 skill changed, 2 files added, 1 file modified, 1 file deleted
 ### 3.9 `transport.ts` — SSH/rsync 传输
 
 - `fetchRemoteManifest()` — rsync/scp manifest.json
-- `pushSkillsRsync()` — rsync -avz --delete
-- `pullSkillsRsync()` — rsync -avz 反方向
+- `rsyncPush()` — rsync -avz --delete
+- `rsyncPull()` — rsync -avz 反方向
 - `pushManifest()` — 推送 manifest
 - `deployReceiver()` — 首次推送时部署 receiver
 - `checkRemoteReceiver()` — 检查 receiver 是否存在
 - `sshExec()` — 执行 SSH 命令
 
 降级：rsync 不可用时，Node 原生逐文件传输（对比 hash 只传变更文件）。
+
+**Symlink 传输规则**：
+- **rsync 路径**：`rsync -avz` 中 `-a` 包含 `-l`（保持 symlink 原样传输），skill 目录内部的 symlink 会被保持为 symlink
+- **scp fallback push**：使用 `lstatSync` 检测 symlink，通过 SSH `ln -sf` 在远端重建 symlink（而非拷贝目标内容）
+- **scp fallback pull**：通过 `find -type l` 发现远端 symlink，在本地使用 `symlinkSync` 重建
+- **Skill 目录本身是 symlink**：调用方传入已解析的实际路径，rsync/scp 传输的是实际内容
 
 ### 3.10 `conflict.ts` — 冲突检测与解决
 
