@@ -367,6 +367,8 @@ export async function parseSSHConfig(hostName: string, homeDir: string = homedir
 }
 
 export async function editServers(config: SyncSkillConfig, prompts: PromptApi, homeDir: string = homedir()): Promise<void> {
+  const initialServerCount = Object.keys(config.servers).length;
+
   while (true) {
     const serverNames = Object.keys(config.servers).sort();
     const choices = [
@@ -378,6 +380,12 @@ export async function editServers(config: SyncSkillConfig, prompts: PromptApi, h
     const result = await safeSelect(prompts, { message: 'Manage servers', choices });
 
     if (result.escaped || result.value === 'back') {
+      // Show warning when exiting if server count crossed from <3 to ≥3
+      const finalServerCount = Object.keys(config.servers).length;
+      if (initialServerCount < 3 && finalServerCount >= 3) {
+        console.log('\nNote: With 3+ servers, auto-refresh may be slow.');
+        console.log('Use --no-refresh to skip, then run `syncskill refresh` manually.\n');
+      }
       return;
     }
 

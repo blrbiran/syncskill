@@ -303,16 +303,24 @@ export function createProgram(homeDir?: string): Command {
     .command('scan')
     .description('Scan for new skills in sources and ~/.syncskill/skills/, check for unmanaged agent skills')
     .option('--migrate', 'Migrate unmanaged skills from agent directories to ~/.syncskill/skills/')
-    .action(async (options: { migrate?: boolean }) => {
+    .option('--dry-run', 'Preview scan results without making changes')
+    .action(async (options: { migrate?: boolean; dryRun?: boolean }) => {
+      const isDryRun = Boolean(options.dryRun);
+
+      if (isDryRun) {
+        console.log('[dry-run] Scanning for skills...\n');
+      }
+
       // Discover skills from sources and manual directory
       const addedSkills = await discoverSkills(resolvedHomeDir, {
-        allAgents: true
+        allAgents: true,
+        dryRun: isDryRun
       });
 
       if (addedSkills.length > 0) {
-        console.log('Found new skills in sources:');
+        console.log(isDryRun ? 'Would add new skills from sources:' : 'Found new skills in sources:');
         for (const skillName of addedSkills) {
-          console.log(`  + Added "${skillName}"`);
+          console.log(`  + ${isDryRun ? 'Would add' : 'Added'} "${skillName}"`);
         }
       }
 
@@ -335,7 +343,11 @@ export function createProgram(homeDir?: string): Command {
           console.log(`  ${skill.path}`);
         }
 
-        if (options.migrate) {
+        if (isDryRun) {
+          if (options.migrate) {
+            console.log(`\n[dry-run] Would migrate ${unmanaged.length} skill(s) to ~/.syncskill/skills/`);
+          }
+        } else if (options.migrate) {
           const confirmed = await confirm({
             message: `Migrate ${unmanaged.length} skill(s) to ~/.syncskill/skills/?`,
             default: true
@@ -370,9 +382,11 @@ export function createProgram(homeDir?: string): Command {
         }
       }
 
-      // Generate skills-index.json
-      const index = await buildSkillsIndex(resolvedHomeDir);
-      await saveSkillsIndex(resolvedHomeDir, index);
+      // Generate skills-index.json (skip in dry-run mode)
+      if (!isDryRun) {
+        const index = await buildSkillsIndex(resolvedHomeDir);
+        await saveSkillsIndex(resolvedHomeDir, index);
+      }
     });
 
   program
@@ -560,6 +574,7 @@ export function createProgram(homeDir?: string): Command {
 
   sourceCommand
     .command('list')
+    .alias('ls')
     .description('List configured sources')
     .action(async () => {
       for (const line of formatSourceListLines(await listSources(resolvedHomeDir))) {
@@ -679,8 +694,13 @@ export function createProgram(homeDir?: string): Command {
 
   const serverCommand = program.command('server').description('Manage and inspect remote sync servers');
 
+  serverCommand.action(async () => {
+    await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'server' });
+  });
+
   serverCommand
     .command('list')
+    .alias('ls')
     .description('List configured remote servers')
     .action(async () => {
       for (const line of formatServerListLines(await listServers(resolvedHomeDir))) {

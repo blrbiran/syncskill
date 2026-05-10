@@ -7,6 +7,7 @@ import { isNotFoundError, pathExists } from './utils.js';
 
 export interface ScanOptions {
   allAgents: boolean;
+  dryRun?: boolean;
 }
 
 export interface LinkRequest {
@@ -98,13 +99,13 @@ export async function listLocalSkills(homeDir: string): Promise<string[]> {
     .sort();
 }
 
-export async function discoverSkills(homeDir: string, { allAgents }: ScanOptions): Promise<string[]> {
+export async function discoverSkills(homeDir: string, { allAgents, dryRun }: ScanOptions): Promise<string[]> {
   const config = await loadConfig(homeDir);
   const existingLinks = new Set(Object.keys(config.links));
 
-  // When skills/ is empty, trigger auto-migration like init does
+  // When skills/ is empty, trigger auto-migration like init does (skip in dry-run mode)
   const existingSkills = await listLocalSkills(homeDir);
-  if (existingSkills.length === 0) {
+  if (existingSkills.length === 0 && !dryRun) {
     await migrateSkillsFromAgentDirs(homeDir, config, allAgents);
   }
 
@@ -123,7 +124,10 @@ export async function discoverSkills(homeDir: string, { allAgents }: ScanOptions
     addedSkills.push(skill);
   }
 
-  await saveConfig(config, homeDir);
+  // Skip saving config in dry-run mode
+  if (!dryRun) {
+    await saveConfig(config, homeDir);
+  }
 
   return addedSkills;
 }
