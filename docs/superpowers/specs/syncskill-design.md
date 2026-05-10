@@ -1,6 +1,6 @@
 # Syncskill — TypeScript 实现设计
 
-> 日期：2026-04-30（更新：2026-05-10）
+> 日期：2026-04-30（更新：2026-05-10，新增 install 命令和 syncskill skill）
 > 状态：草稿
 > 作者：biran.bi
 
@@ -33,6 +33,9 @@ syncskill/
 │   ├── config-guide.md            # 配置参考
 │   └── usage-guide.md             # 使用手册
 ├── config.example.yaml
+├── skills/                          # 内置 skill
+│   └── syncskill/
+│       └── SKILL.md                 # syncskill 自身的 skill 定义
 └── src/
     ├── index.ts                   # CLI 入口 (commander)
     ├── config.ts                  # YAML 加载 + 自动检测 agent 目录
@@ -69,7 +72,8 @@ syncskill/
 
 | 命令 | 说明 |
 |------|------|
-| `init [--skip-sources]` | 创建 `~/.syncskill/` 目录结构和 config.yaml |
+| `init [--skip-sources] [--skip-skill]` | 创建 `~/.syncskill/` 目录结构和 config.yaml，交互式询问是否安装 syncskill skill |
+| `install [url-or-path]` / `i` | 安装 skill。无参数安装 syncskill skill；有参数等同于 `source add` + 自动 link |
 | `link [<skill> \| list \| ls \| --list] [-v]` | 管理 agent 目录软链接。无参数进入矩阵编辑器；`list`/`ls`/`--list` 显示状态（有重名 skill 时优先匹配 skill，此时用 `--list`） |
 | `unlink <skill>` | 删除 skill 的软链接 |
 | `source add <url-or-path> [--name <n>] [--path <p>] [--type git\|http\|local] [-y/--yes]` | 添加外部来源（支持 GitHub URL 直接解析，自动推断参数） |
@@ -251,8 +255,46 @@ xlsx                     broken      missing
 - 复制 `config.example.yaml` 作为参考
 - **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-sources` 参数跳过此步骤。
 - **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.yaml` 的 `links` 字段（设为 `["*"]` 即所有 agent）。
+- **交互式安装 syncskill skill**：流程末尾询问是否安装 syncskill skill（默认 Y）。`--skip-skill` 参数跳过此询问，`-y`/`--yes` 参数自动选择 yes。
 
-### 3.5 `linker.ts` — 软链接管理
+### 3.5 `install.ts` — Skill 安装
+
+处理 `syncskill install` / `syncskill i` 命令。
+
+**安装 syncskill skill（无参数）**：
+```
+syncskill install
+├─ 检查 ~/.syncskill/skills/syncskill/ 是否已存在
+│   ├─ 已存在 → 提示 "syncskill skill already installed"
+│   └─ 不存在 → 继续
+├─ 定位 dist/skills/syncskill/ 目录（通过 import.meta.url）
+├─ 复制到 ~/.syncskill/skills/syncskill/
+├─ 自动执行 link syncskill（链接到所有 agents）
+└─ 输出 "✓ Installed syncskill skill"
+```
+
+**从 URL/路径安装（有参数）**：
+```
+syncskill install <url-or-path> [--name <n>] [--path <p>] [-y/--yes]
+├─ 调用 source add <url-or-path> 的内部逻辑
+├─ 自动链接发现的所有 skills 到所有 agents
+└─ 输出安装结果摘要
+```
+
+**输出示例**：
+```bash
+$ syncskill i
+✓ Installed syncskill skill to ~/.syncskill/skills/syncskill/
+✓ Linked to: claude, hermes
+
+$ syncskill i https://github.com/user/my-skills
+Cloning https://github.com/user/my-skills...
+Found 3 skills: skill-a, skill-b, skill-c
+✓ Installed 3 skills
+✓ Linked to: claude, hermes
+```
+
+### 3.6 `linker.ts` — 软链接管理
 
 三级降级策略：
 1. `fs.symlink()` — 标准软链接
@@ -261,7 +303,7 @@ xlsx                     broken      missing
 
 支持：创建链接、状态检查、删除、扫描（walk 目录发现新 skill）。
 
-### 3.6 `manifest.ts` — Hash 计算与 Manifest
+### 3.7 `manifest.ts` — Hash 计算与 Manifest
 
 **Hash 算法**（与 Python/Hermes 完全兼容）：
 ```
@@ -301,7 +343,7 @@ xlsx                     broken      missing
 - 本地 ≠ recorded, 远程 ≠ recorded → conflict
 - 新增 skill → new/push
 
-### 3.7 `source.ts` — 外部来源管理
+### 3.8 `source.ts` — 外部来源管理
 
 - **Git 来源**：克隆前通过 `git ls-remote --symref <url> HEAD` 自动探测远程默认分支名，然后执行 `git clone --single-branch --depth 1 --branch <detected>`
 - **HTTP 来源**：`fetch()` 下载 → 解压（支持 `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip`）
@@ -453,7 +495,7 @@ Choose action:
 
 统一通过 `discoverAllSkills(config)` 函数，合并 `~/.syncskill/skills/` 和所有 sources 的 skill。
 
-### 3.8 `sync_engine.ts` — 核心同步流程
+### 3.9 `sync_engine.ts` — 核心同步流程
 
 **Push 流程**：
 1. 检查远程 receiver → 不存在则部署 `bootstrap_remote.sh` + `sync_receiver.mjs`
@@ -511,7 +553,7 @@ Select servers to push:
 Summary: 1 skill changed, 2 files added, 1 file modified, 1 file deleted
 ```
 
-### 3.9 `transport.ts` — SSH/rsync 传输
+### 3.10 `transport.ts` — SSH/rsync 传输
 
 - `fetchRemoteManifest()` — rsync/scp manifest.json
 - `rsyncPush()` — rsync -avz --delete
@@ -530,7 +572,7 @@ Summary: 1 skill changed, 2 files added, 1 file modified, 1 file deleted
 - **Skill 目录本身是 symlink**：调用方传入已解析的实际路径，rsync/scp 传输的是实际内容
 - **安全验证**：创建 symlink 前必须验证 target 不是绝对路径且不会逃逸出 skill 目录（防止路径穿越攻击）
 
-### 3.10 `conflict.ts` — 冲突检测与解决
+### 3.11 `conflict.ts` — 冲突检测与解决
 
 三路比较：
 - `local_hash` vs `recorded_local` → 本地是否变更
@@ -551,7 +593,7 @@ syncskill resolve <skill> --local --diff    # 先显示差异，再用本地覆�
 syncskill resolve <skill> --remote --diff   # 先显示差异，再用远程覆盖
 ```
 
-### 3.11 `refresh.ts` — 自动刷新钩子
+### 3.12 `refresh.ts` — 自动刷新钩子
 
 ```
 所有命令前 → autoRefreshManifests()
@@ -570,20 +612,20 @@ syncskill refresh --all    # 刷新本地 + 远程（不显示状态）
 syncskill refresh --status # 仅显示状态，不刷新
 ```
 
-### 3.12 `receiver/sync_receiver.mjs` — 远程接收脚本
+### 3.13 `receiver/sync_receiver.mjs` — 远程接收脚本
 
 纯 ESM Node 20+ 脚本，零外部依赖：
 - `apply` 命令：遍历 `~/.syncskill/skills/` 下 skill
 - 根据 `receiver_config.json` 中的 remote_agents 映射创建软链接
 - 更新 `manifest.json`
 
-### 3.13 `receiver/bootstrap_remote.sh` — 远程部署脚本
+### 3.14 `receiver/bootstrap_remote.sh` — 远程部署脚本
 
 - 创建 `~/.syncskill/` 目录结构
 - 确保 `node` 可用
 - 验证权限
 
-### 3.14 `scan` 命令行为
+### 3.15 `scan` 命令行为
 
 ```
 syncskill scan
@@ -645,8 +687,12 @@ Phase 3: RECONCILE (远程 receiver)
   "bin": {
     "syncskill": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "skills"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && shx cp -r skills dist/",
     "dev": "tsx src/index.ts",
     "test": "vitest",
     "bootstrap": "npm install && npm run build"
@@ -658,6 +704,7 @@ Phase 3: RECONCILE (远程 receiver)
   },
   "devDependencies": {
     "@types/node": "^20.x",
+    "shx": "^0.3.x",
     "tsx": "^4.x",
     "typescript": "^5.x",
     "vitest": "^3.x"
