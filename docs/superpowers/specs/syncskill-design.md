@@ -1,6 +1,6 @@
 # Syncskill — TypeScript 实现设计
 
-> 日期：2026-04-30（更新：2026-05-09）
+> 日期：2026-04-30（更新：2026-05-10）
 > 状态：草稿
 > 作者：biran.bi
 
@@ -55,8 +55,7 @@ syncskill/
 ├── manifests/                     # 各服务器同步状态 (JSON per server)
 │   └── <server>.json
 ├── manifest_history.json          # hash 变更历史
-├── skills-index.json              # skill → 来源映射索引（由 link --all / discover 自动生成）
-├── skills-ignore.json             # 被忽略的 skill 及原因
+├── skills-registry.json           # skill 注册表（来源映射 + 忽略状态，统一管理）
 └── .tmp/                          # 临时文件（运行时创建，自动清理）
 ```
 
@@ -71,12 +70,13 @@ syncskill/
 | 命令 | 说明 |
 |------|------|
 | `init [--skip-sources]` | 创建 `~/.syncskill/` 目录结构和 config.yaml |
-| `link [<skill> \| --status \| --unlink <skill>]` | 管理 agent 目录软链接。无参数进入矩阵编辑器 |
-| `source add <url-or-path> [--name <n>] [--store <p>] [--type git\|http\|local] [-y/--yes]` | 添加外部来源（支持 GitHub URL 直接解析，自动推断参数） |
+| `link [<skill> \| list \| ls \| --list] [-v]` | 管理 agent 目录软链接。无参数进入矩阵编辑器；`list`/`ls`/`--list` 显示状态（有重名 skill 时优先匹配 skill，此时用 `--list`） |
+| `unlink <skill>` | 删除 skill 的软链接 |
+| `source add <url-or-path> [--name <n>] [--path <p>] [--type git\|http\|local] [-y/--yes]` | 添加外部来源（支持 GitHub URL 直接解析，自动推断参数） |
 | `source update [--all \| <name>]` | 更新来源 |
 | `source list` | 列出来源 |
 | `source remove <name>` | 移除外部来源（交互式选择处理方式） |
-| `scan [--migrate]` | 扫描新 skill 目录，注册到 config links。`--migrate` 将 agent 目录中未纳管的 skill 迁移到 ~/.syncskill/skills/ |
+| `scan [--migrate]` | 扫描已有 sources 中新增的 skill + 检测未纳管的本地 skill。`--migrate` 将 agent 目录中未纳管的 skill 迁移到 ~/.syncskill/skills/。注：`source add` 添加新来源时会自动扫描，`scan` 用于检测已有来源的增量变化 |
 | `push [<server>] [--all] [--dry-run]` | 推送到远程；无参数时交互式选择服务器（首选项为 All servers） |
 | `pull [<server>] [--all] [--dry-run]` | 从远程拉取；无参数时交互式选择服务器 |
 | `sync [<server>] [--all] [--dry-run]` | 一键全量同步：先 pull 所有远程变更到本地，再 push 本地变更到所有服务器 |
@@ -89,11 +89,14 @@ syncskill/
 | `config set <key> <value>` | 设置单个配置项 |
 | `config server` | 直接进入服务器管理菜单 |
 | `config remote` | 直接进入远程配置矩阵（skills × servers） |
+| `server` | 快捷入口，等同于 `config server` |
+| `server probe <name>` | 诊断服务器状态（SSH 连通性、Node 版本、receiver 部署状态、最后同步时间） |
+| `remote` | 快捷入口，等同于 `config remote` |
 
 **全局参数**：
 - `--no-refresh`：跳过自动刷新
 - `-y` / `--yes`：跳过交互确认（适用于 source add、push --all 等）
-- `--dry-run`：预览变更但不执行（适用于 push、pull、sync、link --all、source add）
+- `--dry-run`：预览变更但不执行（全局 flag，所有写操作均支持）
 
 所有命令（除 `init` 和 `config`）执行前自动调用 `autoRefreshManifests()` 钩子。当服务器数量 ≥ 3 时，`init` 和 `server add` 命令结束后打印提示：
 
@@ -183,6 +186,44 @@ Configuration Menu
 
 **`link`**（无参数）：直接调用矩阵编辑器。
 
+**`link list`** / **`link ls`** / **`link --list`**：显示链接状态。
+
+默认符号版输出：
+```
+Link Status
+
+Skill                    claude    agents
+──────────────────────────────────────────
+web-artifacts-builder    ⚠         ·
+web-design-guidelines    ⚠         ·
+webapp-testing           ✓         ·
+xlsx                     ✗         ·
+
+Legend: ✓ linked  ⚠ copied  · missing  ✗ broken
+```
+
+`-v` / `--verbose` 文字版输出：
+```
+Link Status
+
+Skill                    claude      agents
+─────────────────────────────────────────────
+web-artifacts-builder    copied      missing
+web-design-guidelines    copied      missing
+webapp-testing           linked      missing
+xlsx                     broken      missing
+```
+
+**状态符号说明**：
+| 状态 | 符号 | 含义 |
+|------|------|------|
+| `linked` | `✓` | 软链接正常 |
+| `copied` | `⚠` | 降级为拷贝（需要关注） |
+| `missing` | `·` | 未链接 |
+| `broken` | `✗` | 链接损坏 |
+
+**重名 skill 处理**：当存在与子命令同名的 skill（如名为 "list" 的 skill）时，优先匹配 skill。此时需使用 `link --list` flag 形式显示状态。
+
 **`config server`**：直接进入服务器管理菜单。
 
 **`config remote`**：直接调用矩阵编辑器，skills × servers 映射。
@@ -269,7 +310,7 @@ Configuration Menu
 **`source add` 命令流程**：
 
 ```
-source add <url-or-path> [--name <n>] [--store <p>] [--type git|http|local] [-y/--yes]
+source add <url-or-path> [--name <n>] [--path <p>] [--type git|http|local] [-y/--yes]
 
 Step 1: 检测输入类型
 ├─ 文件系统路径（/, ~, ./, ../, 或当前目录存在的路径）→ local
@@ -281,9 +322,9 @@ Step 1: 检测输入类型
 
 Step 2: 推断默认参数
 ├─ name: 从 URL/路径提取（仓库名或目录名）
-├─ store: git/http → ~/.syncskill/sources/<name>
-│         local → 原路径本身
-└─ 显式参数 --name / --store 覆盖推断值
+├─ path: git/http → ~/.syncskill/sources/<name>
+│        local → 原路径本身
+└─ 显式参数 --name / --path 覆盖推断值
 
 Step 3: 获取内容
 ├─ git: clone（支持 /tree/<branch> 解析为 --branch）
@@ -328,9 +369,9 @@ Step 5b: 与外部 source 冲突时
 Step 6: 写入配置
 ├─ source entry 写入 config.yaml
 ├─ 选中的 skills 加入 links（默认 ["*"]）
-├─ 未选中的 skills 加入 skills-ignore.json
-├─ 重名冲突的 skills 加入 skills-ignore.json 并记录原因
-└─ 更新 skills-index.json
+├─ 未选中的 skills 在 skills-registry.json 中标记为 ignored
+├─ 重名冲突的 skills 在 skills-registry.json 中标记为 ignored 并记录原因
+└─ 更新 skills-registry.json
 
 Step 7: -y/--yes 行为
 ├─ 跳过 Step 5 的交互
@@ -340,7 +381,7 @@ Step 7: -y/--yes 行为
 
 **同仓库合并逻辑**：
 
-第一次 clone 仓库时，扫描整个仓库发现所有 skills。用户选择后，选中的加入 links，未选中的加入 skills-ignore.json。
+第一次 clone 仓库时，扫描整个仓库发现所有 skills。用户选择后，选中的加入 links，未选中的在 skills-registry.json 中标记为 ignored。
 
 后续添加同仓库的其他 skill 时：
 
@@ -375,27 +416,9 @@ Choose action:
   [disabled] 4. ... (only for HTTP type)
 ```
 
-**Skills 忽略文件（`skills-ignore.json`）**：
+**Skills 注册表（`skills-registry.json`）**：
 
-```json
-{
-  "version": 1,
-  "ignored": {
-    "skill-a": {
-      "path": "~/.syncskill/sources/repo/.claude/skills/skill-a",
-      "source": "repo",
-      "reason": "duplicate",
-      "kept": {
-        "path": "~/.syncskill/sources/repo/skills/skill-a",
-        "source": "repo"
-      },
-      "ignored_at": "2026-05-09T10:00:00Z"
-    }
-  }
-}
-```
-
-**Skills 索引文件（`skills-index.json`）**：
+统一管理所有 skill 的来源映射和忽略状态：
 
 ```json
 {
@@ -404,12 +427,23 @@ Choose action:
     "manual-skill": {
       "path": "~/.syncskill/skills/manual-skill",
       "origin": "manual",
-      "type": "manual"
+      "type": "manual",
+      "status": "active"
     },
     "source-skill": {
       "path": "~/.syncskill/sources/my-repo/.claude/source-skill",
       "origin": "my-repo",
-      "type": "git"
+      "type": "git",
+      "status": "active"
+    },
+    "ignored-skill": {
+      "path": "~/.syncskill/sources/repo/.claude/skills/ignored-skill",
+      "origin": "repo",
+      "type": "git",
+      "status": "ignored",
+      "ignored_reason": "duplicate",
+      "ignored_at": "2026-05-09T10:00:00Z",
+      "kept_by": "~/.syncskill/sources/repo/skills/ignored-skill"
     }
   }
 }
@@ -458,7 +492,8 @@ Select servers to push:
 2. 对每个服务器执行 pull
 3. 刷新所有 manifest
 4. 再次遍历所有服务器，对有本地变更的 skill 执行 push
-5. 汇总输出每个 skill 的最终同步状态
+5. **冲突处理**：遇到冲突的 skill 跳过，继续处理其他 skill
+6. 汇总输出每个 skill 的最终同步状态，冲突的 skill 单独列出并提示用户执行 `resolve` 命令
 
 **--dry-run 输出格式**：
 
