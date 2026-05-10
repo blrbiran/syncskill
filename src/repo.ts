@@ -1,6 +1,8 @@
 import { cp, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { confirm } from '@inquirer/prompts';
+
 import {
   createDefaultConfig,
   detectAgents,
@@ -10,9 +12,12 @@ import {
   saveConfig,
   type SyncSkillConfig
 } from './config.js';
+import { installSyncskillSkill } from './install.js';
 
 export interface InitializeRepoOptions {
   skipSources?: boolean;
+  skipSkill?: boolean;
+  yes?: boolean;
 }
 
 export async function initializeRepo(homeDir: string, options: InitializeRepoOptions = {}): Promise<void> {
@@ -40,6 +45,40 @@ export async function initializeRepo(homeDir: string, options: InitializeRepoOpt
   };
 
   await saveConfig(config, homeDir);
+
+  // Prompt to install syncskill skill
+  if (!options.skipSkill) {
+    const { skillsDir } = getSyncPaths(homeDir);
+    const syncskillPath = join(skillsDir, 'syncskill');
+
+    const alreadyExists = await exists(syncskillPath);
+
+    if (!alreadyExists) {
+      let shouldInstall = options.yes ?? false;
+
+      // Skip interactive prompt if not a TTY (e.g., in tests or CI)
+      const isTTY = process.stdin.isTTY && process.stdout.isTTY;
+
+      if (!options.yes && isTTY) {
+        shouldInstall = await confirm({
+          message: 'Would you like to install the syncskill skill?\nThis skill helps AI agents manage skills using syncskill commands.',
+          default: true
+        });
+      }
+
+      if (shouldInstall) {
+        const result = await installSyncskillSkill(homeDir);
+        if (!result.alreadyInstalled) {
+          console.log('✓ Installed syncskill skill');
+          if (result.linkedAgents && result.linkedAgents.length > 0) {
+            console.log(`✓ Linked to: ${result.linkedAgents.join(', ')}`);
+          }
+        }
+      } else {
+        console.log('You can install later with: syncskill install');
+      }
+    }
+  }
 
   const serverCount = Object.keys(config.servers).length;
   if (serverCount >= 3) {

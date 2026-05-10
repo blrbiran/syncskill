@@ -58,7 +58,7 @@ async function selectTargetServers(
 }
 
 import { applyResolution, formatConflictMarker, reconcileManifest } from './conflict.js';
-import { installSyncskillSkill, installFromSource, type DiscoveredSkill } from './install.js';
+import { installSyncskillSkill, installFromSource } from './install.js';
 import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
 import { createPromptApi, runConfigUi } from './config-ui.js';
 import { collectLinkStatus, discoverSkills, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, unlinkSkill } from './linker.js';
@@ -155,9 +155,13 @@ export function createProgram(homeDir?: string): Command {
     .command('init')
     .description('Initialize the local syncskill repository')
     .option('--skip-sources', 'Skip migrating skills from detected source directories')
-    .action(async (options: { skipSources?: boolean }) => {
+    .option('--skip-skill', 'Skip installing syncskill skill')
+    .option('-y, --yes', 'Accept all defaults')
+    .action(async (options: { skipSources?: boolean; skipSkill?: boolean; yes?: boolean }) => {
       await initializeRepo(resolvedHomeDir, {
-        skipSources: Boolean(options.skipSources)
+        skipSources: Boolean(options.skipSources),
+        skipSkill: Boolean(options.skipSkill),
+        yes: Boolean(options.yes)
       });
     });
 
