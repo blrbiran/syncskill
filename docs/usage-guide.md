@@ -13,6 +13,14 @@ syncskill link --all
 
 After `init`, local state lives under `~/.syncskill/`, including the managed skill tree, manifests, and config file.
 
+### Init Options
+
+| Option | Description |
+|--------|-------------|
+| `--skip-sources` | Skip migrating skills from detected agent directories |
+| `--skip-skill` | Skip installing the syncskill skill |
+| `-y, --yes` | Accept all defaults without prompting |
+
 ## Local Workflow
 
 Use the local workflow when curating skills on one machine.
@@ -25,6 +33,9 @@ syncskill scan
 
 # Scan and migrate unmanaged skills from agent directories
 syncskill scan --migrate
+
+# Preview scan results without making changes
+syncskill scan --dry-run
 
 # Show link status
 syncskill link list
@@ -41,8 +52,15 @@ syncskill link welcome
 # Link all configured skills
 syncskill link --all
 
+# Preview link changes without applying
+syncskill link --dry-run
+syncskill link welcome --dry-run
+
 # Unlink a skill from all agents
 syncskill unlink welcome
+
+# Preview unlink without applying
+syncskill unlink welcome --dry-run
 ```
 
 Link status symbols:
@@ -63,23 +81,76 @@ syncskill source add https://github.com/org/skills-repo
 # Add with specific branch
 syncskill source add https://github.com/org/repo/tree/develop
 
+# Add with explicit options
+syncskill source add https://github.com/org/repo --name my-skills --ref main
+
 # Add a local directory
 syncskill source add my-local --type local --path /path/to/skills
 
+# Add with skill subdirectory
+syncskill source add https://github.com/org/repo --skill-subdir skills/
+
+# Skip confirmation and select all skills
+syncskill source add https://github.com/org/repo -y
+
 # List configured sources
 syncskill source list
+syncskill source ls
 
 # Update all sources
 syncskill source update
+syncskill source update --all
 
 # Update a specific source
 syncskill source update vendor-docs
 
 # Remove a source (interactive)
 syncskill source remove vendor-docs
+
+# Remove with force (skip confirmation)
+syncskill source remove vendor-docs --force
 ```
 
+Source add options:
+
+| Option | Description |
+|--------|-------------|
+| `--name <name>` | Source name (defaults to repo/directory name) |
+| `--type <type>` | Source type: `git`, `http`, or `local` |
+| `--path <path>` | Storage path for source files |
+| `--skill-subdir <dir>` | Subdirectory containing skills |
+| `--ref <ref>` | Git branch or tag |
+| `-y, --yes` | Skip confirmation, select all skills |
+
 Run `syncskill source update` with no name to update every configured source, or pass a source name to update just one.
+
+### Installing Skills
+
+```bash
+# Install the syncskill skill itself
+syncskill install
+syncskill i
+
+# Install from a GitHub URL
+syncskill install https://github.com/org/skills-repo
+syncskill i https://github.com/org/skills-repo
+
+# Install with options
+syncskill install https://github.com/org/repo --name my-skills --ref main
+
+# Install without prompts
+syncskill install https://github.com/org/repo -y
+```
+
+Install options:
+
+| Option | Description |
+|--------|-------------|
+| `--name <name>` | Source name |
+| `--path <path>` | Storage path |
+| `--skill-subdir <dir>` | Subdirectory containing skills |
+| `--ref <ref>` | Git branch or tag |
+| `-y, --yes` | Skip confirmation prompts |
 
 ### Typical Loop
 
@@ -199,17 +270,20 @@ syncskill config set conflict_resolution keep-local
 # Show all config paths
 syncskill config set --show-paths
 
-# Edit skill -> agent links
+# Edit skill -> agent links (matrix editor)
 syncskill link
+syncskill config link  # deprecated, use 'link' instead
 
-# Edit skill -> server sync mapping
-syncskill config remote
+# Edit skill -> server sync mapping (matrix editor)
 syncskill remote
+syncskill config remote
 
-# Manage servers
-syncskill config server
+# Manage servers (interactive menu)
 syncskill server
+syncskill config server
 ```
+
+Note: `syncskill server` and `syncskill remote` are shortcuts that go directly to the respective configuration menus.
 
 ## Global Options
 

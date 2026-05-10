@@ -1,6 +1,6 @@
 ---
 name: syncskill
-description: Manage and sync AI agent skills across multiple agents (Claude, Hermes, Qoder, etc.) and devices. Install skills from GitHub/local sources, link to agents, bidirectional sync with remote servers. Also enables AI to self-install skills on demand. Use this skill whenever the user mentions skill management, syncskill, skill sync, adding skills from GitHub, syncing to servers, or linking skills to agents.
+description: Manage and sync AI agent skills across multiple agents (Claude, Hermes, Qoder, etc.) and devices. Install skills from GitHub/local sources, link to agents, bidirectional sync with remote servers. Use this skill when the user mentions skill management, syncskill, adding skills from GitHub, syncing to servers, or linking skills to agents.
 ---
 
 # syncskill
@@ -13,67 +13,104 @@ Use this skill when:
 - User wants to link/unlink skills to AI agents
 - User asks about skill status or configuration
 
-## Commands Reference
+## Quick Reference
 
-### Installation
-- `syncskill init` — Initialize ~/.syncskill/ directory
-- `syncskill install` / `syncskill i` — Install syncskill skill itself
-- `syncskill install <url-or-path>` — Install skill from URL or local path
+### Installation & Setup
 
-### Source Management
-- `source add <url> [--name <n>] [--path <p>]` — Add external source
-- `source update [--all | <name>]` — Update sources
-- `source list` — List configured sources
-- `source remove <name>` — Remove a source
+| Command | Description |
+|---------|-------------|
+| `init [--skip-sources] [--skip-skill] [-y]` | Initialize ~/.syncskill/ directory |
+| `install` / `i` | Install syncskill skill itself |
+| `install <url-or-path> [--name] [--ref] [-y]` | Install skill from URL or path |
 
 ### Link Management
-- `link` — Interactive matrix editor for skill→agent mapping
-- `link list` / `link ls` — Show link status
-- `link <skill>` — Link specific skill to agents
-- `unlink <skill>` — Remove skill links
-- `scan [--migrate]` — Scan for new/unmanaged skills
+
+| Command | Description |
+|---------|-------------|
+| `link` | Interactive matrix editor for skill→agent mapping |
+| `link list` / `ls` / `--list` | Show link status |
+| `link list -v` | Show verbose text status |
+| `link <skill>` | Link specific skill to agents |
+| `link --all` | Link all configured skills |
+| `link --dry-run` | Preview link changes |
+| `unlink <skill> [-y] [--dry-run]` | Remove skill links |
+
+### Source Management
+
+| Command | Description |
+|---------|-------------|
+| `source add <url> [options]` | Add external source |
+| `source list` / `ls` | List configured sources |
+| `source update [name] [--all]` | Update sources |
+| `source remove <name> [--force]` | Remove a source |
+
+Source add options: `--name`, `--type git|http|local`, `--path`, `--skill-subdir`, `--ref`, `-y`
+
+### Scanning
+
+| Command | Description |
+|---------|-------------|
+| `scan` | Scan for new/unmanaged skills |
+| `scan --migrate` | Migrate unmanaged skills to ~/.syncskill/skills/ |
+| `scan --dry-run` | Preview scan results |
+
+### Server Management
+
+| Command | Description |
+|---------|-------------|
+| `server` | Open server management menu |
+| `server list` / `ls` | List configured servers |
+| `server show <name>` | Show server configuration |
+| `server probe <name>` | Diagnose server connectivity |
 
 ### Sync Operations
-- `push [<server>] [--all] [--dry-run]` — Push to remote
-- `pull [<server>] [--all] [--dry-run]` — Pull from remote
-- `sync [<server>] [--all] [--dry-run]` — Full sync (pull then push)
-- `status` — Show sync status
-- `diff <server>` — Show pending changes
-- `resolve <skill> [--local|--remote] [--diff]` — Resolve conflicts
-- `refresh [--local|--remote|--all|--status]` — Refresh manifests
+
+| Command | Description |
+|---------|-------------|
+| `push [server] [--all] [--dry-run] [-y]` | Push to remote |
+| `pull [server] [--all] [--dry-run] [-y]` | Pull from remote |
+| `sync [server] [--all] [--dry-run]` | Full sync (pull then push) |
+| `status` | Show sync status |
+| `diff <server>` | Show pending changes |
+| `resolve <skill> [--local|--remote] [--diff]` | Resolve conflicts |
+| `refresh [server] [--local|--remote|--all|--status]` | Refresh manifests |
 
 ### Configuration
-- `config` — Interactive config editor
-- `config show` — Print current config
-- `config set <key> <value>` — Set config value
-- `server` — Manage servers
-- `server probe <name>` — Diagnose server status
-- `remote` — Manage skill→server mappings
+
+| Command | Description |
+|---------|-------------|
+| `config` | Interactive config editor |
+| `config show` | Print current config |
+| `config set <key> <value>` | Set config value |
+| `config set --show-paths` | Show all config paths |
+| `remote` | Manage skill→server mappings (matrix editor) |
+
+### Global Options
+
+| Option | Description |
+|--------|-------------|
+| `--no-refresh` | Skip automatic manifest refresh |
+| `-y, --yes` | Skip confirmation prompts |
+| `--dry-run` | Preview changes without executing |
 
 ## Usage Examples
 
-### Install a skill from GitHub
 ```bash
+# Initialize and set up
+syncskill init
+syncskill install
+
+# Install skills from GitHub
 syncskill i https://github.com/user/skills-repo
-```
 
-### Sync skills to all servers
-```bash
-syncskill sync --all
-```
+# Manage links
+syncskill link list
+syncskill link --all
 
-### Check what needs to be synced
-```bash
+# Sync with remote servers
 syncskill status
-```
+syncskill sync --all
 
-### Add a new skill source and link it
-```bash
-syncskill source add https://github.com/org/awesome-skills
-syncskill link awesome-skill
-```
-
-### Resolve a sync conflict
-```bash
+# Resolve conflicts
 syncskill resolve my-skill --local
 ```

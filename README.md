@@ -46,15 +46,16 @@ syncskill status
 
 ## Commands Overview
 
-### Local Setup
+### Installation & Setup
 
 | Command | Description |
 |---------|-------------|
 | `syncskill init` | Initialize `~/.syncskill/` directory structure |
+| `syncskill install` / `i` | Install syncskill skill (no args) or from URL/path |
 | `syncskill config` | Open interactive configuration menu |
 | `syncskill config show` | Print current configuration |
 | `syncskill config set <key> <value>` | Set a configuration value |
-| `syncskill scan [--migrate]` | Scan for new skills, optionally migrate unmanaged skills |
+| `syncskill scan [--migrate] [--dry-run]` | Scan for new skills, optionally migrate unmanaged skills |
 
 ### Skill Linking
 
@@ -63,7 +64,9 @@ syncskill status
 | `syncskill link` | Open matrix editor for skill-to-agent links |
 | `syncskill link <skill>` | Link a specific skill |
 | `syncskill link --all` | Link all configured skills |
-| `syncskill link list` | Show link status |
+| `syncskill link list` / `ls` | Show link status |
+| `syncskill link list -v` | Show link status with verbose text |
+| `syncskill link --dry-run` | Preview link changes |
 | `syncskill unlink <skill>` | Remove links for a skill |
 
 ### Source Management
@@ -71,9 +74,10 @@ syncskill status
 | Command | Description |
 |---------|-------------|
 | `syncskill source add <url>` | Add a source (git, http, or local) |
-| `syncskill source list` | List configured sources |
+| `syncskill source list` / `ls` | List configured sources |
 | `syncskill source update [name]` | Update one or all sources |
-| `syncskill source remove <name>` | Remove a source |
+| `syncskill source update --all` | Update all sources |
+| `syncskill source remove <name>` | Remove a source (interactive) |
 
 ### Reconciliation
 
@@ -88,9 +92,11 @@ syncskill status
 
 | Command | Description |
 |---------|-------------|
-| `syncskill server list` | List configured servers |
+| `syncskill server` | Open server management menu |
+| `syncskill server list` / `ls` | List configured servers |
 | `syncskill server show <name>` | Show server configuration |
 | `syncskill server probe <name>` | Test server connectivity |
+| `syncskill remote` | Open skill → server matrix editor |
 
 ### Remote Sync
 

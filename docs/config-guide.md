@@ -169,7 +169,8 @@ Each source entry includes:
 |-------|----------|-------------|
 | `type` | Yes | Source type (`local`, `git`, `http`) |
 | `url` | Yes | Source URL or local path |
-| `store` | Yes | Storage path or subdirectory within source |
+| `store` | Yes | Storage path for cloned/downloaded files |
+| `skill_subdir` | No | Subdirectory within source containing skills |
 | `ref` | No | Git branch/tag (git sources only) |
 
 Example:
