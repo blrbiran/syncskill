@@ -85,7 +85,7 @@ describe('addSourceFromUrl', () => {
     expect(source.type).toBe('git');
     expect(source.url).toBe('https://github.com/openclaw/skills.git');
     expect(source.ref).toBe('main');
-    expect(source.store).toMatch(/sources\/skills$/);
+    expect(source.path).toMatch(/sources\/skills$/);
   });
 
   it('allows explicit name override via options', async () => {
@@ -126,12 +126,12 @@ describe('addSourceFromUrl', () => {
     const { name, source } = await addSourceFromUrl(
       homeDir,
       'https://example.com/skills.git',
-      { type: 'git', store: 'skills', name: 'example-skills' }
+      { type: 'git', path: 'skills', name: 'example-skills' }
     );
 
     expect(name).toBe('example-skills');
     expect(source.type).toBe('git');
     expect(source.url).toBe('https://example.com/skills.git');
-    expect(source.store).toBe('skills');
+    expect(source.path).toBe('skills');
   });
 });

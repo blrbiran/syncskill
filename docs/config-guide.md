@@ -54,12 +54,12 @@ sources:
   internal-playbooks:
     type: git
     url: https://github.com/org/internal-playbooks.git
-    store: skills
+    path: skills
     ref: main
   local-experiments:
     type: local
     url: /Users/alice/dev/local-skills
-    store: .
+    path: .
 ```
 
 ## Fields
@@ -169,7 +169,7 @@ Each source entry includes:
 |-------|----------|-------------|
 | `type` | Yes | Source type (`local`, `git`, `http`) |
 | `url` | Yes | Source URL or local path |
-| `store` | Yes | Storage path for cloned/downloaded files |
+| `path` | Yes | Storage path for cloned/downloaded files |
 | `skill_subdir` | No | Subdirectory within source containing skills |
 | `ref` | No | Git branch/tag (git sources only) |
 
@@ -180,12 +180,12 @@ sources:
   vendor-docs:
     type: git
     url: https://github.com/org/vendor-docs.git
-    store: skills
+    path: skills
     ref: stable
   local-dev:
     type: local
     url: /Users/alice/dev/skills
-    store: .
+    path: .
 ```
 
 ## Skills Registry

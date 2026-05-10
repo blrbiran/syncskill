@@ -23,7 +23,7 @@ import { isNotFoundError, pathExists } from './utils.js';
 const execFileAsync = promisify(execFile);
 
 export enum RemovalAction {
-  /** Git only: Convert source from git to local, keep store directory */
+  /** Git only: Convert source from git to local, keep path directory */
   ConvertToLocal = 'convert-to-local',
   /** Remove source config and links, keep skill files on disk */
   RemoveConfigKeepFiles = 'remove-config-keep-files',
@@ -178,7 +178,7 @@ export async function scanSkillsInSource(sourceDir: string): Promise<DiscoveredS
 export interface SourceDefinition {
   type: SourceType;
   url: string;
-  store: string;
+  path: string;
   ref?: string;
 }
 
@@ -231,7 +231,7 @@ export async function addSource(homeDir = homedir(), name: string, source: Sourc
 }
 
 export function formatSourceListLines(sources: SourceEntry[]): string[] {
-  return sources.map((source) => `${source.name}\t${source.type}\t${source.url}\t${source.store}`);
+  return sources.map((source) => `${source.name}\t${source.type}\t${source.url}\t${source.path}`);
 }
 
 export async function loadSourceState(homeDir = homedir(), name: string): Promise<SourceState | null> {
@@ -304,7 +304,7 @@ export async function removeSource(
   // Type-guard for source properties
   const source = sourceRaw as Record<string, unknown>;
   const sourceType = source.type as string | undefined;
-  const sourceStore = source.store as string | undefined;
+  const sourceStore = source.path as string | undefined;
 
   const ownershipState = await loadSkillOwnershipState(homeDir);
   const sourceState = await loadSourceState(homeDir, name);
@@ -320,13 +320,13 @@ export async function removeSource(
     if (sourceType !== 'git') {
       throw new Error(`ConvertToLocal only valid for git sources, got: ${sourceType}`);
     }
-    // Convert to local source pointing to checkout directory with original store path
+    // Convert to local source pointing to checkout directory with original path
     const checkoutDir = join(sourceDir, 'checkout');
     const originalStore = sourceStore ?? '.';
     config.sources[name] = {
       type: 'local',
       url: checkoutDir,
-      store: originalStore,
+      path: originalStore,
     };
     await saveConfig(config, homeDir);
     return;
@@ -415,15 +415,15 @@ function normalizeSourceEntry(name: string, value: unknown): SourceEntry[] {
     return [];
   }
 
-  if (typeof value.url !== 'string' || typeof value.store !== 'string') {
+  if (typeof value.url !== 'string' || typeof value.path !== 'string') {
     return [];
   }
 
   if (typeof value.ref === 'string') {
-    return [{ name, type: value.type, url: value.url, store: value.store, ref: value.ref }];
+    return [{ name, type: value.type, url: value.url, path: value.path, ref: value.ref }];
   }
 
-  return [{ name, type: value.type, url: value.url, store: value.store }];
+  return [{ name, type: value.type, url: value.url, path: value.path }];
 }
 
 function normalizeSourceState(value: unknown): SourceState {
@@ -585,19 +585,19 @@ async function prepareHttpMaterializedRoot(homeDir: string, name: string, source
     await downloadHttpArchive(source.url, archiveFile);
     await extractArchive(archiveFile, stagingDir, archiveFormat.type);
 
-    if (isAbsolute(source.store)) {
-      throw new Error('HTTP source store must be a relative path');
+    if (isAbsolute(source.path)) {
+      throw new Error('HTTP source path must be a relative path');
     }
 
-    const materializedRoot = resolve(stagingDir, source.store);
+    const materializedRoot = resolve(stagingDir, source.path);
     const relativePath = relative(stagingDir, materializedRoot);
 
     if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-      throw new Error('HTTP source store must stay within the checkout root');
+      throw new Error('HTTP source path must stay within the checkout root');
     }
 
     await replaceCheckoutDirectory(checkoutDir, stagingDir, backupDir);
-    return resolve(checkoutDir, source.store);
+    return resolve(checkoutDir, source.path);
   } catch (error) {
     await rm(stagingDir, { recursive: true, force: true });
     throw error;
@@ -619,15 +619,15 @@ async function prepareGitMaterializedRoot(homeDir: string, name: string, source:
   await runGit(['-C', checkoutDir, 'fetch', '--depth=1', 'origin', ref]);
   await runGit(['-C', checkoutDir, 'reset', '--hard', 'FETCH_HEAD']);
 
-  if (isAbsolute(source.store)) {
-    throw new Error('Git source store must be a relative path');
+  if (isAbsolute(source.path)) {
+    throw new Error('Git source path must be a relative path');
   }
 
-  const materializedRoot = resolve(checkoutDir, source.store);
+  const materializedRoot = resolve(checkoutDir, source.path);
   const relativePath = relative(checkoutDir, materializedRoot);
 
   if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-    throw new Error('Git source store must stay within the checkout root');
+    throw new Error('Git source path must stay within the checkout root');
   }
 
   return materializedRoot;
@@ -642,16 +642,16 @@ function getHttpCheckoutDir(homeDir: string, name: string): string {
 }
 
 function getLocalMaterializedRoot(source: SourceDefinition): string {
-  if (isAbsolute(source.store)) {
-    throw new Error('Local source store must be a relative path');
+  if (isAbsolute(source.path)) {
+    throw new Error('Local source path must be a relative path');
   }
 
   const sourceRoot = resolve(source.url);
-  const materializedRoot = resolve(sourceRoot, source.store);
+  const materializedRoot = resolve(sourceRoot, source.path);
   const relativePath = relative(sourceRoot, materializedRoot);
 
   if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-    throw new Error('Local source store must stay within the source root');
+    throw new Error('Local source path must stay within the source root');
   }
 
   return materializedRoot;
@@ -1014,7 +1014,7 @@ export interface GitHubUrlParsed {
 export interface AddSourceFromUrlOptions {
   name?: string;
   type?: SourceType;
-  store?: string;
+  path?: string;
   skillSubdir?: string;
   ref?: string;
   /** Skip interactive skill selection, select all non-duplicate skills */
@@ -1076,11 +1076,11 @@ export async function addSourceFromUrl(
     }
 
     const name = options.name ?? parsed.skillName;
-    const store = options.store ?? join(syncDir, 'sources', parsed.repo);
+    const store = options.path ?? join(syncDir, 'sources', parsed.repo);
     const source: SourceDefinition = {
       type: options.type ?? 'git',
       url: parsed.cloneUrl,
-      store: relative(syncDir, store) || '.',
+      path: relative(syncDir, store) || '.',
       ...(parsed.branch || options.ref ? { ref: options.ref ?? parsed.branch } : {}),
     };
 
@@ -1101,14 +1101,14 @@ export async function addSourceFromUrl(
   }
 
   // Not a GitHub URL - require explicit parameters
-  if (!options.type || !options.store) {
+  if (!options.type || !options.path) {
     const expectedFormats = [
       'https://github.com/<org>/<repo>/tree/<branch>/<path>',
       'https://github.com/<org>/<repo>.git',
       'https://github.com/<org>/<repo>'
     ];
     throw new Error(
-      `Could not parse URL. Expected GitHub URL formats:\n${expectedFormats.map(f => `  ${f}`).join('\n')}\n\nOr provide explicit --type, --url, and --store options.`
+      `Could not parse URL. Expected GitHub URL formats:\n${expectedFormats.map(f => `  ${f}`).join('\n')}\n\nOr provide explicit --type, --url, and --path options.`
     );
   }
 
@@ -1116,7 +1116,7 @@ export async function addSourceFromUrl(
   const source: SourceDefinition = {
     type: options.type,
     url: urlOrName,
-    store: options.store,
+    path: options.path,
     ...(options.ref ? { ref: options.ref } : {}),
   };
 
@@ -1214,12 +1214,12 @@ function getMaterializedRootPath(homeDir: string, name: string, source: SourceEn
 
   if (source.type === 'git') {
     const checkoutDir = getGitCheckoutDir(homeDir, name);
-    return isAbsolute(source.store) ? source.store : resolve(checkoutDir, source.store);
+    return isAbsolute(source.path) ? source.path : resolve(checkoutDir, source.path);
   }
 
   if (source.type === 'http') {
     const checkoutDir = getHttpCheckoutDir(homeDir, name);
-    return isAbsolute(source.store) ? source.store : resolve(checkoutDir, source.store);
+    return isAbsolute(source.path) ? source.path : resolve(checkoutDir, source.path);
   }
 
   throw new Error(`Unknown source type: ${source.type}`);
@@ -1328,7 +1328,7 @@ export async function handleSameRepoMerge(
     const newSkills = allSkills.filter(s => s !== existingSkillName);
 
     // Update source to point to multi-skill directory
-    sourceRaw.store = newSubdir;
+    sourceRaw.path = newSubdir;
 
     // Add new skills to links and update ownership (non-conflicting ones)
     const ownershipState = await loadSkillOwnershipState(homeDir);
@@ -1359,7 +1359,7 @@ export async function handleSameRepoMerge(
     if (options.expandToParent) {
       // Expand to shared parent directory
       const parentDir = dirname(existingSubdir);
-      sourceRaw.store = parentDir.endsWith('/') ? parentDir : parentDir + '/';
+      sourceRaw.path = parentDir.endsWith('/') ? parentDir : parentDir + '/';
 
       const { syncDir } = getSyncPaths(homeDir);
       const sourceDir = join(syncDir, '.sources', existingName, 'checkout');
@@ -1387,10 +1387,10 @@ export async function handleSameRepoMerge(
       return { action: 'expanded-to-multi', newSkills: allSkills };
     }
 
-    // Just add the new sibling skill, update store to parent, ignore others
+    // Just add the new sibling skill, update path to parent, ignore others
     const parentDir = dirname(existingSubdir);
     const existingSkillName = existingSubdir.split('/').pop()!;
-    sourceRaw.store = parentDir.endsWith('/') ? parentDir : parentDir + '/';
+    sourceRaw.path = parentDir.endsWith('/') ? parentDir : parentDir + '/';
 
     const { syncDir } = getSyncPaths(homeDir);
     const sourceDir = join(syncDir, '.sources', existingName, 'checkout');
@@ -1424,7 +1424,7 @@ export async function handleSameRepoMerge(
     config.sources[newName] = {
       type: existingSource.type,
       url: existingSource.url,
-      store: newSubdir,
+      path: newSubdir,
       ...(existingSource.ref ? { ref: existingSource.ref } : {}),
     };
 

@@ -124,8 +124,8 @@ describe('source module', () => {
         links: {},
         servers: {},
         sources: {
-          zeta: { type: 'git', url: '/tmp/zeta.git', store: 'skills', ref: 'main' },
-          alpha: { type: 'local', url: '/tmp/local-skills', store: '.' },
+          zeta: { type: 'git', url: '/tmp/zeta.git', path: 'skills', ref: 'main' },
+          alpha: { type: 'local', url: '/tmp/local-skills', path: '.' },
           broken: { type: 'git' }
         }
       },
@@ -137,13 +137,13 @@ describe('source module', () => {
         name: 'alpha',
         type: 'local',
         url: '/tmp/local-skills',
-        store: '.'
+        path: '.'
       },
       {
         name: 'zeta',
         type: 'git',
         url: '/tmp/zeta.git',
-        store: 'skills',
+        path: 'skills',
         ref: 'main'
       }
     ]);
@@ -162,7 +162,7 @@ describe('source module', () => {
     const result = await materializeSource(
       homeDir,
       'shared',
-      { type: 'local', url: sourceRoot, store: '.' },
+      { type: 'local', url: sourceRoot, path: '.' },
       '2026-05-01T00:00:00.000Z'
     );
 
@@ -185,7 +185,7 @@ describe('source module', () => {
     await materializeSource(
       homeDir,
       'shared',
-      { type: 'local', url: sourceRoot, store: '.' },
+      { type: 'local', url: sourceRoot, path: '.' },
       '2026-05-01T00:00:00.000Z'
     );
 
@@ -196,7 +196,7 @@ describe('source module', () => {
     const result = await materializeSource(
       homeDir,
       'shared',
-      { type: 'local', url: sourceRoot, store: '.' },
+      { type: 'local', url: sourceRoot, path: '.' },
       '2026-05-01T01:00:00.000Z'
     );
 
@@ -223,7 +223,7 @@ describe('source module', () => {
     await materializeSource(
       homeDir,
       'shared',
-      { type: 'local', url: sourceRoot, store: '.' },
+      { type: 'local', url: sourceRoot, path: '.' },
       '2026-05-01T00:00:00.000Z'
     );
 
@@ -234,7 +234,7 @@ describe('source module', () => {
     const result = await materializeSource(
       homeDir,
       'shared',
-      { type: 'local', url: sourceRoot, store: '.' },
+      { type: 'local', url: sourceRoot, path: '.' },
       '2026-05-01T01:00:00.000Z'
     );
 
@@ -261,7 +261,7 @@ describe('source module', () => {
     await materializeSource(
       homeDir,
       'shared',
-      { type: 'local', url: sourceRoot, store: '.' },
+      { type: 'local', url: sourceRoot, path: '.' },
       '2026-05-01T00:00:00.000Z'
     );
 
@@ -272,7 +272,7 @@ describe('source module', () => {
     const result = await materializeSource(
       homeDir,
       'shared',
-      { type: 'local', url: sourceRoot, store: '.' },
+      { type: 'local', url: sourceRoot, path: '.' },
       '2026-05-01T01:00:00.000Z'
     );
 
@@ -292,8 +292,8 @@ describe('source module', () => {
     await mkdir(sourceRoot, { recursive: true });
 
     await expect(
-      materializeSource(homeDir, 'shared', { type: 'local', url: sourceRoot, store: '../outside' }, '2026-05-01T00:00:00.000Z')
-    ).rejects.toThrow('Local source store must stay within the source root');
+      materializeSource(homeDir, 'shared', { type: 'local', url: sourceRoot, path: '../outside' }, '2026-05-01T00:00:00.000Z')
+    ).rejects.toThrow('Local source path must stay within the source root');
   });
 
   it('materializeSource clones a git source and copies skill files into the sync store', async () => {
@@ -301,15 +301,15 @@ describe('source module', () => {
     tempDirs.push(homeDir);
 
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
-    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
-    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
     await commitAll(workRepoDir, 'initial source');
     await git(['push', '-u', 'origin', 'main'], workRepoDir);
 
     const result = await materializeSource(
       homeDir,
       'git-source',
-      { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+      { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
       '2026-05-01T02:00:00.000Z'
     );
 
@@ -328,8 +328,8 @@ describe('source module', () => {
 
     const fixtureDir = join(homeDir, 'http-fixture');
     const archiveFile = join(homeDir, 'http-source.tar.gz');
-    await mkdir(join(fixtureDir, 'source.store', 'alpha'), { recursive: true });
-    await writeFile(join(fixtureDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha http\n', 'utf8');
+    await mkdir(join(fixtureDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(fixtureDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha http\n', 'utf8');
     await createTarGzArchive(fixtureDir, archiveFile);
 
     const server = await startArchiveServer(archiveFile);
@@ -338,12 +338,12 @@ describe('source module', () => {
     const result = await materializeSource(
       homeDir,
       'http-source',
-      { type: 'http', url: server.url, store: 'source.store' },
+      { type: 'http', url: server.url, path: 'source.path' },
       '2026-05-01T02:30:00.000Z'
     );
 
     expect(result.materialized_skills).toEqual(['alpha']);
-    await expect(readFile(join(homeDir, '.syncskill', '.sources', 'http-source', 'checkout', 'source.store', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe(
+    await expect(readFile(join(homeDir, '.syncskill', '.sources', 'http-source', 'checkout', 'source.path', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe(
       '# alpha http\n'
     );
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha http\n');
@@ -359,8 +359,8 @@ describe('source module', () => {
 
     const fixtureDir = join(homeDir, 'http-fixture');
     const archiveFile = join(homeDir, 'http-source.tar.gz');
-    await mkdir(join(fixtureDir, 'source.store', 'alpha'), { recursive: true });
-    await writeFile(join(fixtureDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha http\n', 'utf8');
+    await mkdir(join(fixtureDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(fixtureDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha http\n', 'utf8');
     await createTarGzArchive(fixtureDir, archiveFile);
 
     const goodServer = await startArchiveServer(archiveFile);
@@ -369,7 +369,7 @@ describe('source module', () => {
     await materializeSource(
       homeDir,
       'http-source',
-      { type: 'http', url: goodServer.url, store: 'source.store' },
+      { type: 'http', url: goodServer.url, path: 'source.path' },
       '2026-05-01T02:30:00.000Z'
     );
 
@@ -380,12 +380,12 @@ describe('source module', () => {
       materializeSource(
         homeDir,
         'http-source',
-        { type: 'http', url: failingServer.url, store: 'source.store' },
+        { type: 'http', url: failingServer.url, path: 'source.path' },
         '2026-05-01T02:31:00.000Z'
       )
     ).rejects.toThrow('Failed to download HTTP source archive: 500 Internal Server Error');
 
-    await expect(readFile(join(homeDir, '.syncskill', '.sources', 'http-source', 'checkout', 'source.store', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe(
+    await expect(readFile(join(homeDir, '.syncskill', '.sources', 'http-source', 'checkout', 'source.path', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe(
       '# alpha http\n'
     );
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha http\n');
@@ -400,8 +400,8 @@ describe('source module', () => {
     tempDirs.push(homeDir);
 
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
-    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
-    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
     await commitAll(workRepoDir, 'initial source');
     await git(['push', '-u', 'origin', 'main'], workRepoDir);
 
@@ -413,7 +413,7 @@ describe('source module', () => {
         links: {},
         servers: {},
         sources: {
-          'git-source': { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' }
+          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' }
         }
       },
       homeDir
@@ -422,11 +422,11 @@ describe('source module', () => {
     await materializeSource(
       homeDir,
       'git-source',
-      { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+      { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
       '2026-05-01T02:00:00.000Z'
     );
 
-    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v2\n', 'utf8');
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v2\n', 'utf8');
     await commitAll(workRepoDir, 'refresh alpha');
     await git(['push', 'origin', 'main'], workRepoDir);
 
@@ -445,8 +445,8 @@ describe('source module', () => {
     tempDirs.push(homeDir);
 
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
-    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
-    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
     await commitAll(workRepoDir, 'initial source');
     await git(['push', '-u', 'origin', 'main'], workRepoDir);
 
@@ -458,7 +458,7 @@ describe('source module', () => {
         links: {},
         servers: {},
         sources: {
-          'git-source': { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' }
+          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' }
         }
       },
       homeDir
@@ -467,11 +467,11 @@ describe('source module', () => {
     await materializeSource(
       homeDir,
       'git-source',
-      { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+      { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
       '2026-05-01T02:00:00.000Z'
     );
 
-    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v2\n', 'utf8');
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v2\n', 'utf8');
     await commitAll(workRepoDir, 'refresh alpha');
     await git(['push', 'origin', 'main'], workRepoDir);
 
@@ -495,8 +495,8 @@ describe('source module', () => {
     tempDirs.push(homeDir);
 
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
-    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
-    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
     await commitAll(workRepoDir, 'initial source');
     await git(['push', '-u', 'origin', 'main'], workRepoDir);
 
@@ -507,7 +507,7 @@ describe('source module', () => {
       materializeSource(
         homeDir,
         'git-source',
-        { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+        { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
         '2026-05-01T02:00:00.000Z'
       )
     ).rejects.toThrow('Skill path is already occupied: alpha');
@@ -518,8 +518,8 @@ describe('source module', () => {
     tempDirs.push(homeDir);
 
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
-    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
-    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
     await commitAll(workRepoDir, 'initial source');
     await git(['push', '-u', 'origin', 'main'], workRepoDir);
 
@@ -531,7 +531,7 @@ describe('source module', () => {
         links: {},
         servers: {},
         sources: {
-          'git-source': { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' }
+          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' }
         }
       },
       homeDir
@@ -540,13 +540,13 @@ describe('source module', () => {
     await materializeSource(
       homeDir,
       'git-source',
-      { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+      { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
       '2026-05-01T02:00:00.000Z'
     );
 
-    await rm(join(workRepoDir, 'source.store', 'alpha'), { recursive: true, force: true });
-    await mkdir(join(workRepoDir, 'source.store', 'beta'), { recursive: true });
-    await writeFile(join(workRepoDir, 'source.store', 'beta', 'SKILL.md'), '# beta v2\n', 'utf8');
+    await rm(join(workRepoDir, 'source.path', 'alpha'), { recursive: true, force: true });
+    await mkdir(join(workRepoDir, 'source.path', 'beta'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'beta', 'SKILL.md'), '# beta v2\n', 'utf8');
     await commitAll(workRepoDir, 'update source');
     await git(['push', 'origin', 'main'], workRepoDir);
 
@@ -572,13 +572,13 @@ describe('source module', () => {
     await materializeSource(
       homeDir,
       'local-source',
-      { type: 'local', url: sharedRoot, store: '.' },
+      { type: 'local', url: sharedRoot, path: '.' },
       '2026-05-01T00:00:00.000Z'
     );
 
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
-    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
-    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# git alpha\n', 'utf8');
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# git alpha\n', 'utf8');
     await commitAll(workRepoDir, 'initial source');
     await git(['push', '-u', 'origin', 'main'], workRepoDir);
 
@@ -590,7 +590,7 @@ describe('source module', () => {
         links: {},
         servers: {},
         sources: {
-          'git-source': { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' }
+          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' }
         }
       },
       homeDir
@@ -600,14 +600,14 @@ describe('source module', () => {
       materializeSource(
         homeDir,
         'git-source',
-        { type: 'git', url: bareRepoDir, store: 'source.store', ref: 'main' },
+        { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
         '2026-05-01T02:00:00.000Z'
       )
     ).rejects.toThrow('Skill path is already occupied: alpha');
 
-    await rm(join(workRepoDir, 'source.store', 'alpha'), { recursive: true, force: true });
-    await mkdir(join(workRepoDir, 'source.store', 'beta'), { recursive: true });
-    await writeFile(join(workRepoDir, 'source.store', 'beta', 'SKILL.md'), '# git beta\n', 'utf8');
+    await rm(join(workRepoDir, 'source.path', 'alpha'), { recursive: true, force: true });
+    await mkdir(join(workRepoDir, 'source.path', 'beta'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'beta', 'SKILL.md'), '# git beta\n', 'utf8');
     await commitAll(workRepoDir, 'replace alpha with beta');
     await git(['push', 'origin', 'main'], workRepoDir);
 
@@ -750,7 +750,7 @@ describe('discoverAllSkills', () => {
         'my-source': {
           type: 'local',
           url: sourceRoot,
-          store: '.'
+          path: '.'
         }
       }
     }, homeDir);
@@ -792,7 +792,7 @@ describe('discoverAllSkills', () => {
         'my-source': {
           type: 'local',
           url: sourceRoot,
-          store: '.'
+          path: '.'
         }
       }
     }, homeDir);
@@ -818,7 +818,7 @@ describe('discoverAllSkills', () => {
         'nonexistent': {
           type: 'local',
           url: join(homeDir, 'nonexistent-source'),
-          store: '.'
+          path: '.'
         }
       }
     }, homeDir);
@@ -841,8 +841,8 @@ describe('findOrphanSkills', () => {
         'skill-c': ['*'],
       },
       sources: {
-        'source-one': { type: 'git', url: 'https://example.com/repo.git', store: '.' },
-        'source-two': { type: 'git', url: 'https://example.com/other.git', store: '.' },
+        'source-one': { type: 'git', url: 'https://example.com/repo.git', path: '.' },
+        'source-two': { type: 'git', url: 'https://example.com/other.git', path: '.' },
       },
       servers: {},
       conflict_resolution: 'manual',
@@ -867,7 +867,7 @@ describe('findOrphanSkills', () => {
       agents: { claude: '~/.claude/skills' },
       links: { 'skill-a': ['*'] },
       sources: {
-        'source-one': { type: 'git', url: 'https://example.com/repo.git', store: '.' },
+        'source-one': { type: 'git', url: 'https://example.com/repo.git', path: '.' },
       },
       servers: {},
       conflict_resolution: 'manual',
@@ -888,7 +888,7 @@ describe('findOrphanSkills', () => {
       agents: { claude: '~/.claude/skills' },
       links: {},
       sources: {
-        'source-one': { type: 'git', url: 'https://example.com/repo.git', store: '.' },
+        'source-one': { type: 'git', url: 'https://example.com/repo.git', path: '.' },
       },
       servers: {},
       conflict_resolution: 'manual',
@@ -998,7 +998,7 @@ describe('skills-registry', () => {
         version: 1,
         agents: { claude: '~/.claude/skills' },
         links: { 'manual-skill': ['*'], 'source-skill': ['*'] },
-        sources: { 'my-source': { type: 'git', url: 'https://example.com/repo.git', store: 'materialized' } },
+        sources: { 'my-source': { type: 'git', url: 'https://example.com/repo.git', path: 'materialized' } },
         servers: {},
         conflict_resolution: 'manual',
       })
@@ -1041,7 +1041,7 @@ describe('findExistingSourceByUrl', () => {
           'existing-source': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'sources/repo',
+            path: 'sources/repo',
           },
         },
         servers: {},
@@ -1072,7 +1072,7 @@ describe('findExistingSourceByUrl', () => {
           'other-source': {
             type: 'git',
             url: 'https://github.com/org/other.git',
-            store: 'sources/other',
+            path: 'sources/other',
           },
         },
         servers: {},
@@ -1155,7 +1155,7 @@ describe('handleSameRepoMerge', () => {
           'existing-source': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'skills/',
+            path: 'skills/',
             ignore: ['skill1'],
           },
         },
@@ -1191,7 +1191,7 @@ describe('handleSameRepoMerge', () => {
           'existing-source': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'skills/',
+            path: 'skills/',
           },
         },
         servers: {},
@@ -1232,7 +1232,7 @@ describe('handleSameRepoMerge', () => {
           'existing-source': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'skills/skill1',
+            path: 'skills/skill1',
           },
         },
         servers: {},
@@ -1273,7 +1273,7 @@ describe('handleSameRepoMerge', () => {
           'existing-source': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'skills/skill1',
+            path: 'skills/skill1',
           },
         },
         servers: {},
@@ -1309,7 +1309,7 @@ describe('handleSameRepoMerge', () => {
           'existing-source': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'skills/skill1',
+            path: 'skills/skill1',
           },
         },
         servers: {},
@@ -1352,7 +1352,7 @@ describe('handleSameRepoMerge', () => {
           'existing-source': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'skills/skill1',
+            path: 'skills/skill1',
           },
         },
         servers: {},
@@ -1376,7 +1376,7 @@ describe('handleSameRepoMerge', () => {
     // Verify config updated with parent directory
     const config = await loadConfig(homeDir);
     const source = config.sources['existing-source'] as Record<string, unknown>;
-    expect(source.store).toBe('skills/');
+    expect(source.path).toBe('skills/');
   });
 
   it('scenario 4: increments suffix when .2 already exists', async () => {
@@ -1395,12 +1395,12 @@ describe('handleSameRepoMerge', () => {
           'existing-source': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'skills/skill1',
+            path: 'skills/skill1',
           },
           'existing-source.2': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'examples/skill2',
+            path: 'examples/skill2',
           },
         },
         servers: {},
@@ -1534,7 +1534,7 @@ describe('buildSkillsIndex manual skill priority', () => {
         version: 1,
         agents: { claude: '~/.claude/skills' },
         links: { 'shared-skill': ['*'] },
-        sources: { 'my-source': { type: 'git', url: 'https://example.com/repo.git', store: 'materialized' } },
+        sources: { 'my-source': { type: 'git', url: 'https://example.com/repo.git', path: 'materialized' } },
         servers: {},
         conflict_resolution: 'manual',
       })
@@ -1874,7 +1874,7 @@ describe('addSourceFromUrl with skills-registry', () => {
           'org-repo': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'skills/',
+            path: 'skills/',
           },
         },
         servers: {},
@@ -1932,7 +1932,7 @@ describe('addSourceFromUrl with skills-registry', () => {
           'org-repo': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'skills/',
+            path: 'skills/',
           },
         },
         servers: {},

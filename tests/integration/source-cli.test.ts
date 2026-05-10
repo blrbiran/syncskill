@@ -72,7 +72,7 @@ describe('source CLI', () => {
         shared: {
           type: 'local',
           url: sourceRoot,
-          store: '.'
+          path: '.'
         }
       }
     });
@@ -113,7 +113,7 @@ describe('source CLI', () => {
         team: {
           type: 'git',
           url: 'https://example.com/team.git',
-          store: 'skills',
+          path: 'skills',
           ref: 'main'
         }
       }
@@ -158,8 +158,8 @@ describe('source CLI', () => {
     tempDirs.push(homeDir);
 
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
-    await mkdir(join(workRepoDir, 'source.store', 'alpha'), { recursive: true });
-    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
     await commitAll(workRepoDir, 'initial source');
     await git(['push', '-u', 'origin', 'main'], workRepoDir);
 
@@ -176,7 +176,7 @@ describe('source CLI', () => {
         '--url',
         bareRepoDir,
         '--path',
-        'source.store',
+        'source.path',
         '--ref',
         'main'
       ],
@@ -184,7 +184,7 @@ describe('source CLI', () => {
     );
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'source', 'update', 'team'], { from: 'node' });
 
-    await writeFile(join(workRepoDir, 'source.store', 'alpha', 'SKILL.md'), '# alpha v2\n', 'utf8');
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v2\n', 'utf8');
     await commitAll(workRepoDir, 'refresh alpha');
     await git(['push', 'origin', 'main'], workRepoDir);
 
@@ -391,7 +391,7 @@ describe('source add --path option', () => {
     const source = config.sources['my-local'] as Record<string, unknown>;
     expect(source.type).toBe('local');
     expect(source.url).toBe(localSkillDir);
-    expect(source.store).toBe('.');
+    expect(source.path).toBe('.');
 
     // Verify skill was materialized
     await expect(readlink(join(homeDir, '.syncskill', 'skills', 'local-skill'))).resolves.toBe(join(localSkillDir, 'local-skill'));
@@ -496,7 +496,7 @@ describe('same-repo merge detection', () => {
           'repo-skill1': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'skills/skill1',
+            path: 'skills/skill1',
           },
         },
         servers: {},
@@ -527,7 +527,7 @@ describe('same-repo merge detection', () => {
           'repo-skill1': {
             type: 'git',
             url: 'https://github.com/org/repo.git',
-            store: 'skills/skill1',
+            path: 'skills/skill1',
           },
         },
         servers: {},
@@ -643,7 +643,7 @@ describe('source add --path auto-detect local type', () => {
     const source = config.sources['local-src'] as Record<string, unknown>;
     expect(source.type).toBe('local');
     expect(source.url).toBe(pathDir);
-    expect(source.store).toBe('.');
+    expect(source.path).toBe('.');
 
     // Verify skill was materialized
     await expect(readlink(join(homeDir, '.syncskill', 'skills', 'my-skill'))).resolves.toBe(join(pathDir, 'my-skill'));

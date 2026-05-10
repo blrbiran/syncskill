@@ -198,7 +198,7 @@ export function createProgram(homeDir?: string): Command {
 
       const result = await installFromSource(resolvedHomeDir, urlOrPath, {
         name: options.name,
-        store: options.path,
+        path: options.path,
         skillSubdir: options.skillSubdir,
         ref: options.ref,
         skipPrompt: options.yes,
@@ -511,7 +511,7 @@ export function createProgram(homeDir?: string): Command {
       if (effectiveType === 'local' && options.path && !options.url) {
         // For local type without explicit --url, --path provides the local directory path
         effectiveUrl = options.path;
-        // Default store to '.' (root of the path) for local type
+        // Default path to '.' (root of the path) for local type
         effectiveStore = '.';
       }
       // If --url was provided, --path is used as the skills subdirectory (same as other types)
@@ -519,7 +519,7 @@ export function createProgram(homeDir?: string): Command {
       const result = await addSourceFromUrl(resolvedHomeDir, effectiveUrl, {
         name: options.url ? nameOrUrl : (options.path ? nameOrUrl : undefined),
         type: effectiveType,
-        store: effectiveStore,
+        path: effectiveStore,
         skillSubdir: options.skillSubdir,
         ref: options.ref,
         skipPrompt: options.yes,
@@ -563,7 +563,7 @@ export function createProgram(homeDir?: string): Command {
 
       if (result.sameRepoMatch) {
         console.log(`\nA source already exists for this repository: ${result.sameRepoMatch.name}`);
-        console.log(`Existing store: ${result.sameRepoMatch.source.store}`);
+        console.log(`Existing path: ${result.sameRepoMatch.source.path}`);
         console.log(`\nTo add a skill from a different path in this repo, use:`);
         console.log(`  syncskill source add <skill-name> --url ${result.sameRepoMatch.source.url} --skill-subdir <path>`);
         return;

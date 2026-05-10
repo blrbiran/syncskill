@@ -423,7 +423,7 @@ Found 3 skills: skill-a, skill-b, skill-c
 
 - **Git 来源**：克隆前通过 `git ls-remote --symref <url> HEAD` 自动探测远程默认分支名，然后执行 `git clone --single-branch --depth 1 --branch <detected>`
 - **HTTP 来源**：`fetch()` 下载 → 解压（支持 `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip`）
-- **Local 来源**：以 `store` 为基准目录，通过 `store` 和 `skill_subdir` 定位 skills
+- **Local 来源**：以 `path` 为基准目录，通过 `path` 和 `skill_subdir` 定位 skills
 
 **`source add` 命令流程**：
 

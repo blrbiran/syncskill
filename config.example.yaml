@@ -14,4 +14,4 @@ sources:
   docs:
     type: git
     url: https://example.com/skills.git
-    store: vendor/docs
+    path: vendor/docs

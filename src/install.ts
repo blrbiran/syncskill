@@ -69,7 +69,7 @@ export async function installSyncskillSkill(homeDir: string): Promise<InstallSyn
 
 export interface InstallFromSourceOptions {
   name?: string;
-  store?: string;
+  path?: string;
   skillSubdir?: string;
   ref?: string;
   skipPrompt?: boolean;
@@ -92,7 +92,7 @@ export async function installFromSource(
 ): Promise<InstallFromSourceResult> {
   const result = await addSourceFromUrl(homeDir, urlOrPath, {
     name: options.name,
-    store: options.store,
+    path: options.path,
     skillSubdir: options.skillSubdir,
     ref: options.ref,
     skipPrompt: options.skipPrompt,
