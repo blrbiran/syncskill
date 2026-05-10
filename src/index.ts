@@ -58,6 +58,7 @@ async function selectTargetServers(
 }
 
 import { applyResolution, formatConflictMarker, reconcileManifest } from './conflict.js';
+import { installSyncskillSkill, installFromSource, type DiscoveredSkill } from './install.js';
 import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
 import { createPromptApi, runConfigUi } from './config-ui.js';
 import { collectLinkStatus, discoverSkills, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, unlinkSkill } from './linker.js';
@@ -158,6 +159,81 @@ export function createProgram(homeDir?: string): Command {
       await initializeRepo(resolvedHomeDir, {
         skipSources: Boolean(options.skipSources)
       });
+    });
+
+  program
+    .command('install [urlOrPath]')
+    .alias('i')
+    .description('Install skill(s). No args: install syncskill skill; with URL/path: install from source')
+    .option('--name <name>', 'Source name (for URL/path)')
+    .option('--path <path>', 'Storage path for source files')
+    .option('--skill-subdir <dir>', 'Subdirectory within source containing skills')
+    .option('--ref <ref>', 'Git ref (branch/tag)')
+    .option('-y, --yes', 'Skip confirmation prompts')
+    .action(async (urlOrPath: string | undefined, options: {
+      name?: string;
+      path?: string;
+      skillSubdir?: string;
+      ref?: string;
+      yes?: boolean;
+    }) => {
+      if (!urlOrPath) {
+        const result = await installSyncskillSkill(resolvedHomeDir);
+
+        if (result.alreadyInstalled) {
+          console.log('syncskill skill already installed');
+          return;
+        }
+
+        console.log(`✓ Installed syncskill skill to ${result.installedPath}`);
+        if (result.linkedAgents && result.linkedAgents.length > 0) {
+          console.log(`✓ Linked to: ${result.linkedAgents.join(', ')}`);
+        }
+        return;
+      }
+
+      const result = await installFromSource(resolvedHomeDir, urlOrPath, {
+        name: options.name,
+        store: options.path,
+        skillSubdir: options.skillSubdir,
+        ref: options.ref,
+        skipPrompt: options.yes,
+        onSelectSkills: async (skills: DiscoveredSkill[], existingSkills: Set<string>) => {
+          const available = skills.filter(s => !existingSkills.has(s.name));
+
+          if (available.length === 0) {
+            console.log('All skills from this source already exist.');
+            return [];
+          }
+
+          if (options.yes) {
+            return available.map(s => s.name);
+          }
+
+          console.log(`\nFound ${skills.length} skill(s):\n`);
+
+          const selected = await checkbox({
+            message: 'Select skills to install:',
+            choices: available.map(s => ({
+              name: `${s.name} (${s.relativePath})`,
+              value: s.name,
+              checked: true
+            }))
+          });
+
+          return selected;
+        }
+      });
+
+      if (result.installedSkills.length === 0) {
+        console.log('No skills installed.');
+        return;
+      }
+
+      console.log(`✓ Installed ${result.installedSkills.length} skill(s)`);
+      if (result.linkedAgents.length > 0) {
+        console.log(`✓ Linked to: ${result.linkedAgents.join(', ')}`);
+      }
     });
 
   const configCommand = program.command('config').description('Manage syncskill config');
