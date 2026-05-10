@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
   loadSkillsRegistry,
   saveSkillsRegistry,
+  normalizeSkillsRegistry,
+  getSkillsRegistryPath,
   isSkillIgnored,
   isSkillActive,
   getActiveSkills,
@@ -140,5 +142,66 @@ describe('skills-registry', () => {
 
     expect(Object.keys(ignored)).toEqual(['ignored-1', 'ignored-2']);
     expect('active-1' in ignored).toBe(false);
+  });
+
+  it('returns empty registry when file contains invalid JSON', async () => {
+    const path = getSkillsRegistryPath(tempDir);
+    await writeFile(path, 'this is not valid json{{{', 'utf8');
+
+    const registry = await loadSkillsRegistry(tempDir);
+
+    expect(registry.version).toBe(1);
+    expect(registry.skills).toEqual({});
+  });
+
+  it('saves registry to directory that does not exist yet', async () => {
+    const newTempDir = join(tmpdir(), `skills-registry-new-${Date.now()}`);
+
+    const registry = addActiveSkill(
+      { version: 1, skills: {} },
+      'test-skill',
+      { path: '/path', origin: 'manual', type: 'manual' }
+    );
+
+    await saveSkillsRegistry(newTempDir, registry);
+    const loaded = await loadSkillsRegistry(newTempDir);
+
+    expect(isSkillActive(loaded, 'test-skill')).toBe(true);
+
+    await rm(newTempDir, { recursive: true, force: true });
+  });
+});
+
+describe('normalizeSkillsRegistry', () => {
+  it('returns empty registry for null input', () => {
+    const result = normalizeSkillsRegistry(null);
+    expect(result).toEqual({ version: 1, skills: {} });
+  });
+
+  it('returns empty registry for non-object input', () => {
+    expect(normalizeSkillsRegistry('string')).toEqual({ version: 1, skills: {} });
+    expect(normalizeSkillsRegistry(123)).toEqual({ version: 1, skills: {} });
+    expect(normalizeSkillsRegistry(undefined)).toEqual({ version: 1, skills: {} });
+  });
+
+  it('returns empty registry when version is not 1', () => {
+    const result = normalizeSkillsRegistry({ version: 2, skills: {} });
+    expect(result).toEqual({ version: 1, skills: {} });
+  });
+
+  it('returns empty registry when skills is null', () => {
+    const result = normalizeSkillsRegistry({ version: 1, skills: null });
+    expect(result).toEqual({ version: 1, skills: {} });
+  });
+
+  it('accepts valid registry structure', () => {
+    const valid = {
+      version: 1,
+      skills: {
+        'my-skill': { path: '/p', origin: 'manual', type: 'manual', status: 'active' }
+      }
+    };
+    const result = normalizeSkillsRegistry(valid);
+    expect(result).toEqual(valid);
   });
 });

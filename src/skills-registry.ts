@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getSyncPaths } from './config.js';
 import { isNotFoundError } from './utils.js';
@@ -28,7 +28,11 @@ export async function loadSkillsRegistry(homeDir: string): Promise<SkillsRegistr
 
   try {
     const content = await readFile(path, 'utf8');
-    return normalizeSkillsRegistry(JSON.parse(content));
+    try {
+      return normalizeSkillsRegistry(JSON.parse(content));
+    } catch {
+      return { version: 1, skills: {} };
+    }
   } catch (error) {
     if (isNotFoundError(error)) {
       return { version: 1, skills: {} };
@@ -51,6 +55,8 @@ export function normalizeSkillsRegistry(value: unknown): SkillsRegistry {
 }
 
 export async function saveSkillsRegistry(homeDir: string, registry: SkillsRegistry): Promise<void> {
+  const { syncDir } = getSyncPaths(homeDir);
+  await mkdir(syncDir, { recursive: true });
   const path = getSkillsRegistryPath(homeDir);
   await writeFile(path, JSON.stringify(registry, null, 2) + '\n', 'utf8');
 }

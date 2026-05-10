@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config.js';
-import { ensureLinkedDirectory, formatLinkStatusMatrix, linkConfiguredSkills, unlinkSkill } from '../../src/linker.js';
+import { collectLinkStatus, ensureLinkedDirectory, formatLinkStatusMatrix, linkConfiguredSkills, unlinkSkill } from '../../src/linker.js';
 import type { LinkStatus } from '../../src/linker.js';
 
 describe('linker', () => {
@@ -94,6 +94,34 @@ describe('linker', () => {
     await unlinkSkill(homeDir, 'demo-skill');
 
     await expect(access(targetDir)).rejects.toThrow();
+  });
+
+  it('detects broken symlinks in collectLinkStatus', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
+    tempDirs.push(homeDir);
+
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const targetDir = join(agentDir, 'broken-skill');
+    const nonExistentSource = join(homeDir, '.syncskill', 'skills', 'deleted-skill');
+
+    await mkdir(agentDir, { recursive: true });
+    await symlink(nonExistentSource, targetDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: agentDir },
+        links: { 'broken-skill': ['claude'] },
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    const statuses = await collectLinkStatus(homeDir);
+
+    expect(statuses).toEqual([{ skill: 'broken-skill', agent: 'claude', state: 'broken' }]);
   });
 
   it('falls back to copy when symlink creation fails twice', async () => {
