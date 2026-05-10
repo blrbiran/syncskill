@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-10T13:45:04.366Z
-> Files: 68 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-10T14:43:41.811Z
+> Files: 73 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -15,7 +15,7 @@
 - `config.example.yaml` (~85 tok)
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
-- `package.json` — Node.js package manifest (~216 tok)
+- `package.json` — Node.js package manifest (~241 tok)
 - `README.md` — Project documentation (~987 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
@@ -35,21 +35,30 @@
 - `README.md` — Project documentation (~113 tok)
 - `usage-guide.md` — Usage Guide (~1527 tok)
 
+## docs/superpowers/plans/
+
+- `2026-05-10-install-command-and-syncskill-skill.md` — Install Command and Syncskill Skill Implementation Plan (~5646 tok)
+
 ## docs/superpowers/specs/
 
 - `syncskill-design.md` — Syncskill — TypeScript 实现设计，含 install 命令和 syncskill skill (~5800 tok)
+
+## skills/syncskill/
+
+- `SKILL.md` — syncskill (~665 tok)
 
 ## src/
 
 - `config-ui.ts` — Exports PromptApi, createPromptApi, SafeSelectResult, safeSelect + 8 more (~5776 tok)
 - `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 13 more (~2037 tok)
 - `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 5 more (~1129 tok)
-- `index.ts` — Exports createProgram (~9221 tok)
+- `index.ts` — Exports createProgram (~10021 tok)
+- `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~916 tok)
 - `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, formatLinkStatusMatrix + 8 more (~2787 tok)
 - `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3312 tok)
 - `matrix-editor.ts` — Exports MatrixEditorConfig, MatrixEditorResult, renderMatrixLine, createMatrixEditor (~2264 tok)
 - `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1329 tok)
-- `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~810 tok)
+- `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
 - `server.ts` — Exports ProbeLine, formatServerListLines, formatServerShowLines, formatProbeLines + 3 more (~438 tok)
 - `skills-ignore.ts` — Exports IgnoredSkillEntry, SkillsIgnore, getSkillsIgnorePath, loadSkillsIgnore + 4 more (~523 tok)
 - `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 11 more (~1357 tok)
@@ -78,10 +87,11 @@
 - `config-ui.test.ts` — PromptStub: createTestHome (~4190 tok)
 - `discover.test.ts` — Declares tempDirs (~3400 tok)
 - `help-output.test.ts` — Declares help (~184 tok)
+- `install-cli.test.ts` — Declares execFileAsync (~511 tok)
 - `README.md` — Project documentation (~37 tok)
 - `reconciliation-cli.test.ts` — Declares tempDirs (~6355 tok)
 - `remote-refresh.test.ts` — Declares tempDirs (~669 tok)
-- `repo.test.ts` — Declares tempDirs (~1210 tok)
+- `repo.test.ts` — Declares pathExists (~1883 tok)
 - `server-cli.test.ts` — Declares tempDirs (~1061 tok)
 - `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6228 tok)
 - `source-remove.test.ts` — Declares SyncSkillConfig (~3145 tok)
@@ -94,10 +104,11 @@
 - `config.test.ts` — Declares tempDirs (~1612 tok)
 - `conflict.test.ts` — Declares ServerManifest (~2429 tok)
 - `docs.test.ts` — Declares rootDir (~1312 tok)
+- `install.test.ts` — Declares path (~1694 tok)
 - `linker.test.ts` — Declares tempDirs (~2232 tok)
 - `manifest.test.ts` — Declares tempDirs (~2639 tok)
 - `matrix-editor.test.ts` — Declares config (~2278 tok)
-- `package.test.ts` — Declares rootDir (~364 tok)
+- `package.test.ts` — Declares rootDir (~584 tok)
 - `README.md` — Project documentation (~35 tok)
 - `refresh.test.ts` — Declares tempDirs (~5658 tok)
 - `server.test.ts` (~406 tok)

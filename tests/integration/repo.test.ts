@@ -1,12 +1,22 @@
-import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import { loadConfig } from '../../src/config.js';
+import { getEmbeddedSkillPath } from '../../src/install.js';
 import { initializeRepo } from '../../src/repo.js';
 import { useTempDirs } from '../helpers/temp-dir.js';
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 describe('initializeRepo', () => {
   const tempDirs = useTempDirs();
@@ -115,5 +125,59 @@ describe('initializeRepo', () => {
       servers: {},
       sources: {}
     });
+  });
+
+  it('skips syncskill skill installation with skipSkill option', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-repo-'));
+    tempDirs.push(homeDir);
+
+    await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
+
+    await initializeRepo(homeDir, { skipSources: true, skipSkill: true });
+
+    // Verify syncskill skill was NOT installed
+    const syncskillPath = join(homeDir, '.syncskill', 'skills', 'syncskill');
+    expect(await pathExists(syncskillPath)).toBe(false);
+  });
+
+  it('auto-installs syncskill skill with yes option when embedded skill exists', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-repo-'));
+    tempDirs.push(homeDir);
+
+    await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
+
+    // Check if embedded skill exists (requires build to have run)
+    const embeddedPath = getEmbeddedSkillPath();
+    const embeddedExists = await pathExists(join(embeddedPath, 'SKILL.md'));
+
+    if (!embeddedExists) {
+      // Skip test if embedded skill doesn't exist
+      return;
+    }
+
+    await initializeRepo(homeDir, { skipSources: true, yes: true });
+
+    // Verify syncskill skill was installed
+    const syncskillPath = join(homeDir, '.syncskill', 'skills', 'syncskill');
+    expect(await pathExists(syncskillPath)).toBe(true);
+
+    // Verify config has the link
+    const config = await loadConfig(homeDir);
+    expect(config.links['syncskill']).toBeDefined();
+  });
+
+  it('does not prompt in non-TTY environment', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-repo-'));
+    tempDirs.push(homeDir);
+
+    await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
+
+    // In test environment, stdin/stdout are not TTY, so it should skip prompting
+    // and not install the skill (since yes: false is the default)
+    await initializeRepo(homeDir, { skipSources: true });
+
+    // The skill should NOT be installed since we're not in TTY and didn't pass yes: true
+    const syncskillPath = join(homeDir, '.syncskill', 'skills', 'syncskill');
+    expect(await pathExists(syncskillPath)).toBe(false);
   });
 });
