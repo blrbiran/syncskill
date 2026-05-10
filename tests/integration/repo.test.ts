@@ -1,18 +1,15 @@
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { loadConfig } from '../../src/config.js';
 import { initializeRepo } from '../../src/repo.js';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 describe('initializeRepo', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('creates the syncskill directory structure and config file', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-repo-'));

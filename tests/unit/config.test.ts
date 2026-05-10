@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   createDefaultConfig,
@@ -15,6 +15,7 @@ import {
   saveConfig,
   validateConfig
 } from '../../src/config.js';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 describe('config path helpers', () => {
   it('returns the sync directory for a home directory', () => {
@@ -34,11 +35,7 @@ describe('config path helpers', () => {
 });
 
 describe('detectAgents', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('returns only known directories that exist as a record of full paths', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-'));
@@ -59,11 +56,7 @@ describe('detectAgents', () => {
 });
 
 describe('config persistence', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('saves and loads a valid config with record-form agents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-'));

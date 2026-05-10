@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 
 import { expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, saveConfig, type SyncSkillConfig } from './config.js';
 import { buildSkillsIndex, saveSkillsIndex } from './source.js';
+import { isNotFoundError, pathExists } from './utils.js';
 
 export interface ScanOptions {
   allAgents: boolean;
@@ -101,14 +102,7 @@ async function listSkillDirectoriesFiltered(root: string): Promise<string[]> {
   }
 }
 
-async function pathExists(target: string): Promise<boolean> {
-  try {
-    await stat(target);
-    return true;
-  } catch {
-    return false;
-  }
-}
+// pathExists is now imported from utils.ts
 
 export async function ensureLinkedDirectory(
   sourceDir: string,
@@ -199,11 +193,10 @@ export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> 
           results.push({ skill, agent, state: 'copied' });
         }
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        if (isNotFoundError(error)) {
           results.push({ skill, agent, state: 'missing' });
           continue;
         }
-
         throw error;
       }
     }

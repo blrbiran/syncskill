@@ -2,6 +2,7 @@ import { mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getConfiguredServer, loadConfig, getSyncPaths } from './config.js';
+import { isNotFoundError } from './utils.js';
 import { getDiffRows, getStatusRows, reconcileManifest } from './conflict.js';
 import {
   loadServerManifest,
@@ -118,10 +119,9 @@ async function listConfiguredServers(homeDir: string): Promise<string[]> {
   try {
     return Object.keys((await loadConfig(homeDir)).servers).sort();
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isNotFoundError(error)) {
       return [];
     }
-
     throw error;
   }
 }

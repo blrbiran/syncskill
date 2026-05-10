@@ -7,6 +7,56 @@ import { Command, InvalidArgumentError } from 'commander';
 
 import { checkbox, select, confirm } from '@inquirer/prompts';
 
+interface SelectServersOptions {
+  all?: boolean;
+  yes?: boolean;
+}
+
+async function selectTargetServers(
+  allServers: string[],
+  server: string | undefined,
+  options: SelectServersOptions,
+  action: 'push' | 'pull'
+): Promise<string[] | null> {
+  if (options.all) {
+    return allServers;
+  }
+
+  if (server) {
+    return [server];
+  }
+
+  if (allServers.length === 0) {
+    console.error('No servers configured.');
+    process.exit(1);
+    return null; // unreachable, but satisfies TypeScript
+  }
+
+  if (allServers.length === 1 || options.yes) {
+    return allServers;
+  }
+
+  const message = action === 'push' ? 'Select servers to push:' : 'Select servers to pull from:';
+  const selected = await checkbox({
+    message,
+    choices: [
+      { name: 'All servers', value: '__all__', checked: true },
+      ...allServers.map(s => ({ name: s, value: s }))
+    ]
+  });
+
+  if (selected.includes('__all__')) {
+    return allServers;
+  }
+
+  if (selected.length === 0) {
+    console.log('No servers selected. Cancelled.');
+    return null;
+  }
+
+  return selected;
+}
+
 import { applyResolution, formatConflictMarker, reconcileManifest } from './conflict.js';
 import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
 import { createPromptApi, runConfigUi } from './config-ui.js';
@@ -749,37 +799,8 @@ export function createProgram(homeDir?: string): Command {
       const config = await loadConfig(resolvedHomeDir);
       const allServers = Object.keys(config.servers).sort();
 
-      let targetServers: string[];
-
-      if (options.all) {
-        targetServers = allServers;
-      } else if (server) {
-        targetServers = [server];
-      } else if (allServers.length === 0) {
-        console.error('No servers configured.');
-        process.exit(1);
-      } else if (allServers.length === 1 || options.yes) {
-        // Single server or -y flag: no prompt needed
-        targetServers = allServers;
-      } else {
-        // Interactive selection with checkbox
-        const selected = await checkbox({
-          message: 'Select servers to push:',
-          choices: [
-            { name: 'All servers', value: '__all__', checked: true },
-            ...allServers.map(s => ({ name: s, value: s }))
-          ]
-        });
-
-        if (selected.includes('__all__')) {
-          targetServers = allServers;
-        } else if (selected.length === 0) {
-          console.log('No servers selected. Cancelled.');
-          return;
-        } else {
-          targetServers = selected;
-        }
-      }
+      const targetServers = await selectTargetServers(allServers, server, options, 'push');
+      if (!targetServers) return;
 
       const results = await pushToServers(resolvedHomeDir, targetServers, { dryRun: options.dryRun });
 
@@ -800,37 +821,8 @@ export function createProgram(homeDir?: string): Command {
       const config = await loadConfig(resolvedHomeDir);
       const allServers = Object.keys(config.servers).sort();
 
-      let targetServers: string[];
-
-      if (options.all) {
-        targetServers = allServers;
-      } else if (server) {
-        targetServers = [server];
-      } else if (allServers.length === 0) {
-        console.error('No servers configured.');
-        process.exit(1);
-      } else if (allServers.length === 1 || options.yes) {
-        // Single server or -y flag: no prompt needed
-        targetServers = allServers;
-      } else {
-        // Interactive selection with checkbox
-        const selected = await checkbox({
-          message: 'Select servers to pull from:',
-          choices: [
-            { name: 'All servers', value: '__all__', checked: true },
-            ...allServers.map(s => ({ name: s, value: s }))
-          ]
-        });
-
-        if (selected.includes('__all__')) {
-          targetServers = allServers;
-        } else if (selected.length === 0) {
-          console.log('No servers selected. Cancelled.');
-          return;
-        } else {
-          targetServers = selected;
-        }
-      }
+      const targetServers = await selectTargetServers(allServers, server, options, 'pull');
+      if (!targetServers) return;
 
       const results = await pullFromServers(resolvedHomeDir, targetServers, { dryRun: options.dryRun });
 

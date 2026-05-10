@@ -44,6 +44,7 @@ syncskill/
     ├── transport.ts               # SSH/rsync 传输 + 降级
     ├── conflict.ts                # 三路冲突检测与解决
     ├── refresh.ts                 # 全局自动刷新钩子
+    ├── utils.ts                   # 共享工具函数 (错误处理、路径检查)
     └── receiver/
         ├── bootstrap_remote.sh    # 远程部署脚本
         └── sync_receiver.mjs      # 远程零依赖接收脚本

@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import type { SyncSkillConfig } from './config.js';
 import { getSyncPaths, loadConfig, saveConfig } from './config.js';
 import { isSkillIgnored, loadSkillsIgnore, removeIgnoredSkill, saveSkillsIgnore } from './skills-ignore.js';
+import { isNotFoundError, pathExists } from './utils.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -240,10 +241,9 @@ export async function loadSourceState(homeDir = homedir(), name: string): Promis
   try {
     return normalizeSourceState(JSON.parse(await readFile(stateFile, 'utf8')));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isNotFoundError(error)) {
       return null;
     }
-
     throw error;
   }
 }
@@ -455,10 +455,9 @@ export async function loadSkillOwnershipState(homeDir: string): Promise<SkillOwn
     const value = JSON.parse(await readFile(stateFile, 'utf8'));
     return normalizeSkillOwnershipState(value);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isNotFoundError(error)) {
       return { owners: {} };
     }
-
     throw error;
   }
 }
@@ -483,7 +482,7 @@ export async function loadSkillsIndex(homeDir = homedir()): Promise<SkillsIndex>
     const raw = await readFile(indexFile, 'utf-8');
     return normalizeSkillsIndex(JSON.parse(raw));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isNotFoundError(error)) {
       return { version: 1, skills: {} };
     }
     throw error;
@@ -696,7 +695,7 @@ async function listSkillDirectoriesWithSkillMd(root: string): Promise<string[]> 
 
     return skills.sort();
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isNotFoundError(error)) {
       return [];
     }
     throw error;
@@ -827,10 +826,9 @@ async function isReusableManagedCopiedTarget(targetPath: string): Promise<boolea
     const stats = await lstat(targetPath);
     return stats.isDirectory() && !stats.isSymbolicLink();
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isNotFoundError(error)) {
       return false;
     }
-
     throw error;
   }
 }
@@ -845,10 +843,9 @@ async function readlinkIfMatches(targetDir: string): Promise<string | null> {
 
     return resolve(dirname(targetDir), await readlink(targetDir));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isNotFoundError(error)) {
       return null;
     }
-
     throw error;
   }
 }
@@ -857,10 +854,9 @@ async function isSymbolicLink(targetPath: string): Promise<boolean> {
   try {
     return (await lstat(targetPath)).isSymbolicLink();
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isNotFoundError(error)) {
       return false;
     }
-
     throw error;
   }
 }
@@ -974,18 +970,8 @@ export async function detectGitDefaultBranch(url: string): Promise<string> {
   }
 }
 
-export async function pathExists(targetPath: string): Promise<boolean> {
-  try {
-    await lstat(targetPath);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return false;
-    }
-
-    throw error;
-  }
-}
+// pathExists is now exported from utils.ts and re-exported here for backwards compatibility
+export { pathExists } from './utils.js';
 
 export async function discoverSourceSkills(
   sourceRoot: string,

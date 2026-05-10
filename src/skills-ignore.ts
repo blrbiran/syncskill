@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getSyncPaths } from './config.js';
+import { isNotFoundError } from './utils.js';
 
 export interface IgnoredSkillEntry {
   path: string;
@@ -30,7 +31,7 @@ export async function loadSkillsIgnore(homeDir: string): Promise<SkillsIgnore> {
     const content = await readFile(path, 'utf8');
     return JSON.parse(content) as SkillsIgnore;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isNotFoundError(error)) {
       return { version: 1, ignored: {} };
     }
     throw error;

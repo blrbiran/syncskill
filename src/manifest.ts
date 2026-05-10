@@ -4,6 +4,7 @@ import { join, relative } from 'node:path';
 
 import { getSyncPaths } from './config.js';
 import { reconcileManifest } from './conflict.js';
+import { isNotFoundError } from './utils.js';
 
 export async function listLocalSkillNames(homeDir: string): Promise<string[]> {
   const { skillsDir } = getSyncPaths(homeDir);
@@ -97,10 +98,9 @@ export async function loadServerManifest(homeDir: string, server: string): Promi
       )
     };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isNotFoundError(error)) {
       return createEmptyManifest(server);
     }
-
     throw error;
   }
 }
@@ -122,10 +122,9 @@ export async function loadManifestHistory(homeDir: string): Promise<ManifestHist
       entries: Array.isArray(raw.entries) ? raw.entries.flatMap(normalizeHistoryEntry) : []
     };
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isNotFoundError(error)) {
       return { version: 1, entries: [] };
     }
-
     throw error;
   }
 }
