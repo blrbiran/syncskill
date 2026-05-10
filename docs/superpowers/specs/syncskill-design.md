@@ -1,8 +1,7 @@
 # Syncskill — TypeScript 实现设计
 
-> 日期：2026-04-30（更新：2026-05-10，新增 install 命令和 syncskill skill）
+> 更新日期：2026-05-10
 > 状态：草稿
-> 作者：biran.bi
 
 ## 1. 概述
 
@@ -68,41 +67,116 @@ syncskill/
 
 ### 3.1 `index.ts` — CLI 入口
 
-使用 `commander` 实现，与 Python `cli.py` 对等。命令列表：
+使用 `commander` 实现。命令列表：
+
+**初始化与安装**
 
 | 命令 | 说明 |
 |------|------|
-| `init [--skip-sources] [--skip-skill]` | 创建 `~/.syncskill/` 目录结构和 config.yaml，交互式询问是否安装 syncskill skill |
+| `init [--skip-sources] [--skip-skill] [-y/--yes]` | 创建 `~/.syncskill/` 目录结构和 config.yaml，交互式询问是否安装 syncskill skill |
 | `install [url-or-path]` / `i` | 安装 skill。无参数安装 syncskill skill；有参数等同于 `source add` + 自动 link |
-| `link [<skill> \| list \| ls \| --list] [-v]` | 管理 agent 目录软链接。无参数进入矩阵编辑器；`list`/`ls`/`--list` 显示状态（有重名 skill 时优先匹配 skill，此时用 `--list`） |
-| `unlink <skill>` | 删除 skill 的软链接 |
-| `source add <url-or-path> [--name <n>] [--path <p>] [--type git\|http\|local] [-y/--yes]` | 添加外部来源（支持 GitHub URL 直接解析，自动推断参数） |
-| `source update [--all \| <name>]` | 更新来源 |
-| `source list` | 列出来源 |
-| `source remove <name>` | 移除外部来源（交互式选择处理方式） |
-| `scan [--migrate]` | 扫描已有 sources 中新增的 skill + 检测未纳管的本地 skill。`--migrate` 将 agent 目录中未纳管的 skill 迁移到 ~/.syncskill/skills/。注：`source add` 添加新来源时会自动扫描，`scan` 用于检测已有来源的增量变化 |
-| `push [<server>] [--all] [--dry-run]` | 推送到远程；无参数时交互式选择服务器（首选项为 All servers） |
-| `pull [<server>] [--all] [--dry-run]` | 从远程拉取；无参数时交互式选择服务器 |
-| `sync [<server>] [--all] [--dry-run]` | 一键全量同步：先 pull 所有远程变更到本地，再 push 本地变更到所有服务器 |
-| `status` | 显示同步状态 |
-| `diff <server>` | 显示待同步变更 |
-| `resolve <skill> [--local \| --remote] [--diff]` | 解决冲突：无参数交互式选择，`--local`/`--remote` 指定覆盖方向，`--diff` 可单独或组合使用 |
-| `refresh [--local \| --remote \| --all \| --status] [server]` | 刷新 manifest。默认 `--all` + `--status` |
-| `config [section]` | 交互式编辑配置文件（主菜单） |
-| `config show` | 打印当前配置 |
-| `config set <key> <value>` | 设置单个配置项 |
-| `config server` | 直接进入服务器管理菜单 |
-| `config remote` | 直接进入远程配置矩阵（skills × servers） |
-| `server` | 快捷入口，等同于 `config server` |
+
+`install` 完整参数：
+- `--name <name>`：指定 source 名称
+- `--path <path>`：指定存储路径
+- `--skill-subdir <dir>`：指定 skill 所在子目录
+- `--ref <ref>`：Git ref（branch/tag）
+- `-y/--yes`：跳过确认
+
+**Link 管理**
+
+| 命令 | 说明 |
+|------|------|
+| `link` | 进入 skills × agents 矩阵编辑器 |
+| `link <skill>` | 链接指定 skill 到配置的 agents |
+| `link --all` | 链接所有已配置的 skills |
+| `link list` / `link ls` / `link --list` | 显示链接状态矩阵 |
+| `link -v/--verbose` | 与 `list` 组合使用，显示文字状态而非符号 |
+| `link --dry-run` | 预览链接操作 |
+| `unlink <skill> [-y/--yes] [--dry-run]` | 删除 skill 的软链接 |
+
+注：当存在与 `list` 同名的 skill 时，优先匹配 skill，此时需使用 `link --list` 查看状态。
+
+**Source 管理**
+
+| 命令 | 说明 |
+|------|------|
+| `source add <url-or-path>` | 添加外部来源（支持 GitHub URL 直接解析） |
+| `source list` / `source ls` | 列出来源 |
+| `source update [name]` | 更新指定来源，无参数或 `--all` 更新全部 |
+| `source remove <name> [--force]` | 移除外部来源（交互式选择处理方式） |
+
+`source add` 完整参数：
+- `--name <name>`：指定 source 名称（默认从 URL 推断）
+- `--path <path>`：指定存储路径
+- `--skill-subdir <dir>`：指定 skill 所在子目录
+- `--type git|http|local`：指定来源类型（默认自动检测）
+- `--ref <ref>`：Git ref（branch/tag）
+- `-y/--yes`：跳过确认，自动选中所有 skills
+
+**Scan 扫描**
+
+| 命令 | 说明 |
+|------|------|
+| `scan` | 扫描 sources 中新增的 skill + 检测 agent 目录中未纳管的 skill |
+| `scan --migrate` | 将 agent 目录中未纳管的 skill 迁移到 ~/.syncskill/skills/ |
+| `scan --dry-run` | 预览扫描结果，不执行任何操作 |
+
+**Server 管理**
+
+| 命令 | 说明 |
+|------|------|
+| `server` | 快捷入口，等同于 `config server`（进入服务器管理菜单） |
+| `server list` / `server ls` | 列出已配置的远程服务器 |
+| `server show <name>` | 显示指定服务器的配置详情 |
 | `server probe <name>` | 诊断服务器状态（SSH 连通性、Node 版本、receiver 部署状态、最后同步时间） |
-| `remote` | 快捷入口，等同于 `config remote` |
+
+**Remote 管理**
+
+| 命令 | 说明 |
+|------|------|
+| `remote` | 快捷入口，等同于 `config remote`（进入 skills × servers 矩阵编辑器） |
+
+**同步操作**
+
+| 命令 | 说明 |
+|------|------|
+| `push [server] [--all] [-y/--yes] [--dry-run]` | 推送到远程；无参数时交互式选择服务器 |
+| `pull [server] [--all] [-y/--yes] [--dry-run]` | 从远程拉取；无参数时交互式选择服务器 |
+| `sync [server] [--all] [--dry-run]` | 一键全量同步：先 pull 再 push |
+| `status` | 显示所有 tracked manifests 的同步状态 |
+| `diff <server>` | 显示指定服务器的待同步变更 |
+| `resolve <skill>` | 交互式解决冲突 |
+| `resolve <skill> --local` | 保留本地版本，覆盖远程 |
+| `resolve <skill> --remote` | 保留远程版本，覆盖本地 |
+| `resolve <skill> --diff` | 只显示 hash 差异 |
+| `refresh [server]` | 刷新 manifest 状态（默认 `--all --status`） |
+| `refresh --local` | 只刷新本地 hash |
+| `refresh --remote` | 只刷新远程 hash |
+| `refresh --status` | 刷新后显示状态 |
+
+**Config 配置**
+
+| 命令 | 说明 |
+|------|------|
+| `config` | 进入交互式配置主菜单 |
+| `config show` | 打印当前配置（JSON 格式） |
+| `config set <key> <value>` | 设置单个配置项 |
+| `config set --show-paths` | 显示所有可配置的路径 |
+| `config link` | 进入 links 矩阵编辑器（已废弃，请用 `link`） |
+| `config server` | 进入服务器管理菜单 |
+| `config remote` | 进入 remote 矩阵编辑器 |
 
 **全局参数**：
 - `--no-refresh`：跳过自动刷新
-- `-y` / `--yes`：跳过交互确认（适用于 source add、push --all 等）
-- `--dry-run`：预览变更但不执行（全局 flag，所有写操作均支持）
+- `-y` / `--yes`：跳过交互确认
+- `--dry-run`：预览变更但不执行
 
-所有命令（除 `init` 和 `config`）执行前自动调用 `autoRefreshManifests()` 钩子。当服务器数量 ≥ 3 时，`init` 和 `server add` 命令结束后打印提示：
+所有命令（除 `init`、`config`、`refresh`）执行前自动调用 `autoRefreshManifests()` 钩子。
+
+**3+ 服务器提示**：当服务器数量 ≥ 3 时，以下场景会打印提示：
+- `init` 命令结束后
+- 退出 `config server` UI 时（如果服务器数量从 <3 变为 ≥3）
 
 ```
 Note: With 3+ servers, auto-refresh may be slow.
@@ -149,6 +223,8 @@ Configuration Menu
 **所有子菜单均支持 Esc 返回功能**：
 - 统一行为：从子菜单进入的嵌套层级中，Esc 始终返回上一级；在主菜单（第一层）按 Esc 退出 CLI
 - 所有修改即时生效，Esc 退出子菜单时自动调用 `saveConfig()` 写入 config.yaml
+
+**config.yaml links 保存时的通配符优化**：保存 links 配置时，如果某个 skill 选中了所有已配置的 agents，写入 `["*"]` 而不是逐个列出所有 agent 名称。这使 config.yaml 更简洁可读。
 
 **矩阵编辑器（Matrix Editor）** — `@inquirer/core` `createPrompt` 自定义组件
 
@@ -579,7 +655,7 @@ Summary: 1 skill changed, 2 files added, 1 file modified, 1 file deleted
 - `remote_hash` vs `recorded_remote` → 远程是否变更
 
 策略：
-- `manual`（默认）：跳过，生成 `.sync-conflict` 标记
+- `manual`（默认）：跳过冲突 skill，在 manifest 中标记 `direction: conflict`，用户通过 `syncskill status` 查看、`syncskill resolve` 解决
 - `keep-local`：本地覆盖远程
 - `keep-remote`：远程覆盖本地
 
