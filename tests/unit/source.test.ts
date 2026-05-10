@@ -149,6 +149,41 @@ describe('source module', () => {
     ]);
   });
 
+  it('listSources supports legacy store field for backward compatibility', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    // Simulate an old config file using 'store' instead of 'path'
+    const syncDir = join(homeDir, '.syncskill');
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      `version: 1
+conflict_resolution: manual
+agents: {}
+links: {}
+servers: {}
+sources:
+  legacy-source:
+    type: git
+    url: https://example.com/repo.git
+    store: skills
+    ref: main
+`
+    );
+
+    const sources = await listSources(homeDir);
+    expect(sources).toEqual([
+      {
+        name: 'legacy-source',
+        type: 'git',
+        url: 'https://example.com/repo.git',
+        path: 'skills',
+        ref: 'main'
+      }
+    ]);
+  });
+
   it('materializeSource symlinks local-source skills into the sync store and records state', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
     tempDirs.push(homeDir);

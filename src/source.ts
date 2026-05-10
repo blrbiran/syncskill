@@ -415,15 +415,17 @@ function normalizeSourceEntry(name: string, value: unknown): SourceEntry[] {
     return [];
   }
 
-  if (typeof value.url !== 'string' || typeof value.path !== 'string') {
+  // Support legacy 'store' field for backward compatibility
+  const pathValue = typeof value.path === 'string' ? value.path : (value as Record<string, unknown>).store;
+  if (typeof value.url !== 'string' || typeof pathValue !== 'string') {
     return [];
   }
 
   if (typeof value.ref === 'string') {
-    return [{ name, type: value.type, url: value.url, path: value.path, ref: value.ref }];
+    return [{ name, type: value.type, url: value.url, path: pathValue, ref: value.ref }];
   }
 
-  return [{ name, type: value.type, url: value.url, path: value.path }];
+  return [{ name, type: value.type, url: value.url, path: pathValue }];
 }
 
 function normalizeSourceState(value: unknown): SourceState {

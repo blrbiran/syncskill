@@ -27,7 +27,7 @@ describe('removeSource', () => {
         'test-source': {
           type: 'git',
           url: 'https://github.com/test/repo.git',
-          store: '.'
+          path: '.'
         }
       }
     }, homeDir);
@@ -51,7 +51,7 @@ describe('removeSource', () => {
         'test-source': {
           type: 'git',
           url: 'https://github.com/test/repo.git',
-          store: '.'
+          path: '.'
         }
       }
     }, homeDir);
@@ -89,7 +89,7 @@ describe('removeSource with RemovalAction', () => {
         version: 1,
         agents: { claude: '~/.claude/skills' },
         links: { 'skill-a': ['*'] },
-        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', store: '.' } },
+        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', path: '.' } },
         servers: {},
         conflict_resolution: 'manual',
       })
@@ -110,7 +110,7 @@ describe('removeSource with RemovalAction', () => {
     expect(config.sources['test-source']).toBeDefined();
     expect(config.sources['test-source'].type).toBe('local');
     expect(config.sources['test-source'].url).toContain('checkout');
-    expect(config.sources['test-source'].store).toBe('.');
+    expect(config.sources['test-source'].path).toBe('.');
   });
 
   it('removes config but keeps files with RemovalAction.RemoveConfigKeepFiles', async () => {
@@ -129,7 +129,7 @@ describe('removeSource with RemovalAction', () => {
         version: 1,
         agents: { claude: '~/.claude/skills' },
         links: { 'skill-a': ['*'] },
-        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', store: '.' } },
+        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', path: '.' } },
         servers: {},
         conflict_resolution: 'manual',
       })
@@ -169,7 +169,7 @@ describe('removeSource with RemovalAction', () => {
         version: 1,
         agents: { claude: '~/.claude/skills' },
         links: { 'skill-a': ['*'] },
-        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', store: '.' } },
+        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', path: '.' } },
         servers: {},
         conflict_resolution: 'manual',
       })
@@ -207,7 +207,7 @@ describe('removeSource with RemovalAction', () => {
         version: 1,
         agents: { claude: '~/.claude/skills' },
         links: {},
-        sources: { 'test-source': { type: 'local', url: '/some/path', store: '.' } },
+        sources: { 'test-source': { type: 'local', url: '/some/path', path: '.' } },
         servers: {},
         conflict_resolution: 'manual',
       })
