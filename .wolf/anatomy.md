@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-10T14:43:41.811Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-10T15:40:45.267Z
 > Files: 73 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
@@ -35,13 +35,9 @@
 - `README.md` — Project documentation (~113 tok)
 - `usage-guide.md` — Usage Guide (~1527 tok)
 
-## docs/superpowers/plans/
-
-- `2026-05-10-install-command-and-syncskill-skill.md` — Install Command and Syncskill Skill Implementation Plan (~5646 tok)
-
 ## docs/superpowers/specs/
 
-- `syncskill-design.md` — Syncskill — TypeScript 实现设计，含 install 命令和 syncskill skill (~5800 tok)
+- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~5808 tok)
 
 ## skills/syncskill/
 
@@ -49,12 +45,12 @@
 
 ## src/
 
-- `config-ui.ts` — Exports PromptApi, createPromptApi, SafeSelectResult, safeSelect + 8 more (~5776 tok)
+- `config-ui.ts` — Threshold for showing auto-refresh warning (~5954 tok)
 - `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 13 more (~2037 tok)
 - `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 5 more (~1129 tok)
-- `index.ts` — Exports createProgram (~10021 tok)
+- `index.ts` — Exports createProgram (~10232 tok)
 - `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~916 tok)
-- `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, formatLinkStatusMatrix + 8 more (~2787 tok)
+- `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, formatLinkStatusMatrix + 8 more (~2823 tok)
 - `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3312 tok)
 - `matrix-editor.ts` — Exports MatrixEditorConfig, MatrixEditorResult, renderMatrixLine, createMatrixEditor (~2264 tok)
 - `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1329 tok)
@@ -84,9 +80,9 @@
 ## tests/integration/
 
 - `config-cli.test.ts` — Declares homeDir (~2536 tok)
-- `config-ui.test.ts` — PromptStub: createTestHome (~4190 tok)
-- `discover.test.ts` — Declares tempDirs (~3400 tok)
-- `help-output.test.ts` — Declares help (~184 tok)
+- `config-ui.test.ts` — Declares PromptStub (~4796 tok)
+- `discover.test.ts` — Declares tempDirs (~3869 tok)
+- `help-output.test.ts` — Declares help (~421 tok)
 - `install-cli.test.ts` — Declares execFileAsync (~511 tok)
 - `README.md` — Project documentation (~37 tok)
 - `reconciliation-cli.test.ts` — Declares tempDirs (~6355 tok)
