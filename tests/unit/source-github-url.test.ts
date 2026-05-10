@@ -70,7 +70,7 @@ describe('parseGitHubUrl', () => {
 describe('addSourceFromUrl', () => {
   const tempDirs = useTempDirs();
 
-  it('auto-derives name, type, url, store, and ref from GitHub tree URL', async () => {
+  it('auto-derives name, type, url, path, and ref from GitHub tree URL', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-url-'));
     tempDirs.push(homeDir);
     await mkdir(join(homeDir, '.syncskill'), { recursive: true });
@@ -117,7 +117,7 @@ describe('addSourceFromUrl', () => {
     ).rejects.toThrow('Could not parse URL');
   });
 
-  it('accepts non-GitHub URL with explicit type and store', async () => {
+  it('accepts non-GitHub URL with explicit type and path', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-url-'));
     tempDirs.push(homeDir);
     await mkdir(join(homeDir, '.syncskill'), { recursive: true });

@@ -1078,11 +1078,11 @@ export async function addSourceFromUrl(
     }
 
     const name = options.name ?? parsed.skillName;
-    const store = options.path ?? join(syncDir, 'sources', parsed.repo);
+    const targetPath = options.path ?? join(syncDir, 'sources', parsed.repo);
     const source: SourceDefinition = {
       type: options.type ?? 'git',
       url: parsed.cloneUrl,
-      path: relative(syncDir, store) || '.',
+      path: relative(syncDir, targetPath) || '.',
       ...(parsed.branch || options.ref ? { ref: options.ref ?? parsed.branch } : {}),
     };
 

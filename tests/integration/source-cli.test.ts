@@ -357,7 +357,7 @@ describe('source add --path option', () => {
     vi.restoreAllMocks();
   });
 
-  it('treats --path as shorthand for --url + --store=. for local sources', async () => {
+  it('treats --path as shorthand for --url + --path=. for local sources', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-path-'));
     tempDirs.push(homeDir);
     const localSkillDir = join(homeDir, 'my-local-skills');
@@ -369,7 +369,7 @@ describe('source add --path option', () => {
     // Create minimal config
     await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
 
-    // Run source add with --path (shorthand for --url <path> --store .)
+    // Run source add with --path (shorthand for --url <path> --path .)
     await createProgram(homeDir).parseAsync(
       [
         'node',
@@ -385,7 +385,7 @@ describe('source add --path option', () => {
       { from: 'node' }
     );
 
-    // Verify source was added: url = path value, store = '.'
+    // Verify source was added: url = path value, path = '.'
     const config = await loadConfig(homeDir);
     expect(config.sources['my-local']).toBeDefined();
     const source = config.sources['my-local'] as Record<string, unknown>;
