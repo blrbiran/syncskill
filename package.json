@@ -6,8 +6,12 @@
   "bin": {
     "syncskill": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "skills"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && shx cp -r skills dist/",
     "dev": "tsx src/index.ts",
     "test": "vitest run tests/unit",
     "test:unit": "vitest run tests/unit",
@@ -23,6 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.3",
+    "shx": "^0.4.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
