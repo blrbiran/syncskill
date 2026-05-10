@@ -9,7 +9,7 @@ import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js
 import { createProgram } from '../../src/index.js';
 
 describe('config CLI', () => {
-  it('init, scan, and link --status work together for one local skill', async () => {
+  it('init, scan, and link list work together for one local skill', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);
 
@@ -22,9 +22,12 @@ describe('config CLI', () => {
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--status'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'list'], { from: 'node' });
 
-    expect(consoleLog).toHaveBeenCalledWith('welcome\tclaude\tlinked');
+    // Check that the matrix format output was logged (contains skill name and linked symbol)
+    const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
+    expect(loggedOutput).toContain('welcome');
+    expect(loggedOutput).toContain('✓'); // linked symbol
   });
 
   const tempDirs = useTempDirs();

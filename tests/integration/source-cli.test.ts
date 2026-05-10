@@ -61,7 +61,7 @@ describe('source CLI', () => {
         'local',
         '--url',
         sourceRoot,
-        '--store',
+        '--path',
         '.'
       ],
       { from: 'node' }
@@ -100,7 +100,7 @@ describe('source CLI', () => {
         'git',
         '--url',
         'https://example.com/team.git',
-        '--store',
+        '--path',
         'skills',
         '--ref',
         'main'
@@ -143,7 +143,7 @@ describe('source CLI', () => {
           'local',
           '--url',
           sourceRoot,
-          '--store',
+          '--path',
           '.'
         ],
         { from: 'node' }
@@ -175,7 +175,7 @@ describe('source CLI', () => {
         'git',
         '--url',
         bareRepoDir,
-        '--store',
+        '--path',
         'source.store',
         '--ref',
         'main'
@@ -221,7 +221,7 @@ describe('source CLI', () => {
         'local',
         '--url',
         sourceAlpha,
-        '--store',
+        '--path',
         'skills'
       ],
       { from: 'node' }
@@ -237,7 +237,7 @@ describe('source CLI', () => {
         'local',
         '--url',
         sourceBeta,
-        '--store',
+        '--path',
         'bundle'
       ],
       { from: 'node' }
@@ -281,7 +281,7 @@ describe('source CLI', () => {
         'local',
         '--url',
         join(homeDir, 'source-zeta'),
-        '--store',
+        '--path',
         'skills'
       ],
       { from: 'node' }
@@ -297,7 +297,7 @@ describe('source CLI', () => {
         'local',
         '--url',
         join(homeDir, 'source-alpha'),
-        '--store',
+        '--path',
         'bundle'
       ],
       { from: 'node' }
@@ -313,7 +313,7 @@ describe('source CLI', () => {
         'git',
         '--url',
         'https://example.com/zeta.git',
-        '--store',
+        '--path',
         'skills',
         '--ref',
         'main'
@@ -331,7 +331,7 @@ describe('source CLI', () => {
         'http',
         '--url',
         'https://example.com/alpha.zip',
-        '--store',
+        '--path',
         'bundle'
       ],
       { from: 'node' }
@@ -397,53 +397,13 @@ describe('source add --path option', () => {
     await expect(readlink(join(homeDir, '.syncskill', 'skills', 'local-skill'))).resolves.toBe(join(localSkillDir, 'local-skill'));
   });
 
-  it('--store takes precedence over default when --path is also provided', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-path-precedence-'));
-    tempDirs.push(homeDir);
-    const pathDir = join(homeDir, 'path-dir');
-
-    // Create a skill in pathDir/skills subdirectory
-    await mkdir(join(pathDir, 'skills', 'skill-x'), { recursive: true });
-    await writeFile(join(pathDir, 'skills', 'skill-x', 'SKILL.md'), '# X');
-
-    // Create minimal config
-    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
-
-    // Run source add with both --path and explicit --store
-    // --path sets the url, --store overrides the default '.'
-    await createProgram(homeDir).parseAsync(
-      [
-        'node',
-        'syncskill',
-        'source',
-        'add',
-        'local-src',
-        '--type',
-        'local',
-        '--path',
-        pathDir,
-        '--store',
-        'skills'
-      ],
-      { from: 'node' }
-    );
-
-    // Verify --store takes precedence over default
-    const config = await loadConfig(homeDir);
-    const source = config.sources['local-src'] as Record<string, unknown>;
-    expect(source.url).toBe(pathDir);
-    expect(source.store).toBe('skills');
-
-    // Verify skill was materialized from the skills subdirectory
-    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'skill-x'))).resolves.toBe(join(pathDir, 'skills', 'skill-x'));
-  });
 });
 
-describe('skills-index generation', () => {
+describe('skills-registry generation', () => {
   const tempDirs = useTempDirs();
 
-  it('generates skills-index.json after link --all', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-index-'));
+  it('generates skills-registry.json after link --all', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-registry-'));
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
     const skillsDir = join(syncDir, 'skills');
@@ -469,16 +429,17 @@ describe('skills-index generation', () => {
     // Run link --all
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all'], { from: 'node' });
 
-    // Check skills-index.json was created
-    const indexPath = join(syncDir, 'skills-index.json');
-    const index = JSON.parse(await readFile(indexPath, 'utf-8'));
-    expect(index.version).toBe(1);
-    expect(index.skills['test-skill']).toBeDefined();
-    expect(index.skills['test-skill'].origin).toBe('manual');
+    // Check skills-registry.json was created
+    const registryPath = join(syncDir, 'skills-registry.json');
+    const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
+    expect(registry.version).toBe(1);
+    expect(registry.skills['test-skill']).toBeDefined();
+    expect(registry.skills['test-skill'].origin).toBe('manual');
+    expect(registry.skills['test-skill'].status).toBe('active');
   });
 
-  it('generates skills-index.json after scan', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-index-'));
+  it('generates skills-registry.json after scan', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-registry-'));
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
     const skillsDir = join(syncDir, 'skills');
@@ -503,10 +464,11 @@ describe('skills-index generation', () => {
     // Run scan
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
 
-    // Check skills-index.json was created
-    const indexPath = join(syncDir, 'skills-index.json');
-    const index = JSON.parse(await readFile(indexPath, 'utf-8'));
-    expect(index.skills['new-skill']).toBeDefined();
+    // Check skills-registry.json was created
+    const registryPath = join(syncDir, 'skills-registry.json');
+    const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
+    expect(registry.skills['new-skill']).toBeDefined();
+    expect(registry.skills['new-skill'].status).toBe('active');
   });
 });
 
@@ -581,7 +543,7 @@ describe('same-repo merge detection', () => {
     try {
       // Try to add source with same repo URL
       await createProgram(homeDir).parseAsync(
-        ['node', 'syncskill', 'source', 'add', 'skill2', '--type', 'git', '--url', 'https://github.com/org/repo.git', '--store', 'skills/skill2'],
+        ['node', 'syncskill', 'source', 'add', 'skill2', '--type', 'git', '--url', 'https://github.com/org/repo.git', '--path', 'skills/skill2'],
         { from: 'node' }
       );
 
@@ -697,7 +659,7 @@ describe('source add --path auto-detect local type', () => {
     // When --type git is explicit, --path should not force local type
     // Git sources don't materialize immediately, they just save config
     await createProgram(homeDir).parseAsync(
-      ['node', 'syncskill', 'source', 'add', 'my-source', '--type', 'git', '--url', 'https://example.com/repo.git', '--path', '/some/path', '--store', 'skills'],
+      ['node', 'syncskill', 'source', 'add', 'my-source', '--type', 'git', '--url', 'https://example.com/repo.git', '--path', '/some/path', '--path', 'skills'],
       { from: 'node' }
     );
 

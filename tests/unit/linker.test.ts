@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config.js';
-import { ensureLinkedDirectory, linkConfiguredSkills, unlinkSkill } from '../../src/linker.js';
+import { ensureLinkedDirectory, formatLinkStatusMatrix, linkConfiguredSkills, unlinkSkill } from '../../src/linker.js';
+import type { LinkStatus } from '../../src/linker.js';
 
 describe('linker', () => {
   const tempDirs = useTempDirs();
@@ -128,5 +129,67 @@ describe('linker', () => {
 
     vi.doUnmock('node:fs/promises');
     vi.resetModules();
+  });
+});
+
+describe('formatLinkStatusMatrix', () => {
+  it('formats empty status list', () => {
+    const result = formatLinkStatusMatrix([], false);
+    expect(result).toBe('No skills configured.');
+  });
+
+  it('formats single skill with symbols', () => {
+    const statuses: LinkStatus[] = [
+      { skill: 'my-skill', agent: 'claude', state: 'linked' },
+    ];
+    const result = formatLinkStatusMatrix(statuses, false);
+
+    expect(result).toContain('Link Status');
+    expect(result).toContain('my-skill');
+    expect(result).toContain('claude');
+    expect(result).toContain('✓');
+    expect(result).toContain('Legend:');
+  });
+
+  it('formats multiple skills and agents with symbols', () => {
+    const statuses: LinkStatus[] = [
+      { skill: 'skill-a', agent: 'claude', state: 'linked' },
+      { skill: 'skill-a', agent: 'hermes', state: 'missing' },
+      { skill: 'skill-b', agent: 'claude', state: 'copied' },
+      { skill: 'skill-b', agent: 'hermes', state: 'broken' },
+    ];
+    const result = formatLinkStatusMatrix(statuses, false);
+
+    expect(result).toContain('✓'); // linked
+    expect(result).toContain('·'); // missing
+    expect(result).toContain('⚠'); // copied
+    expect(result).toContain('✗'); // broken
+  });
+
+  it('formats verbose output with text', () => {
+    const statuses: LinkStatus[] = [
+      { skill: 'my-skill', agent: 'claude', state: 'linked' },
+      { skill: 'my-skill', agent: 'hermes', state: 'copied' },
+    ];
+    const result = formatLinkStatusMatrix(statuses, true);
+
+    expect(result).toContain('linked');
+    expect(result).toContain('copied');
+    expect(result).not.toContain('Legend:'); // No legend in verbose mode
+  });
+
+  it('sorts skills and agents alphabetically', () => {
+    const statuses: LinkStatus[] = [
+      { skill: 'zebra', agent: 'claude', state: 'linked' },
+      { skill: 'alpha', agent: 'hermes', state: 'linked' },
+      { skill: 'alpha', agent: 'claude', state: 'linked' },
+    ];
+    const result = formatLinkStatusMatrix(statuses, false);
+    const lines = result.split('\n');
+
+    // Find the data rows (after header)
+    const dataRows = lines.filter(l => l.startsWith('alpha') || l.startsWith('zebra'));
+    expect(dataRows[0]).toMatch(/^alpha/);
+    expect(dataRows[1]).toMatch(/^zebra/);
   });
 });

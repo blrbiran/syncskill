@@ -60,7 +60,7 @@ async function selectTargetServers(
 import { applyResolution, formatConflictMarker, reconcileManifest } from './conflict.js';
 import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
 import { createPromptApi, runConfigUi } from './config-ui.js';
-import { collectLinkStatus, discoverSkills, findUnmanagedSkills, linkConfiguredSkills, unlinkSkill } from './linker.js';
+import { collectLinkStatus, discoverSkills, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, unlinkSkill } from './linker.js';
 import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './manifest.js';
 import { formatProbeLines, formatServerListLines, formatServerShowLines, listServers, probeServer, showServer } from './server.js';
 import { initializeRepo } from './repo.js';
@@ -296,37 +296,35 @@ export function createProgram(homeDir?: string): Command {
     });
 
   program
-    .command('link [skill]')
-    .description('Manage skill → agent links. No args opens matrix editor')
+    .command('link [skillOrSubcommand]')
+    .description('Manage skill → agent links. No args opens matrix editor; "list"/"ls" shows status')
     .option('--all', 'Link all configured skills')
-    .option('--status', 'Show link status')
-    .option('--unlink <skill>', 'Remove links for one skill')
+    .option('--list', 'Show link status (use when skill named "list" exists)')
+    .option('-v, --verbose', 'Show text status instead of symbols')
     .option('--dry-run', 'Preview changes without applying')
-    .action(async (skill: string | undefined, options: { all?: boolean; status?: boolean; unlink?: string; dryRun?: boolean }) => {
-      if (options.status) {
+    .action(async (skillOrSubcommand: string | undefined, options: { all?: boolean; list?: boolean; verbose?: boolean; dryRun?: boolean }) => {
+      // Check if argument is 'list' or 'ls' subcommand
+      const isListSubcommand = skillOrSubcommand === 'list' || skillOrSubcommand === 'ls';
+
+      // If --list flag is used OR argument is list/ls (and not a skill name)
+      if (options.list || isListSubcommand) {
+        // If it looks like a subcommand, check if a skill with that name exists
+        if (isListSubcommand) {
+          const skills = await listLocalSkills(resolvedHomeDir);
+          if (skills.includes(skillOrSubcommand!)) {
+            // Skill exists with this name - link it instead of showing status
+            if (options.dryRun) {
+              console.log(`[dry-run] Would link skill "${skillOrSubcommand}"`);
+              return;
+            }
+            await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skillOrSubcommand });
+            return;
+          }
+        }
+
+        // Show link status
         const statuses = await collectLinkStatus(resolvedHomeDir);
-
-        for (const status of statuses) {
-          console.log(`${status.skill}\t${status.agent}\t${status.state}`);
-        }
-
-        return;
-      }
-
-      if (typeof options.unlink === 'string') {
-        if (options.dryRun) {
-          console.log(`[dry-run] Would unlink skill "${options.unlink}" from all agents`);
-          return;
-        }
-        const confirmed = await confirm({
-          message: `Unlink skill "${options.unlink}" from all agents?`,
-          default: false,
-        });
-        if (!confirmed) {
-          console.log('Cancelled.');
-          return;
-        }
-        await unlinkSkill(resolvedHomeDir, options.unlink);
+        console.log(formatLinkStatusMatrix(statuses, options.verbose ?? false));
         return;
       }
 
@@ -339,17 +337,43 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      if (typeof skill === 'string') {
+      if (typeof skillOrSubcommand === 'string') {
         if (options.dryRun) {
-          console.log(`[dry-run] Would link skill "${skill}"`);
+          console.log(`[dry-run] Would link skill "${skillOrSubcommand}"`);
           return;
         }
-        await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skill });
+        await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skillOrSubcommand });
         return;
       }
 
       // No args: open matrix editor
       await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'link' });
+    });
+
+  program
+    .command('unlink <skill>')
+    .description('Remove links for a skill from all agents')
+    .option('-y, --yes', 'Skip confirmation')
+    .option('--dry-run', 'Preview changes without applying')
+    .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean }) => {
+      if (options.dryRun) {
+        console.log(`[dry-run] Would unlink skill "${skill}" from all agents`);
+        return;
+      }
+
+      if (!options.yes) {
+        const confirmed = await confirm({
+          message: `Unlink skill "${skill}" from all agents?`,
+          default: false,
+        });
+        if (!confirmed) {
+          console.log('Cancelled.');
+          return;
+        }
+      }
+
+      await unlinkSkill(resolvedHomeDir, skill);
+      console.log(`Unlinked "${skill}" from all agents.`);
     });
 
   const sourceCommand = program.command('source').description('Manage configured sources');
@@ -364,15 +388,13 @@ export function createProgram(homeDir?: string): Command {
       throw new InvalidArgumentError('Expected local, git, or http');
     })
     .option('--url <url>', 'Source URL (if different from first argument)')
-    .option('--store <store>', 'Materialized store path')
-    .option('--path <path>', 'Local path (equivalent to --store for local type)')
+    .option('--path <path>', 'Storage path for source files')
     .option('--skill-subdir <dir>', 'Subdirectory within source containing skills')
     .option('--ref <ref>', 'Git ref (branch/tag)')
     .option('-y, --yes', 'Skip confirmation prompts, select all skills')
     .action(async (nameOrUrl: string, options: {
       type?: SourceType;
       url?: string;
-      store?: string;
       path?: string;
       skillSubdir?: string;
       ref?: string;
@@ -388,22 +410,17 @@ export function createProgram(homeDir?: string): Command {
         }
       }
 
-      // For local type, --path sets the URL (directory path) and defaults store to '.'
-      // --store always takes precedence if explicitly provided
+      // --path sets the storage path for source files
       let effectiveUrl = options.url ?? nameOrUrl;
-      let effectiveStore = options.store;
+      let effectiveStore = options.path;
 
-      if (effectiveType === 'local' && options.path) {
-        // --path provides the local directory path (becomes url)
-        // Only use path if url wasn't explicitly provided
-        if (!options.url) {
-          effectiveUrl = options.path;
-        }
-        // If --store wasn't provided, default to '.' (root of the path)
-        if (!options.store) {
-          effectiveStore = '.';
-        }
+      if (effectiveType === 'local' && options.path && !options.url) {
+        // For local type without explicit --url, --path provides the local directory path
+        effectiveUrl = options.path;
+        // Default store to '.' (root of the path) for local type
+        effectiveStore = '.';
       }
+      // If --url was provided, --path is used as the skills subdirectory (same as other types)
 
       const result = await addSourceFromUrl(resolvedHomeDir, effectiveUrl, {
         name: options.url ? nameOrUrl : (options.path ? nameOrUrl : undefined),
@@ -613,6 +630,13 @@ export function createProgram(homeDir?: string): Command {
       if (results.some((result) => !result.ok)) {
         throw new Error(`Server probe failed: ${name}`);
       }
+    });
+
+  program
+    .command('remote')
+    .description('Edit skill → server sync mapping (matrix editor)')
+    .action(async () => {
+      await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'remote' });
     });
 
   program
@@ -852,6 +876,28 @@ export function createProgram(homeDir?: string): Command {
         for (const line of formatSkillRows('push', result.push)) {
           console.log(line);
         }
+      }
+
+      // Aggregate and display conflicts
+      const allConflicts: Array<{ server: string; skill: string }> = [];
+      for (const result of results) {
+        for (const skill of result.pull.conflicted_skills) {
+          allConflicts.push({ server: result.server, skill });
+        }
+        for (const skill of result.push.conflicted_skills) {
+          // Avoid duplicates (same skill might conflict in both pull and push)
+          if (!allConflicts.some(c => c.server === result.server && c.skill === skill)) {
+            allConflicts.push({ server: result.server, skill });
+          }
+        }
+      }
+
+      if (allConflicts.length > 0) {
+        console.log('\nConflicts skipped:');
+        for (const c of allConflicts) {
+          console.log(`  ${c.skill} (${c.server})`);
+        }
+        console.log('\nRun `syncskill resolve <skill>` to resolve conflicts.');
       }
     });
 

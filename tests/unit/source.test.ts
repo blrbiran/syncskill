@@ -11,9 +11,10 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { addSourceFromUrl, buildSkillsIndex, classifySameRepoScenario, detectArchiveFormat, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, materializeSource, normalizeSkillsIndex, resolveSkillPath, SameRepoScenario, saveSkillsIndex, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
-import type { SkillsIndex } from '../../src/source.js';
-import { addIgnoredSkill, isSkillIgnored, loadSkillsIgnore, saveSkillsIgnore } from '../../src/skills-ignore.js';
+import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
+import type { SkillsRegistry } from '../../src/source.js';
+import { normalizeSkillsRegistry } from '../../src/skills-registry.js';
+import { addIgnoredSkill, isSkillIgnored } from '../../src/skills-registry.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -901,66 +902,69 @@ describe('findOrphanSkills', () => {
   });
 });
 
-describe('skills-index', () => {
+describe('skills-registry', () => {
   const tempDirs = useTempDirs();
 
-  it('saves skills index with manual and source skills', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-index-'));
+  it('saves skills registry with manual and source skills', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-registry-'));
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
     await mkdir(syncDir, { recursive: true });
 
-    const index: SkillsIndex = {
+    const registry: SkillsRegistry = {
       version: 1,
       skills: {
         'manual-skill': {
           path: join(syncDir, 'skills', 'manual-skill'),
           origin: 'manual',
           type: 'manual',
+          status: 'active',
         },
         'source-skill': {
           path: join(syncDir, 'sources', 'my-repo', '.claude', 'source-skill'),
           origin: 'my-repo',
           type: 'git',
+          status: 'active',
         },
       },
     };
 
-    await saveSkillsIndex(homeDir, index);
+    await saveSkillsRegistry(homeDir, registry);
 
-    const saved = JSON.parse(await readFile(join(syncDir, 'skills-index.json'), 'utf-8'));
-    expect(saved).toEqual(index);
+    const saved = JSON.parse(await readFile(join(syncDir, 'skills-registry.json'), 'utf-8'));
+    expect(saved).toEqual(registry);
   });
 
-  it('loads existing skills index', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-index-'));
+  it('loads existing skills registry', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-registry-'));
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
     await mkdir(syncDir, { recursive: true });
 
-    const index: SkillsIndex = {
+    const registry: SkillsRegistry = {
       version: 1,
       skills: {
         'test-skill': {
           path: '/some/path',
           origin: 'manual',
           type: 'manual',
+          status: 'active',
         },
       },
     };
-    await writeFile(join(syncDir, 'skills-index.json'), JSON.stringify(index));
+    await writeFile(join(syncDir, 'skills-registry.json'), JSON.stringify(registry));
 
-    const loaded = await loadSkillsIndex(homeDir);
-    expect(loaded).toEqual(index);
+    const loaded = await loadSkillsRegistry(homeDir);
+    expect(loaded).toEqual(registry);
   });
 
-  it('returns empty index when file does not exist', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-index-'));
+  it('returns empty registry when file does not exist', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-registry-'));
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
     await mkdir(syncDir, { recursive: true });
 
-    const loaded = await loadSkillsIndex(homeDir);
+    const loaded = await loadSkillsRegistry(homeDir);
     expect(loaded).toEqual({ version: 1, skills: {} });
   });
 
@@ -1007,11 +1011,13 @@ describe('skills-index', () => {
       path: join(skillsDir, 'manual-skill'),
       origin: 'manual',
       type: 'manual',
+      status: 'active',
     });
     expect(index.skills['source-skill']).toEqual({
       path: expect.stringContaining('source-skill'),
       origin: 'my-source',
       type: 'git',
+      status: 'active',
     });
   });
 });
@@ -1466,31 +1472,31 @@ describe('classifySameRepoScenario edge cases', () => {
   });
 });
 
-describe('normalizeSkillsIndex edge cases', () => {
-  it('returns empty index for null', () => {
-    expect(normalizeSkillsIndex(null)).toEqual({ version: 1, skills: {} });
+describe('normalizeSkillsRegistry edge cases', () => {
+  it('returns empty registry for null', () => {
+    expect(normalizeSkillsRegistry(null)).toEqual({ version: 1, skills: {} });
   });
 
-  it('returns empty index for wrong version', () => {
-    expect(normalizeSkillsIndex({ version: 2, skills: {} })).toEqual({ version: 1, skills: {} });
+  it('returns empty registry for wrong version', () => {
+    expect(normalizeSkillsRegistry({ version: 2, skills: {} })).toEqual({ version: 1, skills: {} });
   });
 
-  it('returns empty index for missing skills field', () => {
-    expect(normalizeSkillsIndex({ version: 1 })).toEqual({ version: 1, skills: {} });
+  it('returns empty registry for missing skills field', () => {
+    expect(normalizeSkillsRegistry({ version: 1 })).toEqual({ version: 1, skills: {} });
   });
 
-  it('returns empty index for non-object skills', () => {
-    expect(normalizeSkillsIndex({ version: 1, skills: 'invalid' })).toEqual({ version: 1, skills: {} });
+  it('returns empty registry for non-object skills', () => {
+    expect(normalizeSkillsRegistry({ version: 1, skills: 'invalid' })).toEqual({ version: 1, skills: {} });
   });
 
-  it('returns empty index for array input', () => {
-    expect(normalizeSkillsIndex([])).toEqual({ version: 1, skills: {} });
+  it('returns empty registry for array input', () => {
+    expect(normalizeSkillsRegistry([])).toEqual({ version: 1, skills: {} });
   });
 
-  it('returns empty index for primitive input', () => {
-    expect(normalizeSkillsIndex('string')).toEqual({ version: 1, skills: {} });
-    expect(normalizeSkillsIndex(123)).toEqual({ version: 1, skills: {} });
-    expect(normalizeSkillsIndex(undefined)).toEqual({ version: 1, skills: {} });
+  it('returns empty registry for primitive input', () => {
+    expect(normalizeSkillsRegistry('string')).toEqual({ version: 1, skills: {} });
+    expect(normalizeSkillsRegistry(123)).toEqual({ version: 1, skills: {} });
+    expect(normalizeSkillsRegistry(undefined)).toEqual({ version: 1, skills: {} });
   });
 });
 
@@ -1848,7 +1854,7 @@ describe('scanSkillsInSource', () => {
   });
 });
 
-describe('addSourceFromUrl with skills-ignore', () => {
+describe('addSourceFromUrl with skills-registry', () => {
   const tempDirs = useTempDirs();
 
   it('restores skill from ignore list when same-repo detected', async () => {
@@ -1876,18 +1882,19 @@ describe('addSourceFromUrl with skills-ignore', () => {
       })
     );
 
-    // Add skill-b to ignore list
-    let ignore = await loadSkillsIgnore(homeDir);
-    ignore = addIgnoredSkill(ignore, 'skill-b', {
+    // Add skill-b to ignore list (via registry)
+    let registry = await loadSkillsRegistry(homeDir);
+    registry = addIgnoredSkill(registry, 'skill-b', {
       path: 'skills/skill-b',
-      source: 'org-repo',
-      reason: 'user-choice'
+      origin: 'org-repo',
+      type: 'git',
+      ignored_reason: 'user-choice'
     });
-    await saveSkillsIgnore(homeDir, ignore);
+    await saveSkillsRegistry(homeDir, registry);
 
     // Verify skill-b is in ignore list
-    const beforeIgnore = await loadSkillsIgnore(homeDir);
-    expect(isSkillIgnored(beforeIgnore, 'skill-b')).toBe(true);
+    const beforeRegistry = await loadSkillsRegistry(homeDir);
+    expect(isSkillIgnored(beforeRegistry, 'skill-b')).toBe(true);
 
     // Try to add same repo with ignored skill path
     const result = await addSourceFromUrl(homeDir,
@@ -1898,9 +1905,9 @@ describe('addSourceFromUrl with skills-ignore', () => {
     expect(result.sameRepoMatch).toBeDefined();
     expect(result.sameRepoMatch?.name).toBe('org-repo');
 
-    // Verify skill is no longer in ignore
-    const updatedIgnore = await loadSkillsIgnore(homeDir);
-    expect(isSkillIgnored(updatedIgnore, 'skill-b')).toBe(false);
+    // Verify skill is no longer ignored (now active)
+    const updatedRegistry = await loadSkillsRegistry(homeDir);
+    expect(isSkillIgnored(updatedRegistry, 'skill-b')).toBe(false);
 
     // Verify skill is in links
     const config = await loadConfig(homeDir);

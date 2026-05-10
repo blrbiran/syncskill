@@ -1,0 +1,144 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import {
+  loadSkillsRegistry,
+  saveSkillsRegistry,
+  isSkillIgnored,
+  isSkillActive,
+  getActiveSkills,
+  getIgnoredSkills,
+  addActiveSkill,
+  addIgnoredSkill,
+  removeSkill,
+  activateSkill,
+  ignoreSkill,
+} from '../../src/skills-registry.js';
+
+describe('skills-registry', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `skills-registry-test-${Date.now()}`);
+    await mkdir(join(tempDir, '.syncskill'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('loads empty registry when none exists', async () => {
+    const registry = await loadSkillsRegistry(tempDir);
+    expect(registry.version).toBe(1);
+    expect(registry.skills).toEqual({});
+  });
+
+  it('saves and loads active skills', async () => {
+    let registry = await loadSkillsRegistry(tempDir);
+    registry = addActiveSkill(registry, 'test-skill', {
+      path: '/path/to/skill',
+      origin: 'manual',
+      type: 'manual',
+    });
+
+    await saveSkillsRegistry(tempDir, registry);
+    const loaded = await loadSkillsRegistry(tempDir);
+
+    expect(isSkillActive(loaded, 'test-skill')).toBe(true);
+    expect(isSkillIgnored(loaded, 'test-skill')).toBe(false);
+    expect(loaded.skills['test-skill'].status).toBe('active');
+  });
+
+  it('saves and loads ignored skills', async () => {
+    let registry = await loadSkillsRegistry(tempDir);
+    registry = addIgnoredSkill(registry, 'test-skill', {
+      path: '/path/to/skill',
+      origin: 'my-source',
+      type: 'git',
+      ignored_reason: 'duplicate',
+      kept_by: '/path/to/other',
+    });
+
+    await saveSkillsRegistry(tempDir, registry);
+    const loaded = await loadSkillsRegistry(tempDir);
+
+    expect(isSkillIgnored(loaded, 'test-skill')).toBe(true);
+    expect(isSkillActive(loaded, 'test-skill')).toBe(false);
+    expect(loaded.skills['test-skill'].ignored_reason).toBe('duplicate');
+    expect(loaded.skills['test-skill'].kept_by).toBe('/path/to/other');
+    expect(loaded.skills['test-skill'].ignored_at).toBeDefined();
+  });
+
+  it('removes skill from registry', () => {
+    let registry = addActiveSkill(
+      { version: 1, skills: {} },
+      'test-skill',
+      { path: '/path', origin: 'manual', type: 'manual' }
+    );
+
+    expect(isSkillActive(registry, 'test-skill')).toBe(true);
+
+    registry = removeSkill(registry, 'test-skill');
+
+    expect(isSkillActive(registry, 'test-skill')).toBe(false);
+    expect('test-skill' in registry.skills).toBe(false);
+  });
+
+  it('activates ignored skill', () => {
+    let registry = addIgnoredSkill(
+      { version: 1, skills: {} },
+      'test-skill',
+      { path: '/path', origin: 'src', type: 'git', ignored_reason: 'user-choice' }
+    );
+
+    expect(isSkillIgnored(registry, 'test-skill')).toBe(true);
+
+    registry = activateSkill(registry, 'test-skill');
+
+    expect(isSkillActive(registry, 'test-skill')).toBe(true);
+    expect(isSkillIgnored(registry, 'test-skill')).toBe(false);
+    expect(registry.skills['test-skill'].ignored_reason).toBeUndefined();
+    expect(registry.skills['test-skill'].ignored_at).toBeUndefined();
+  });
+
+  it('ignores active skill', () => {
+    let registry = addActiveSkill(
+      { version: 1, skills: {} },
+      'test-skill',
+      { path: '/path', origin: 'manual', type: 'manual' }
+    );
+
+    expect(isSkillActive(registry, 'test-skill')).toBe(true);
+
+    registry = ignoreSkill(registry, 'test-skill', 'user-choice');
+
+    expect(isSkillIgnored(registry, 'test-skill')).toBe(true);
+    expect(registry.skills['test-skill'].ignored_reason).toBe('user-choice');
+    expect(registry.skills['test-skill'].ignored_at).toBeDefined();
+  });
+
+  it('gets active skills only', () => {
+    let registry: ReturnType<typeof loadSkillsRegistry> extends Promise<infer R> ? R : never = { version: 1, skills: {} };
+    registry = addActiveSkill(registry, 'active-1', { path: '/a', origin: 'manual', type: 'manual' });
+    registry = addActiveSkill(registry, 'active-2', { path: '/b', origin: 'src', type: 'git' });
+    registry = addIgnoredSkill(registry, 'ignored-1', { path: '/c', origin: 'src', type: 'git', ignored_reason: 'duplicate' });
+
+    const active = getActiveSkills(registry);
+
+    expect(Object.keys(active)).toEqual(['active-1', 'active-2']);
+    expect('ignored-1' in active).toBe(false);
+  });
+
+  it('gets ignored skills only', () => {
+    let registry: ReturnType<typeof loadSkillsRegistry> extends Promise<infer R> ? R : never = { version: 1, skills: {} };
+    registry = addActiveSkill(registry, 'active-1', { path: '/a', origin: 'manual', type: 'manual' });
+    registry = addIgnoredSkill(registry, 'ignored-1', { path: '/b', origin: 'src', type: 'git', ignored_reason: 'duplicate' });
+    registry = addIgnoredSkill(registry, 'ignored-2', { path: '/c', origin: 'src', type: 'git', ignored_reason: 'user-choice' });
+
+    const ignored = getIgnoredSkills(registry);
+
+    expect(Object.keys(ignored)).toEqual(['ignored-1', 'ignored-2']);
+    expect('active-1' in ignored).toBe(false);
+  });
+});

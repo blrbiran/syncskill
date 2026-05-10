@@ -17,7 +17,72 @@ export interface LinkRequest {
 export interface LinkStatus {
   skill: string;
   agent: string;
-  state: 'linked' | 'missing' | 'copied';
+  state: 'linked' | 'missing' | 'copied' | 'broken';
+}
+
+const STATUS_SYMBOLS: Record<LinkStatus['state'], string> = {
+  linked: '✓',
+  copied: '⚠',
+  missing: '·',
+  broken: '✗',
+};
+
+export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean): string {
+  if (statuses.length === 0) {
+    return 'No skills configured.';
+  }
+
+  // Group by skill, collect unique agents
+  const skillMap = new Map<string, Map<string, LinkStatus['state']>>();
+  const agents = new Set<string>();
+
+  for (const status of statuses) {
+    if (!skillMap.has(status.skill)) {
+      skillMap.set(status.skill, new Map());
+    }
+    skillMap.get(status.skill)!.set(status.agent, status.state);
+    agents.add(status.agent);
+  }
+
+  const agentList = Array.from(agents).sort();
+  const skillList = Array.from(skillMap.keys()).sort();
+
+  // Calculate column widths
+  const skillColWidth = Math.max(5, ...skillList.map(s => s.length));
+  const agentColWidth = verbose ? 8 : 3;
+
+  // Build header
+  const lines: string[] = [];
+  lines.push('Link Status');
+  lines.push('');
+
+  const headerParts = ['Skill'.padEnd(skillColWidth)];
+  for (const agent of agentList) {
+    headerParts.push(agent.padStart(agentColWidth + 2));
+  }
+  lines.push(headerParts.join('  '));
+  lines.push('─'.repeat(skillColWidth + agentList.length * (agentColWidth + 4)));
+
+  // Build rows
+  for (const skill of skillList) {
+    const rowParts = [skill.padEnd(skillColWidth)];
+    const skillStatuses = skillMap.get(skill)!;
+
+    for (const agent of agentList) {
+      const state = skillStatuses.get(agent) ?? 'missing';
+      const display = verbose ? state.padStart(agentColWidth + 2) : STATUS_SYMBOLS[state].padStart(agentColWidth + 2);
+      rowParts.push(display);
+    }
+    lines.push(rowParts.join('  '));
+  }
+
+  // Legend (only for symbol mode)
+  if (!verbose) {
+    lines.push('');
+    lines.push('Legend: ✓ linked  ⚠ copied  · missing  ✗ broken');
+  }
+
+  return lines.join('\n');
 }
 
 export async function listLocalSkills(homeDir: string): Promise<string[]> {
@@ -184,11 +249,17 @@ export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> 
       const targetDir = join(config.agents[agent], skill);
 
       try {
-        const stat = await lstat(targetDir);
+        const lstats = await lstat(targetDir);
 
-        if (stat.isSymbolicLink()) {
-          await readlink(targetDir);
-          results.push({ skill, agent, state: 'linked' });
+        if (lstats.isSymbolicLink()) {
+          // Check if symlink target exists
+          try {
+            await stat(targetDir); // follows symlink
+            results.push({ skill, agent, state: 'linked' });
+          } catch {
+            // Symlink exists but target doesn't - broken
+            results.push({ skill, agent, state: 'broken' });
+          }
         } else {
           results.push({ skill, agent, state: 'copied' });
         }
