@@ -148,6 +148,58 @@ describe('discoverSkills', () => {
     const entries = await readdir(skillsDir);
     expect(entries).toEqual(['existing-skill']);
   });
+
+  it('dryRun option does not modify config', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-'));
+    tempDirs.push(homeDir);
+
+    const originalConfig = {
+      ...createDefaultConfig(homeDir, {}),
+      links: {
+        existing: ['claude']
+      }
+    };
+    await saveConfig(originalConfig, homeDir);
+
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'new-skill'), { recursive: true });
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'existing'), { recursive: true });
+
+    // Run with dryRun: true
+    const discovered = await discoverSkills(homeDir, { allAgents: true, dryRun: true });
+
+    // Should still return discovered skills
+    expect(discovered).toEqual(['new-skill']);
+
+    // Config should NOT be modified
+    const configAfter = await loadConfig(homeDir);
+    expect(configAfter.links).toEqual({ existing: ['claude'] });
+    expect(configAfter.links['new-skill']).toBeUndefined();
+  });
+
+  it('dryRun option skips migration from agent directories', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-'));
+    tempDirs.push(homeDir);
+
+    // Create agent directory with skill
+    const claudeSkillsDir = join(homeDir, '.claude', 'skills');
+    await mkdir(join(claudeSkillsDir, 'agent-skill'), { recursive: true });
+    await writeFile(join(claudeSkillsDir, 'agent-skill', 'SKILL.md'), '# Agent Skill');
+
+    // Create empty syncskill directory
+    await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    // Run with dryRun: true
+    const discovered = await discoverSkills(homeDir, { allAgents: true, dryRun: true });
+
+    // Should return empty since migration was skipped
+    expect(discovered).toEqual([]);
+
+    // Skills directory should still be empty
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const entries = await readdir(skillsDir);
+    expect(entries).toEqual([]);
+  });
 });
 
 describe('findUnmanagedSkills', () => {

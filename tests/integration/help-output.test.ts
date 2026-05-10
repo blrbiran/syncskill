@@ -16,4 +16,28 @@ describe('help output', () => {
     expect(help).toContain('unlink');
     expect(help).toContain('remote');
   });
+
+  it('source list has ls alias', () => {
+    const program = createProgram('/tmp');
+    const sourceCmd = program.commands.find(c => c.name() === 'source');
+    const listCmd = sourceCmd?.commands.find(c => c.name() === 'list');
+
+    expect(listCmd?.aliases()).toContain('ls');
+  });
+
+  it('server list has ls alias', () => {
+    const program = createProgram('/tmp');
+    const serverCmd = program.commands.find(c => c.name() === 'server');
+    const listCmd = serverCmd?.commands.find(c => c.name() === 'list');
+
+    expect(listCmd?.aliases()).toContain('ls');
+  });
+
+  it('scan has --dry-run option', () => {
+    const program = createProgram('/tmp');
+    const scanCmd = program.commands.find(c => c.name() === 'scan');
+    const options = scanCmd?.options.map(o => o.long);
+
+    expect(options).toContain('--dry-run');
+  });
 });

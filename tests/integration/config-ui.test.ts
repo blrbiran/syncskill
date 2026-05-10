@@ -352,6 +352,79 @@ describe('editServers', () => {
 
     consoleSpy.mockRestore();
   });
+
+  it('shows hint on exit when server count crosses from <3 to >=3', async () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: {},
+      servers: {
+        'server1': { host: 'a.example.com', user: 'root', port: 22, remote_agents: {} }
+      },
+      sources: {}
+    };
+
+    // Add server2 and server3, then exit
+    const prompts = new PromptStub([
+      'add',
+      'server2',
+      'b.example.com',
+      'root',
+      '22',
+      '',
+      'add',
+      'server3',
+      'c.example.com',
+      'root',
+      '22',
+      '',
+      'back'
+    ]) as unknown as PromptApi;
+
+    const consoleSpy = vi.spyOn(console, 'log');
+
+    await editServers(config, prompts);
+
+    // Should show warning on exit since we went from 1 server to 3
+    const warningCalls = consoleSpy.mock.calls.filter(
+      call => typeof call[0] === 'string' && call[0].includes('3+ servers')
+    );
+    // Should be called twice: once when adding 3rd server, once on exit
+    expect(warningCalls.length).toBeGreaterThanOrEqual(2);
+
+    consoleSpy.mockRestore();
+  });
+
+  it('does not show exit hint when already had >=3 servers', async () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: {},
+      servers: {
+        'server1': { host: 'a.example.com', user: 'root', port: 22, remote_agents: {} },
+        'server2': { host: 'b.example.com', user: 'root', port: 22, remote_agents: {} },
+        'server3': { host: 'c.example.com', user: 'root', port: 22, remote_agents: {} }
+      },
+      sources: {}
+    };
+
+    // Just view and exit
+    const prompts = new PromptStub(['back']) as unknown as PromptApi;
+
+    const consoleSpy = vi.spyOn(console, 'log');
+
+    await editServers(config, prompts);
+
+    // Should NOT show warning on exit since we started with >=3 servers
+    const warningCalls = consoleSpy.mock.calls.filter(
+      call => typeof call[0] === 'string' && call[0].includes('3+ servers')
+    );
+    expect(warningCalls.length).toBe(0);
+
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('applyMatrixToRemote', () => {

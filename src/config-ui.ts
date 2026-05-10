@@ -7,6 +7,9 @@ import { ExitPromptError } from '@inquirer/core';
 
 import type { ConflictResolution, SyncSkillConfig } from './config.js';
 import { loadConfig, saveConfig } from './config.js';
+
+/** Threshold for showing auto-refresh warning */
+export const SLOW_REFRESH_SERVER_THRESHOLD = 3;
 import { listLocalSkills } from './linker.js';
 import { createMatrixEditor, type MatrixEditorResult } from './matrix-editor.js';
 import { probeServer } from './server.js';
@@ -382,7 +385,7 @@ export async function editServers(config: SyncSkillConfig, prompts: PromptApi, h
     if (result.escaped || result.value === 'back') {
       // Show warning when exiting if server count crossed from <3 to ≥3
       const finalServerCount = Object.keys(config.servers).length;
-      if (initialServerCount < 3 && finalServerCount >= 3) {
+      if (initialServerCount < SLOW_REFRESH_SERVER_THRESHOLD && finalServerCount >= SLOW_REFRESH_SERVER_THRESHOLD) {
         console.log('\nNote: With 3+ servers, auto-refresh may be slow.');
         console.log('Use --no-refresh to skip, then run `syncskill refresh` manually.\n');
       }
@@ -439,7 +442,7 @@ export async function editServers(config: SyncSkillConfig, prompts: PromptApi, h
 
       // Show hint when adding 3rd+ server
       const serverCount = Object.keys(config.servers).length;
-      if (serverCount >= 3) {
+      if (serverCount >= SLOW_REFRESH_SERVER_THRESHOLD) {
         console.log('\nNote: With 3+ servers, auto-refresh may be slow.');
         console.log('Use --no-refresh to skip, then run `syncskill refresh` manually.\n');
       }
