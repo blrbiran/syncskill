@@ -221,7 +221,7 @@ export function createProgram(homeDir?: string): Command {
 
   program
     .command('scan')
-    .description('Scan for new skills in ~/.syncskill/skills/ and sources, register to config links')
+    .description('Scan for new skills in sources and ~/.syncskill/skills/, check for unmanaged agent skills')
     .option('--migrate', 'Migrate unmanaged skills from agent directories to ~/.syncskill/skills/')
     .action(async (options: { migrate?: boolean }) => {
       // Discover skills from sources and manual directory
@@ -297,7 +297,7 @@ export function createProgram(homeDir?: string): Command {
 
   program
     .command('link [skillOrSubcommand]')
-    .description('Manage skill → agent links. No args opens matrix editor; "list"/"ls" shows status')
+    .description('Manage skill-to-agent links. No args: matrix editor; list/ls: show status')
     .option('--all', 'Link all configured skills')
     .option('--list', 'Show link status (use when skill named "list" exists)')
     .option('-v, --verbose', 'Show text status instead of symbols')
@@ -376,7 +376,7 @@ export function createProgram(homeDir?: string): Command {
       console.log(`Unlinked "${skill}" from all agents.`);
     });
 
-  const sourceCommand = program.command('source').description('Manage configured sources');
+  const sourceCommand = program.command('source').description('Manage external skill sources (git/http/local)');
 
   sourceCommand
     .command('add <nameOrUrl>')
@@ -597,7 +597,7 @@ export function createProgram(homeDir?: string): Command {
       }
     });
 
-  const serverCommand = program.command('server').description('Inspect configured remote servers');
+  const serverCommand = program.command('server').description('Manage and inspect remote sync servers');
 
   serverCommand
     .command('list')
@@ -641,7 +641,7 @@ export function createProgram(homeDir?: string): Command {
 
   program
     .command('refresh [server]')
-    .description('Refresh tracked manifests from local and remote sources')
+    .description('Refresh manifest state. Default: --all + --status')
     .option('--all', 'Refresh both local and remote (default when no flags)')
     .option('--local', 'Refresh local manifest state')
     .option('--remote', 'Refresh remote manifest state')

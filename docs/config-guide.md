@@ -2,16 +2,30 @@
 
 `syncskill` stores its runtime state under `~/.syncskill/`. The main configuration file is `~/.syncskill/config.yaml`.
 
-## Configuration shape
+## Directory Structure
 
-The current config model includes these top-level keys:
+```
+~/.syncskill/
+├── config.yaml                    # User configuration
+├── skills/                        # Manually managed skills
+├── sources/                       # Cloned git/http sources
+├── manifests/                     # Per-server sync state (JSON per server)
+│   └── <server>.json
+├── manifest_history.json          # Hash change history
+├── skills-registry.json           # Skill registry (source mapping + ignore status)
+└── .tmp/                          # Temporary files (auto-cleaned)
+```
 
-- `version`
-- `conflict_resolution`
-- `agents`
-- `links`
-- `servers`
-- `sources`
+## Configuration Shape
+
+The config model includes these top-level keys:
+
+- `version` - Configuration schema version
+- `conflict_resolution` - Default conflict resolution strategy
+- `agents` - Local agent directory mappings
+- `links` - Skill to agent link mappings
+- `servers` - Remote server configurations
+- `sources` - External skill sources
 
 ## Example
 
@@ -23,7 +37,7 @@ agents:
   qoder: /Users/alice/.qoder/skills
 links:
   welcome:
-    - claude
+    - "*"
   release-checklist:
     - claude
     - qoder
@@ -39,7 +53,7 @@ servers:
 sources:
   internal-playbooks:
     type: git
-    url: https://example.com/skills/internal-playbooks.git
+    url: https://github.com/org/internal-playbooks.git
     store: skills
     ref: main
   local-experiments:
@@ -60,13 +74,20 @@ Default reconciliation policy for manifest conflicts.
 
 Supported values:
 
-- `manual` — keep conflicts unresolved until you inspect them with `status`, `diff`, and `resolve`
-- `keep-local` — auto-resolve conflicts in favor of the local skill tree during sync operations
-- `keep-remote` — auto-resolve conflicts in favor of the remote server state during sync operations
+- `manual` - Keep conflicts unresolved until you inspect them with `status`, `diff`, and `resolve`
+- `keep-local` - Auto-resolve conflicts in favor of the local skill tree during sync operations
+- `keep-remote` - Auto-resolve conflicts in favor of the remote server state during sync operations
 
 ### `agents`
 
-Maps local agent names to their skill directories. `syncskill init` can detect known agent homes such as `.claude/skills` and `.qoder/skills` and write them here.
+Maps local agent names to their skill directories. `syncskill init` auto-detects known agent homes:
+
+- `claude` -> `~/.claude/skills`
+- `agents` -> `~/.agents/skills`
+- `hermes` -> `~/.hermes/skills`
+- `qwen` -> `~/.qwen/skills`
+- `qoder` -> `~/.qoder/skills`
+- `aone_copilot` -> `~/.aone_copilot/skills`
 
 Example:
 
@@ -80,16 +101,20 @@ agents:
 
 Maps each managed skill name to one or more target agents. `syncskill link` uses this mapping to create links from `~/.syncskill/skills/<skill>` into each configured agent directory.
 
+Use `["*"]` to link a skill to all configured agents.
+
 Example:
 
 ```yaml
 links:
   welcome:
-    - claude
+    - "*"
   release-checklist:
     - claude
     - qoder
 ```
+
+When saving via the matrix editor, if a skill is linked to all agents, it is automatically saved as `["*"]` rather than listing all agent names.
 
 ### `servers`
 
@@ -97,11 +122,13 @@ Defines named remote sync targets used by `diff`, `push`, `pull`, `sync`, `serve
 
 Each server entry supports:
 
-- `host`
-- optional `user`
-- optional `port`
-- optional `identity_file`
-- `remote_agents`
+| Field | Required | Description |
+|-------|----------|-------------|
+| `host` | Yes | Hostname or IP address |
+| `user` | No | SSH username (defaults to current user) |
+| `port` | No | SSH port (defaults to 22) |
+| `identity_file` | No | Path to SSH private key |
+| `remote_agents` | No | Agent directory mappings on the remote server |
 
 Example:
 
@@ -110,29 +137,90 @@ servers:
   alpha:
     host: alpha.example.com
     user: alice
+    port: 22
+    identity_file: ~/.ssh/id_ed25519
     remote_agents:
       claude: /home/alice/.claude/skills
+      qoder: /home/alice/.qoder/skills
 ```
 
 Remote lifecycle notes:
 
-- `server show <name>` prints the configured `host`, optional `user`, optional `port`, optional `identity_file`, and each configured `remote_agents` path.
-- `server probe <name>` validates transport reachability, receiver availability, manifest access, and the configured remote agent roots.
-- `refresh --remote <server>` scans the configured `remote_agents` roots and rebuilds remote manifest state from the real remote skill directories.
-- If a configured remote agent root path does not exist, `refresh --remote` fails instead of treating the remote skill tree as empty.
+- `server show <name>` prints the configured `host`, optional `user`, optional `port`, optional `identity_file`, and each configured `remote_agents` path
+- `server probe <name>` validates transport reachability, receiver availability, manifest access, and the configured remote agent roots
+- `refresh --remote <server>` scans the configured `remote_agents` roots and rebuilds remote manifest state from the real remote skill directories
+- If a configured remote agent root path does not exist, `refresh --remote` fails instead of treating the remote skill tree as empty
 
-Typical example:
+### `sources`
 
-```bash
-syncskill server show alpha
-syncskill server probe alpha
-syncskill refresh --remote --status alpha
+Defines external skill sources that can materialize content into the local sync repository.
+
+Supported source types:
+
+| Type | Description |
+|------|-------------|
+| `local` | Local filesystem directory |
+| `git` | Git repository (cloned to `~/.syncskill/sources/`) |
+| `http` | HTTP archive (`.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip`) |
+
+Each source entry includes:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type` | Yes | Source type (`local`, `git`, `http`) |
+| `url` | Yes | Source URL or local path |
+| `store` | Yes | Storage path or subdirectory within source |
+| `ref` | No | Git branch/tag (git sources only) |
+
+Example:
+
+```yaml
+sources:
+  vendor-docs:
+    type: git
+    url: https://github.com/org/vendor-docs.git
+    store: skills
+    ref: stable
+  local-dev:
+    type: local
+    url: /Users/alice/dev/skills
+    store: .
 ```
 
-`server show` and `server probe` use the configured `host`, optional `user`, optional `port`, optional `identity_file`, and `remote_agents` paths.
-`refresh --remote` scans the configured remote agent roots to rebuild remote manifest state.
+## Skills Registry
 
-## Source install notes
+The `skills-registry.json` file tracks the origin and status of all skills:
+
+```json
+{
+  "version": 1,
+  "skills": {
+    "manual-skill": {
+      "path": "~/.syncskill/skills/manual-skill",
+      "origin": "manual",
+      "type": "manual",
+      "status": "active"
+    },
+    "source-skill": {
+      "path": "~/.syncskill/sources/my-repo/.claude/source-skill",
+      "origin": "my-repo",
+      "type": "git",
+      "status": "active"
+    },
+    "ignored-skill": {
+      "path": "~/.syncskill/sources/repo/.claude/skills/ignored-skill",
+      "origin": "repo",
+      "type": "git",
+      "status": "ignored",
+      "ignored_reason": "duplicate",
+      "ignored_at": "2026-05-09T10:00:00Z",
+      "kept_by": "~/.syncskill/sources/repo/skills/ignored-skill"
+    }
+  }
+}
+```
+
+## Install from Source
 
 To install from source during local development:
 
@@ -147,35 +235,4 @@ You can also run the built entrypoint directly:
 
 ```bash
 node dist/index.js --help
-```
-
-Use `npm link` when you want a shell-level `syncskill` command during local iteration.
-Use `node dist/index.js --help` when you want to validate the built artifact without linking it into your PATH.
-
-### `sources`
-
-Defines external skill sources that can materialize content into the local sync repository with `source add`, `source update`, and `source list`.
-
-Supported source types in the current implementation:
-
-- `local`
-- `git`
-- `http`
-
-Each source entry includes:
-
-- `type`
-- `url`
-- `store`
-- optional `ref`
-
-Example:
-
-```yaml
-sources:
-  vendor-docs:
-    type: git
-    url: https://example.com/skills/vendor-docs.git
-    store: skills
-    ref: stable
 ```

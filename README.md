@@ -2,6 +2,14 @@
 
 `syncskill` is a CLI for organizing AI agent skills in a local `~/.syncskill/` repository, linking them into agent-specific skill directories, and reconciling local state with remote servers.
 
+## Features
+
+- **Multi-agent support**: Manage skills across Claude, Hermes, Qoder, and other AI agents
+- **Source management**: Import skills from git repositories, HTTP archives, or local directories
+- **Remote sync**: Push and pull skills to/from remote servers via SSH/rsync
+- **Conflict resolution**: Three-way merge with manual or automatic resolution
+- **Cross-platform**: Works on macOS, Linux, and Windows
+
 ## Install from source
 
 ```bash
@@ -11,93 +19,106 @@ npm link
 syncskill --help
 ```
 
-## Run the built entrypoint directly
+Or run the built entrypoint directly:
 
 ```bash
 node dist/index.js --help
 ```
 
-If you prefer not to `npm link`, you can run the built CLI directly from `dist/`.
-
-## Quick start
+## Quick Start
 
 ```bash
-node dist/index.js init
-node dist/index.js config show
-node dist/index.js scan --all-agents
-node dist/index.js link --all
-node dist/index.js status
+# Initialize the local repository
+syncskill init
+
+# Show current configuration
+syncskill config show
+
+# Scan for skills in sources and agent directories
+syncskill scan
+
+# Link all configured skills to agent directories
+syncskill link --all
+
+# Show reconciliation status
+syncskill status
 ```
 
-You can also invoke the built CLI as `syncskill` after building or wiring it into your local toolchain.
+## Commands Overview
 
-## Commands overview
+### Local Setup
 
-### Local setup
+| Command | Description |
+|---------|-------------|
+| `syncskill init` | Initialize `~/.syncskill/` directory structure |
+| `syncskill config` | Open interactive configuration menu |
+| `syncskill config show` | Print current configuration |
+| `syncskill config set <key> <value>` | Set a configuration value |
+| `syncskill scan [--migrate]` | Scan for new skills, optionally migrate unmanaged skills |
 
-- `syncskill init`
-- `syncskill config`
-- `syncskill config show`
-- `syncskill config set <key> <value>`
-- `syncskill link [skill] --all|--status|--unlink <skill>`
-- `syncskill scan --all-agents`
+### Skill Linking
+
+| Command | Description |
+|---------|-------------|
+| `syncskill link` | Open matrix editor for skill-to-agent links |
+| `syncskill link <skill>` | Link a specific skill |
+| `syncskill link --all` | Link all configured skills |
+| `syncskill link list` | Show link status |
+| `syncskill unlink <skill>` | Remove links for a skill |
+
+### Source Management
+
+| Command | Description |
+|---------|-------------|
+| `syncskill source add <url>` | Add a source (git, http, or local) |
+| `syncskill source list` | List configured sources |
+| `syncskill source update [name]` | Update one or all sources |
+| `syncskill source remove <name>` | Remove a source |
 
 ### Reconciliation
 
-- `syncskill status`
-- `syncskill diff <server>`
-- `syncskill resolve <skill> --take local|remote`
-- `syncskill refresh [--local | --remote | --status] [server]`
+| Command | Description |
+|---------|-------------|
+| `syncskill status` | Show sync status for all tracked servers |
+| `syncskill diff <server>` | Show pending changes for one server |
+| `syncskill resolve <skill>` | Resolve a conflict |
+| `syncskill refresh [--local\|--remote\|--status]` | Refresh manifest state |
 
-### Remote lifecycle
+### Remote Servers
 
-- `syncskill server list`
-- `syncskill server show <name>`
-- `syncskill server probe <name>`
-- `syncskill refresh --remote --status <server>`
+| Command | Description |
+|---------|-------------|
+| `syncskill server list` | List configured servers |
+| `syncskill server show <name>` | Show server configuration |
+| `syncskill server probe <name>` | Test server connectivity |
 
-Use `refresh --remote` when you want reconciliation to reflect the real remote skill tree without pulling remote skill contents into the local repository.
+### Remote Sync
+
+| Command | Description |
+|---------|-------------|
+| `syncskill push [server\|--all]` | Push local changes to servers |
+| `syncskill pull [server\|--all]` | Pull remote changes from servers |
+| `syncskill sync [server\|--all]` | Full sync (pull then push) |
+
+### Global Options
+
+- `--no-refresh` - Skip automatic manifest refresh
+- `-y, --yes` - Skip confirmation prompts
+- `--dry-run` - Preview changes without executing
+
+Use `refresh --remote --status` when you want reconciliation to reflect the real remote skill tree without pulling remote skill contents into the local repository.
 Use `pull` when you want to copy remote skill contents into the local repository.
 Use `server show` and `server probe` to inspect the configured `host`, `user`, `port`, `identity_file`, and `remote_agents` paths before mutating sync operations.
 
-### Sources
-
-- `syncskill source add <name> --type <local|git|http> --url <url> --store <store> [--ref <ref>]`
-- `syncskill source update [name]` (omit `name` to update all configured sources)
-- `syncskill source list`
-
-### Remote sync
-
-- `syncskill push [--all | <server>]`
-- `syncskill pull <server>`
-- `syncskill sync [--all | <server>]`
-
 ## Verification
-
-Default required gate:
 
 ```bash
 npm run test
 npm run build
 ```
 
-Additional suites:
-
-```bash
-npm run test:integration
-npm run test:end2end
-```
-
-Built CLI sanity:
-
-```bash
-node dist/index.js --help
-```
-
 ## Docs
 
-For remote workflow details, see the usage and configuration guides.
-
-- [Configuration Guide](docs/config-guide.md)
-- [Usage Guide](docs/usage-guide.md)
-- [Design Guide](docs/design-guide.md)
+- [Usage Guide](docs/usage-guide.md) - CLI commands and workflows
+- [Configuration Guide](docs/config-guide.md) - config.yaml reference
+- [Design Guide](docs/design-guide.md) - Architecture and module responsibilities
