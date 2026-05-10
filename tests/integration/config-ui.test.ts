@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
 import type { PromptApi, SSHHostConfig } from '../../src/config-ui.js';
@@ -39,11 +40,7 @@ class PromptStub implements PromptApi {
 }
 
 describe('runConfigUi', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('adds a local agent entry and saves the config', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-ui-'));
@@ -422,14 +419,7 @@ describe('applyMatrixToRemote', () => {
 });
 
 describe('parseSSHConfig', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    for (const dir of tempDirs) {
-      await rm(dir, { recursive: true, force: true });
-    }
-    tempDirs.length = 0;
-  });
+  const tempDirs = useTempDirs();
 
   async function createTestHome(): Promise<string> {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-ssh-'));

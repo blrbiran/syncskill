@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { createDefaultConfig, saveConfig } from '../../src/config.js';
 import { getSyncPaths } from '../../src/config.js';
@@ -12,11 +13,10 @@ import * as transportModule from '../../src/transport.js';
 import { createProgram } from '../../src/index.js';
 
 describe('reconciliation CLI', () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('status prints one row per skill and server', async () => {

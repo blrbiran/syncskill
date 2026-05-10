@@ -3,17 +3,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config.js';
 import { createProgram } from '../../src/index.js';
 
 describe('sync CLI', () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
 
   afterEach(async () => {
     vi.restoreAllMocks();
     delete process.env.SYNCSKILL_TRANSPORT_RUNTIME;
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('push <server> prints one tab-separated line per pushed skill', async () => {

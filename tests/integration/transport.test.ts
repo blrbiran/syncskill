@@ -5,6 +5,7 @@ import { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config.js';
 import { createEmptyManifest } from '../../src/manifest.js';
@@ -96,11 +97,10 @@ function createRuntime(stdoutByCommand: Record<string, string> = {}): TransportR
 }
 
 describe('transport', () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('deployReceiver uploads bootstrap, receiver, and receiver config over ssh', async () => {

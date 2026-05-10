@@ -3,16 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config.js';
 import { ensureLinkedDirectory, linkConfiguredSkills, unlinkSkill } from '../../src/linker.js';
 
 describe('linker', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('creates links for configured skill in target agent directory', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));

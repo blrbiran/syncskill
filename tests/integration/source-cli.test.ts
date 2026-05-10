@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
 import { createProgram } from '../../src/index.js';
@@ -34,11 +35,10 @@ async function createGitSourceFixture(homeDir: string): Promise<{ bareRepoDir: s
 }
 
 describe('source CLI', () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('source add saves a local source config and materializes skills immediately', async () => {
@@ -351,11 +351,10 @@ describe('source CLI', () => {
 });
 
 describe('source add --path option', () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('treats --path as shorthand for --url + --store=. for local sources', async () => {
@@ -441,11 +440,7 @@ describe('source add --path option', () => {
 });
 
 describe('skills-index generation', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('generates skills-index.json after link --all', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-index-'));
@@ -516,11 +511,10 @@ describe('skills-index generation', () => {
 });
 
 describe('same-repo merge detection', () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('detects existing source with same URL', async () => {
@@ -602,11 +596,10 @@ describe('same-repo merge detection', () => {
 });
 
 describe('source add with -y flag', () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('should add all skills without prompting when -y is used', async () => {
@@ -659,11 +652,10 @@ describe('source add with -y flag', () => {
 });
 
 describe('source add --path auto-detect local type', () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('auto-detects local type when --path is provided without --type', async () => {

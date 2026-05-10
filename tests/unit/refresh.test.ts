@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config.js';
 import { getSyncPaths } from '../../src/config.js';
@@ -21,11 +22,10 @@ import { rebuildRemoteManifestFromHashes } from '../../src/manifest.js';
 import * as transportModule from '../../src/transport.js';
 
 describe('refresh orchestration', () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('listTrackedServers returns the sorted union of configured and stored server names', async () => {

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config.js';
 import { loadManifestHistory, loadServerManifest } from '../../src/manifest.js';
@@ -45,11 +46,7 @@ function createRuntime(options: {
 }
 
 describe('sync engine orchestration', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('pushToServers uploads local-only changes and persists finalized manifest state', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));

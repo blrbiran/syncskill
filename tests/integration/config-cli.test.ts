@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
 import { createProgram } from '../../src/index.js';
@@ -26,11 +27,10 @@ describe('config CLI', () => {
     expect(consoleLog).toHaveBeenCalledWith('welcome\tclaude\tlinked');
   });
 
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('config show prints pretty JSON for the current config', async () => {

@@ -6,14 +6,11 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 const execFileAsync = promisify(execFile);
-const tempDirs: string[] = [];
+const tempDirs = useTempDirs();
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-
-afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-});
 
 describe('shipped cli smoke test', () => {
   it('prints top-level help from the built entrypoint', async () => {

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config.js';
 import { loadServerManifest, saveServerManifest } from '../../src/manifest.js';
@@ -10,11 +11,10 @@ import { refreshStoredManifests } from '../../src/refresh.js';
 import * as transportModule from '../../src/transport.js';
 
 describe('remote refresh orchestration', () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('refreshStoredManifests rewrites remote and local manifests from real remote hashes', async () => {

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 import { parse, stringify } from 'yaml';
 
 import { createDefaultConfig, loadConfig, saveConfig, type SyncSkillConfig } from '../../src/config.js';
@@ -10,11 +11,7 @@ import { listLocalSkillNames } from '../../src/manifest.js';
 import { findOrphanSkills, loadSkillOwnershipState, RemovalAction, removeSource } from '../../src/source.js';
 
 describe('removeSource', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('removes source from config and deletes store directory', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-remove-'));
@@ -76,11 +73,7 @@ describe('removeSource', () => {
 });
 
 describe('removeSource with RemovalAction', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('converts git source to local with RemovalAction.ConvertToLocal', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-remove-'));
@@ -232,11 +225,7 @@ describe('removeSource with RemovalAction', () => {
 });
 
 describe('findOrphanSkills integration', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('correctly identifies orphan skills with real file structure', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-orphan-'));

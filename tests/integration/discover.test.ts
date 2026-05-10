@@ -3,16 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
 import { discoverSkills, findUnmanagedSkills } from '../../src/linker.js';
 
 describe('discoverSkills', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('adds missing discovered skills with empty targets by default', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-'));
@@ -154,11 +151,7 @@ describe('discoverSkills', () => {
 });
 
 describe('findUnmanagedSkills', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('detects unmanaged skills in agent directories', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-unmanaged-'));
@@ -272,11 +265,7 @@ describe('findUnmanagedSkills', () => {
 });
 
 describe('scan CLI command', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('scan without --migrate shows hint but does not migrate', async () => {
     const { vi } = await import('vitest');

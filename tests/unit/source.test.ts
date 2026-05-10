@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
@@ -102,13 +103,12 @@ async function startHttpServer(
 }
 
 describe('source module', () => {
-  const tempDirs: string[] = [];
+  const tempDirs = useTempDirs();
   const cleanups: Array<() => Promise<void>> = [];
 
   afterEach(async () => {
     delete process.env.SYNCSKILL_TEST_FAIL_RENAME_TO;
     await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
   it('listSources normalizes valid source entries and sorts them by name', async () => {
@@ -639,11 +639,7 @@ describe('source module', () => {
 });
 
 describe('discoverSourceSkills', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('discovers skills in skills/ subdirectory (multi-skill mode)', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-'));
@@ -732,11 +728,7 @@ describe('resolveSkillPath', () => {
 });
 
 describe('discoverAllSkills', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('merges skills from local dir and configured sources', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-all-'));
@@ -910,11 +902,7 @@ describe('findOrphanSkills', () => {
 });
 
 describe('skills-index', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('saves skills index with manual and source skills', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-index-'));
@@ -1029,11 +1017,7 @@ describe('skills-index', () => {
 });
 
 describe('findExistingSourceByUrl', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('returns matching source when URL matches', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-same-repo-'));
@@ -1143,11 +1127,7 @@ describe('classifySameRepoScenario', () => {
 });
 
 describe('handleSameRepoMerge', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('scenario 1: removes skill from ignore when re-adding within multi-skill', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-merge-'));
@@ -1515,11 +1495,7 @@ describe('normalizeSkillsIndex edge cases', () => {
 });
 
 describe('buildSkillsIndex manual skill priority', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('manual skill takes priority over source skill with same name', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-priority-'));
@@ -1732,11 +1708,7 @@ describe('detectSourceType', () => {
 });
 
 describe('scanSkillsInDirectory', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('finds skills with SKILL.md in top-level directories', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-'));
@@ -1838,11 +1810,7 @@ describe('scanSkillsInDirectory', () => {
 });
 
 describe('scanSkillsInSource', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('should find all skills with SKILL.md in source directory', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-scan-'));
@@ -1881,11 +1849,7 @@ describe('scanSkillsInSource', () => {
 });
 
 describe('addSourceFromUrl with skills-ignore', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('restores skill from ignore list when same-repo detected', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-ignore-restore-'));

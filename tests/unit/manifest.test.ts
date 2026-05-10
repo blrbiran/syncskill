@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { getSyncPaths } from '../../src/config.js';
 import {
@@ -21,11 +22,7 @@ import {
 } from '../../src/manifest.js';
 
 describe('manifest hashing', () => {
-  const tempDirs: string[] = [];
-
-  afterEach(async () => {
-    await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
-  });
+  const tempDirs = useTempDirs();
 
   it('hashSkillDirectory sorts relative paths and ignores symlinks', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-manifest-'));
