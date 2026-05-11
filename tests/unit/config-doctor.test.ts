@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import type { SyncSkillConfig } from '../../src/config.js';
 import {
   type DiagnosticItem,
   type DiagnosticReport,
@@ -11,7 +12,8 @@ import {
   checkAgentPaths,
   checkSkillReferences,
   checkAgentReferences,
-  checkSourcePaths
+  checkSourcePaths,
+  diagnoseConfig
 } from '../../src/config-doctor.js';
 
 describe('DiagnosticCode', () => {
@@ -185,5 +187,84 @@ describe('checkSourcePaths', () => {
     const items = await checkSourcePaths(sources);
 
     expect(items).toEqual([]);
+  });
+});
+
+describe('diagnoseConfig', () => {
+  const testDir = join(tmpdir(), `config-doctor-diag-test-${Date.now()}`);
+
+  beforeEach(async () => {
+    await mkdir(testDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(testDir, { recursive: true, force: true });
+  });
+
+  it('returns healthy report for valid config', async () => {
+    const agentDir = join(testDir, 'claude-skills');
+    const skillsDir = join(testDir, 'skills');
+    const skillDir = join(skillsDir, 'my-skill');
+    await mkdir(agentDir, { recursive: true });
+    await mkdir(skillDir, { recursive: true });
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: { 'my-skill': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+
+    const report = await diagnoseConfig(config, skillsDir);
+
+    expect(report.isHealthy).toBe(true);
+    expect(report.canProceed).toBe(true);
+    expect(report.errors).toEqual([]);
+    expect(report.warnings).toEqual([]);
+  });
+
+  it('returns canProceed false when no valid agents', async () => {
+    const skillsDir = join(testDir, 'skills');
+    await mkdir(skillsDir, { recursive: true });
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: join(testDir, 'missing') },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const report = await diagnoseConfig(config, skillsDir);
+
+    expect(report.isHealthy).toBe(false);
+    expect(report.canProceed).toBe(false);
+    expect(report.errors).toHaveLength(1);
+    expect(report.errors[0].code).toBe('NO_VALID_AGENTS');
+  });
+
+  it('collects warnings from all checks', async () => {
+    const agentDir = join(testDir, 'claude-skills');
+    const skillsDir = join(testDir, 'skills');
+    await mkdir(agentDir, { recursive: true });
+    await mkdir(skillsDir, { recursive: true });
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: { 'missing-skill': ['claude', 'missing-agent'] },
+      servers: {},
+      sources: {}
+    };
+
+    const report = await diagnoseConfig(config, skillsDir);
+
+    expect(report.isHealthy).toBe(false);
+    expect(report.canProceed).toBe(true);
+    expect(report.warnings.length).toBeGreaterThanOrEqual(2);
   });
 });

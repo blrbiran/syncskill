@@ -1,4 +1,6 @@
-import { access } from 'node:fs/promises';
+import { access, readdir } from 'node:fs/promises';
+
+import type { SyncSkillConfig } from './config.js';
 
 export const DiagnosticCode = {
   NO_VALID_AGENTS: 'NO_VALID_AGENTS',
@@ -152,4 +154,75 @@ export async function checkSourcePaths(
   }
 
   return items;
+}
+
+async function discoverExistingSkills(
+  skillsDir: string,
+  sources: Record<string, unknown>
+): Promise<Set<string>> {
+  const skills = new Set<string>();
+
+  try {
+    const entries = await readdir(skillsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        skills.add(entry.name);
+      }
+    }
+  } catch {
+    // skillsDir may not exist
+  }
+
+  for (const [, sourceDef] of Object.entries(sources)) {
+    if (!isRecord(sourceDef)) continue;
+    if (typeof sourceDef.path !== 'string') continue;
+
+    try {
+      const entries = await readdir(sourceDef.path, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          skills.add(entry.name);
+        }
+      }
+    } catch {
+      // source path may not exist
+    }
+  }
+
+  return skills;
+}
+
+export async function diagnoseConfig(
+  config: SyncSkillConfig,
+  skillsDir: string
+): Promise<DiagnosticReport> {
+  const errors: DiagnosticItem[] = [];
+  const warnings: DiagnosticItem[] = [];
+
+  const agentItems = await checkAgentPaths(config.agents);
+  for (const item of agentItems) {
+    if (item.severity === 'error') {
+      errors.push(item);
+    } else {
+      warnings.push(item);
+    }
+  }
+
+  const existingSkills = await discoverExistingSkills(skillsDir, config.sources);
+  const skillItems = checkSkillReferences(config.links, existingSkills);
+  warnings.push(...skillItems);
+
+  const configuredAgents = new Set(Object.keys(config.agents));
+  const agentRefItems = checkAgentReferences(config.links, configuredAgents);
+  warnings.push(...agentRefItems);
+
+  const sourceItems = await checkSourcePaths(config.sources);
+  warnings.push(...sourceItems);
+
+  return {
+    errors,
+    warnings,
+    isHealthy: errors.length === 0 && warnings.length === 0,
+    canProceed: errors.length === 0
+  };
 }
