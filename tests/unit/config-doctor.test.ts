@@ -15,7 +15,9 @@ import {
   checkAgentReferences,
   checkSourcePaths,
   diagnoseConfig,
-  repairConfig
+  repairConfig,
+  formatDiagnosticReport,
+  formatDiagnosticSummary
 } from '../../src/config-doctor.js';
 
 describe('DiagnosticCode', () => {
@@ -497,5 +499,69 @@ describe('repairConfig', () => {
 
     expect(repaired.agents).toEqual({ claude: '/valid', hermes: '/invalid' });
     expect(repaired.links).toEqual({ 'invalid-skill': ['claude'] });
+  });
+});
+
+describe('formatDiagnosticReport', () => {
+  it('formats healthy report', () => {
+    const report: DiagnosticReport = {
+      errors: [],
+      warnings: [],
+      isHealthy: true,
+      canProceed: true
+    };
+
+    const output = formatDiagnosticReport(report);
+
+    expect(output).toContain('No issues found');
+  });
+
+  it('formats report with errors and warnings', () => {
+    const report: DiagnosticReport = {
+      errors: [
+        {
+          code: DiagnosticCode.NO_VALID_AGENTS,
+          severity: 'error',
+          message: 'All agent paths are invalid',
+          path: 'agents'
+        }
+      ],
+      warnings: [
+        {
+          code: DiagnosticCode.SKILL_NOT_FOUND,
+          severity: 'warning',
+          message: 'Skill "test" not found',
+          path: 'links.test'
+        }
+      ],
+      isHealthy: false,
+      canProceed: false
+    };
+
+    const output = formatDiagnosticReport(report);
+
+    expect(output).toContain('Error');
+    expect(output).toContain('Warning');
+    expect(output).toContain('1 error');
+    expect(output).toContain('1 warning');
+  });
+});
+
+describe('formatDiagnosticSummary', () => {
+  it('formats one-line summary', () => {
+    const report: DiagnosticReport = {
+      errors: [],
+      warnings: [
+        { code: DiagnosticCode.SKILL_NOT_FOUND, severity: 'warning', message: '', path: '' },
+        { code: DiagnosticCode.AGENT_PATH_INVALID, severity: 'warning', message: '', path: '' }
+      ],
+      isHealthy: false,
+      canProceed: true
+    };
+
+    const output = formatDiagnosticSummary(report);
+
+    expect(output).toContain('2 issues');
+    expect(output).toContain('syncskill doctor');
   });
 });

@@ -265,3 +265,49 @@ export function repairConfig(
 
   return result;
 }
+
+export function formatDiagnosticReport(report: DiagnosticReport): string {
+  if (report.isHealthy) {
+    return '✓ No issues found. Config is healthy.';
+  }
+
+  const lines: string[] = [];
+  lines.push('Config Diagnosis');
+  lines.push('─'.repeat(40));
+  lines.push('');
+
+  for (const error of report.errors) {
+    lines.push(`✗ Error: ${error.path}`);
+    lines.push(`  ${error.message}`);
+    lines.push('');
+  }
+
+  for (const warning of report.warnings) {
+    lines.push(`⚠ Warning: ${warning.path}`);
+    lines.push(`  ${warning.message}`);
+    lines.push('');
+  }
+
+  lines.push('─'.repeat(40));
+
+  const parts: string[] = [];
+  if (report.errors.length > 0) {
+    parts.push(`${report.errors.length} error${report.errors.length > 1 ? 's' : ''}`);
+  }
+  if (report.warnings.length > 0) {
+    parts.push(`${report.warnings.length} warning${report.warnings.length > 1 ? 's' : ''}`);
+  }
+  lines.push(parts.join(', '));
+
+  if (!report.canProceed) {
+    lines.push('');
+    lines.push('Run `syncskill doctor --fix` to repair.');
+  }
+
+  return lines.join('\n');
+}
+
+export function formatDiagnosticSummary(report: DiagnosticReport): string {
+  const total = report.errors.length + report.warnings.length;
+  return `⚠ Config has ${total} issue${total > 1 ? 's' : ''} (run \`syncskill doctor\` to fix)`;
+}
