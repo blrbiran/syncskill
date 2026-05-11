@@ -58,8 +58,14 @@ async function selectTargetServers(
 }
 
 import { applyResolution, formatConflictMarker, reconcileManifest } from './conflict.js';
+import {
+  diagnoseConfig,
+  formatDiagnosticReport,
+  repairConfig,
+  type RepairOptions
+} from './config-doctor.js';
 import { installSyncskillSkill, installFromSource } from './install.js';
-import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue } from './config.js';
+import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue, type SyncSkillConfig } from './config.js';
 import { createPromptApi, runConfigUi } from './config-ui.js';
 import { collectLinkStatus, discoverSkills, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, unlinkSkill } from './linker.js';
 import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './manifest.js';
@@ -998,6 +1004,70 @@ export function createProgram(homeDir?: string): Command {
           console.log(`  ${c.skill} (${c.server})`);
         }
         console.log('\nRun `syncskill resolve <skill>` to resolve conflicts.');
+      }
+    });
+
+  program
+    .command('doctor')
+    .description('Diagnose and repair config.yaml issues')
+    .option('--fix', 'Interactively fix issues')
+    .option('--dry-run', 'Preview fixes without applying')
+    .option('-y, --yes', 'Auto-fix all issues without prompting')
+    .action(async (options: { fix?: boolean; dryRun?: boolean; yes?: boolean }) => {
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+
+      let config: SyncSkillConfig;
+      try {
+        config = await loadConfig(resolvedHomeDir);
+      } catch (error) {
+        console.error('Failed to load config:', error instanceof Error ? error.message : error);
+        process.exit(1);
+      }
+
+      const report = await diagnoseConfig(config, skillsDir);
+
+      if (!options.fix) {
+        console.log(formatDiagnosticReport(report));
+        process.exit(report.canProceed ? 0 : 1);
+      }
+
+      if (report.isHealthy) {
+        console.log('✓ No issues found. Config is healthy.');
+        return;
+      }
+
+      console.log(`Found ${report.errors.length + report.warnings.length} issues to fix:\n`);
+
+      const allItems = [...report.errors, ...report.warnings];
+
+      for (const item of allItems) {
+        const shouldFix = options.yes || (await confirm({
+          message: `${item.suggestion ?? `Fix ${item.path}`}?`,
+          default: true
+        }));
+
+        if (shouldFix) {
+          const repairOpts: RepairOptions = {
+            removeInvalidSkillLinks: item.code === 'SKILL_NOT_FOUND',
+            removeInvalidAgentLinks: item.code === 'AGENT_NOT_CONFIGURED',
+            removeInvalidAgents: item.code === 'AGENT_PATH_INVALID',
+            removeInvalidSources: item.code === 'SOURCE_PATH_INVALID'
+          };
+
+          if (!options.dryRun) {
+            config = repairConfig(config, { errors: [], warnings: [item], isHealthy: false, canProceed: true }, repairOpts);
+          }
+          console.log(`✓ Fixed ${item.path}`);
+        } else {
+          console.log(`⊘ Skipped ${item.path}`);
+        }
+      }
+
+      if (!options.dryRun) {
+        await saveConfig(config, resolvedHomeDir);
+        console.log('\nConfig saved.');
+      } else {
+        console.log('\n[dry-run] No changes written.');
       }
     });
 
