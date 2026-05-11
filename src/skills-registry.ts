@@ -11,6 +11,7 @@ export interface SkillRegistryEntry {
   ignored_reason?: 'duplicate' | 'user-choice' | 'conflict';
   ignored_at?: string;
   kept_by?: string;
+  last_update_hash?: string;  // Only for HTTP sources, used for dirty detection
 }
 
 export interface SkillsRegistry {
