@@ -1,6 +1,8 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getSyncPaths } from './config.js';
+import type { SyncSkillConfig } from './config.js';
+import { hashSkillDirectory } from './manifest.js';
 import { isNotFoundError } from './utils.js';
 
 export interface SkillRegistryEntry {
@@ -174,4 +176,94 @@ export function ignoreSkill(
       }
     }
   };
+}
+
+export async function rebuildSkillsRegistry(
+  homeDir: string,
+  config: SyncSkillConfig
+): Promise<SkillsRegistry> {
+  const { skillsDir } = getSyncPaths(homeDir);
+  const registry: SkillsRegistry = { version: 1, skills: {} };
+
+  // 1. Scan ~/.syncskill/skills/ for manual skills
+  try {
+    const entries = await readdir(skillsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      const skillPath = join(skillsDir, entry.name);
+      const skillMdPath = join(skillPath, 'SKILL.md');
+
+      try {
+        await access(skillMdPath);
+        registry.skills[entry.name] = {
+          path: skillPath,
+          origin: 'manual',
+          type: 'manual',
+          status: 'active'
+        };
+      } catch {
+        // No SKILL.md, skip
+      }
+    }
+  } catch {
+    // skillsDir may not exist
+  }
+
+  // 2. Scan sources from config
+  for (const [sourceName, sourceRaw] of Object.entries(config.sources)) {
+    const source = sourceRaw as Record<string, unknown>;
+    const sourcePath = source.path as string | undefined;
+    const sourceType = source.type as string | undefined;
+    const ignoreList = (source.ignore as string[]) ?? [];
+
+    if (!sourcePath || !sourceType) continue;
+
+    try {
+      const entries = await readdir(sourcePath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+
+        const skillPath = join(sourcePath, entry.name);
+        const skillMdPath = join(skillPath, 'SKILL.md');
+
+        try {
+          await access(skillMdPath);
+
+          const isIgnored = ignoreList.includes(entry.name);
+          const entryData: SkillRegistryEntry = {
+            path: skillPath,
+            origin: sourceName,
+            type: sourceType as 'git' | 'http' | 'local',
+            status: isIgnored ? 'ignored' : 'active'
+          };
+
+          if (isIgnored) {
+            entryData.ignored_reason = 'user-choice';
+            entryData.ignored_at = new Date().toISOString();
+          }
+
+          // For HTTP sources, compute last_update_hash
+          if (sourceType === 'http' && !isIgnored) {
+            try {
+              entryData.last_update_hash = await hashSkillDirectory(skillPath);
+            } catch {
+              // Hash computation failed, skip
+            }
+          }
+
+          // Don't overwrite if already exists from manual (manual takes precedence)
+          if (!registry.skills[entry.name]) {
+            registry.skills[entry.name] = entryData;
+          }
+        } catch {
+          // No SKILL.md, skip
+        }
+      }
+    } catch {
+      // Source path may not exist
+    }
+  }
+
+  return registry;
 }

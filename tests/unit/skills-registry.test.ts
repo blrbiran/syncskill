@@ -16,6 +16,7 @@ import {
   removeSkill,
   activateSkill,
   ignoreSkill,
+  rebuildSkillsRegistry,
 } from '../../src/skills-registry.js';
 
 describe('skills-registry', () => {
@@ -203,5 +204,146 @@ describe('normalizeSkillsRegistry', () => {
     };
     const result = normalizeSkillsRegistry(valid);
     expect(result).toEqual(valid);
+  });
+});
+
+describe('rebuildSkillsRegistry', () => {
+  let testDir: string;
+  let homeDir: string;
+
+  beforeEach(async () => {
+    testDir = join(tmpdir(), `registry-rebuild-test-${Date.now()}`);
+    homeDir = testDir;
+    const syncDir = join(homeDir, '.syncskill');
+    await mkdir(join(syncDir, 'skills', 'manual-skill'), { recursive: true });
+    await writeFile(join(syncDir, 'skills', 'manual-skill', 'SKILL.md'), '# Manual');
+  });
+
+  afterEach(async () => {
+    await rm(testDir, { recursive: true, force: true });
+  });
+
+  it('discovers manual skills from ~/.syncskill/skills/', async () => {
+    const config = {
+      version: 1 as const,
+      conflict_resolution: 'manual' as const,
+      agents: {},
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const registry = await rebuildSkillsRegistry(homeDir, config);
+
+    expect(registry.skills['manual-skill']).toBeDefined();
+    expect(registry.skills['manual-skill'].origin).toBe('manual');
+    expect(registry.skills['manual-skill'].type).toBe('manual');
+    expect(registry.skills['manual-skill'].status).toBe('active');
+  });
+
+  it('discovers skills from configured sources', async () => {
+    const sourcePath = join(testDir, 'my-source');
+    await mkdir(join(sourcePath, 'source-skill'), { recursive: true });
+    await writeFile(join(sourcePath, 'source-skill', 'SKILL.md'), '# Source Skill');
+
+    const config = {
+      version: 1 as const,
+      conflict_resolution: 'manual' as const,
+      agents: {},
+      links: {},
+      servers: {},
+      sources: {
+        'my-source': {
+          type: 'local',
+          path: sourcePath
+        }
+      }
+    };
+
+    const registry = await rebuildSkillsRegistry(homeDir, config);
+
+    expect(registry.skills['source-skill']).toBeDefined();
+    expect(registry.skills['source-skill'].origin).toBe('my-source');
+    expect(registry.skills['source-skill'].type).toBe('local');
+    expect(registry.skills['source-skill'].status).toBe('active');
+  });
+
+  it('marks ignored skills from source ignore list', async () => {
+    const sourcePath = join(testDir, 'my-source');
+    await mkdir(join(sourcePath, 'ignored-skill'), { recursive: true });
+    await writeFile(join(sourcePath, 'ignored-skill', 'SKILL.md'), '# Ignored');
+
+    const config = {
+      version: 1 as const,
+      conflict_resolution: 'manual' as const,
+      agents: {},
+      links: {},
+      servers: {},
+      sources: {
+        'my-source': {
+          type: 'local',
+          path: sourcePath,
+          ignore: ['ignored-skill']
+        }
+      }
+    };
+
+    const registry = await rebuildSkillsRegistry(homeDir, config);
+
+    expect(registry.skills['ignored-skill']).toBeDefined();
+    expect(registry.skills['ignored-skill'].status).toBe('ignored');
+    expect(registry.skills['ignored-skill'].ignored_reason).toBe('user-choice');
+  });
+
+  it('manual skills take precedence over source skills with same name', async () => {
+    // Manual skill already created in beforeEach as 'manual-skill'
+    // Create a source skill with the same name
+    const sourcePath = join(testDir, 'my-source');
+    await mkdir(join(sourcePath, 'manual-skill'), { recursive: true });
+    await writeFile(join(sourcePath, 'manual-skill', 'SKILL.md'), '# Source version');
+
+    const config = {
+      version: 1 as const,
+      conflict_resolution: 'manual' as const,
+      agents: {},
+      links: {},
+      servers: {},
+      sources: {
+        'my-source': {
+          type: 'local',
+          path: sourcePath
+        }
+      }
+    };
+
+    const registry = await rebuildSkillsRegistry(homeDir, config);
+
+    // Manual skill should win
+    expect(registry.skills['manual-skill'].origin).toBe('manual');
+    expect(registry.skills['manual-skill'].type).toBe('manual');
+  });
+
+  it('skips directories without SKILL.md', async () => {
+    const sourcePath = join(testDir, 'my-source');
+    await mkdir(join(sourcePath, 'not-a-skill'), { recursive: true });
+    await writeFile(join(sourcePath, 'not-a-skill', 'README.md'), '# Not a skill');
+
+    const config = {
+      version: 1 as const,
+      conflict_resolution: 'manual' as const,
+      agents: {},
+      links: {},
+      servers: {},
+      sources: {
+        'my-source': {
+          type: 'local',
+          path: sourcePath
+        }
+      }
+    };
+
+    const registry = await rebuildSkillsRegistry(homeDir, config);
+
+    expect(registry.skills['not-a-skill']).toBeUndefined();
   });
 });
