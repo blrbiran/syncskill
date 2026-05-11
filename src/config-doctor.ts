@@ -123,3 +123,33 @@ export function checkAgentReferences(
 
   return items;
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export async function checkSourcePaths(
+  sources: Record<string, unknown>
+): Promise<DiagnosticItem[]> {
+  const items: DiagnosticItem[] = [];
+
+  for (const [name, sourceDef] of Object.entries(sources)) {
+    if (!isRecord(sourceDef)) continue;
+    if (sourceDef.type !== 'local') continue;
+    if (typeof sourceDef.path !== 'string') continue;
+
+    try {
+      await access(sourceDef.path);
+    } catch {
+      items.push({
+        code: DiagnosticCode.SOURCE_PATH_INVALID,
+        severity: 'warning',
+        message: `Path does not exist: ${sourceDef.path}`,
+        path: `sources.${name}`,
+        suggestion: `Remove "${name}" from sources`
+      });
+    }
+  }
+
+  return items;
+}

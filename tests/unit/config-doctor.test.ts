@@ -10,7 +10,8 @@ import {
   DiagnosticCode,
   checkAgentPaths,
   checkSkillReferences,
-  checkAgentReferences
+  checkAgentReferences,
+  checkSourcePaths
 } from '../../src/config-doctor.js';
 
 describe('DiagnosticCode', () => {
@@ -135,6 +136,53 @@ describe('checkAgentReferences', () => {
     const links = { 'skill-a': ['*'] };
     const configuredAgents = new Set(['claude']);
     const items = checkAgentReferences(links, configuredAgents);
+
+    expect(items).toEqual([]);
+  });
+});
+
+describe('checkSourcePaths', () => {
+  const testDir = join(tmpdir(), `config-doctor-source-test-${Date.now()}`);
+
+  beforeEach(async () => {
+    await mkdir(testDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(testDir, { recursive: true, force: true });
+  });
+
+  it('returns empty array when local source path exists', async () => {
+    const sourceDir = join(testDir, 'my-source');
+    await mkdir(sourceDir, { recursive: true });
+
+    const sources = {
+      'my-source': { type: 'local', path: sourceDir }
+    };
+    const items = await checkSourcePaths(sources);
+
+    expect(items).toEqual([]);
+  });
+
+  it('returns warning for invalid local source path', async () => {
+    const sources = {
+      'my-source': { type: 'local', path: join(testDir, 'nonexistent') }
+    };
+    const items = await checkSourcePaths(sources);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      code: 'SOURCE_PATH_INVALID',
+      severity: 'warning',
+      path: 'sources.my-source'
+    });
+  });
+
+  it('skips non-local sources', async () => {
+    const sources = {
+      'git-source': { type: 'git', url: 'https://github.com/test/repo' }
+    };
+    const items = await checkSourcePaths(sources);
 
     expect(items).toEqual([]);
   });
