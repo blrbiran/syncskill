@@ -18,6 +18,8 @@ import {
   isSkillIgnored,
   activateSkill,
 } from './skills-registry.js';
+import { hashSkillDirectory } from './manifest.js';
+import { backupDirtySkills } from './backup.js';
 import { isNotFoundError, pathExists } from './utils.js';
 
 const execFileAsync = promisify(execFile);
@@ -252,14 +254,21 @@ export async function materializeSource(
   homeDir = homedir(),
   name: string,
   source: SourceDefinition,
-  updatedAt = new Date().toISOString()
+  updatedAt = new Date().toISOString(),
+  options: UpdateSourceOptions = {}
 ): Promise<SourceState> {
-  return syncSource(homeDir, name, source, updatedAt);
+  return syncSource(homeDir, name, source, updatedAt, options);
+}
+
+export interface UpdateSourceOptions {
+  yes?: boolean;
+  force?: boolean;
 }
 
 export async function updateSource(
   homeDir = homedir(),
   name: string,
+  options: UpdateSourceOptions = {},
   updatedAt = new Date().toISOString()
 ): Promise<SourceState> {
   const config = await loadConfig(homeDir);
@@ -269,15 +278,19 @@ export async function updateSource(
     throw new Error(`Source not found: ${name}`);
   }
 
-  return syncSource(homeDir, name, source, updatedAt);
+  return syncSource(homeDir, name, source, updatedAt, options);
 }
 
-export async function updateAllSources(homeDir = homedir(), updatedAt = new Date().toISOString()): Promise<SourceState[]> {
+export async function updateAllSources(
+  homeDir = homedir(),
+  updatedAt = new Date().toISOString(),
+  options: UpdateSourceOptions = {}
+): Promise<SourceState[]> {
   const sources = await listSources(homeDir);
   const states: SourceState[] = [];
 
   for (const source of sources) {
-    states.push(await updateSource(homeDir, source.name, updatedAt));
+    states.push(await updateSource(homeDir, source.name, options, updatedAt));
   }
 
   return states;
@@ -359,19 +372,216 @@ export async function removeSource(
   }
 }
 
+export interface DirtySkillInfo {
+  name: string;
+  path: string;
+  hash: string;
+}
+
+export interface DirtyDetectionResult {
+  isDirty: boolean;
+  dirtySkills: DirtySkillInfo[];
+  nonSkillDirty: boolean;
+}
+
+async function detectGitDirty(checkoutDir: string, sourcePath: string): Promise<DirtyDetectionResult> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', checkoutDir, 'status', '--porcelain']);
+    // Don't use trim() - it removes leading spaces from git status format "XY PATH"
+    const lines = stdout.split('\n').filter(line => line.length > 0);
+
+    if (lines.length === 0) {
+      return { isDirty: false, dirtySkills: [], nonSkillDirty: false };
+    }
+
+    const dirtySkills: DirtySkillInfo[] = [];
+    let nonSkillDirty = false;
+
+    // Normalize source path (remove leading/trailing slashes, handle '.')
+    const normalizedPath = sourcePath === '.' ? '' : sourcePath.replace(/^\/|\/$/g, '');
+    const pathPrefix = normalizedPath ? normalizedPath + '/' : '';
+
+    for (const line of lines) {
+      const filePath = line.slice(3);
+
+      // Check if file is within the source path
+      if (pathPrefix && !filePath.startsWith(pathPrefix)) {
+        nonSkillDirty = true;
+        continue;
+      }
+
+      // Extract relative path within source directory
+      const relativePath = pathPrefix ? filePath.slice(pathPrefix.length) : filePath;
+      const parts = relativePath.split('/');
+
+      // First directory component is the skill name
+      if (parts.length >= 1 && parts[0]) {
+        const skillName = parts[0];
+        if (!dirtySkills.some(s => s.name === skillName)) {
+          dirtySkills.push({
+            name: skillName,
+            path: join(checkoutDir, normalizedPath, skillName),
+            hash: ''
+          });
+        }
+      } else {
+        nonSkillDirty = true;
+      }
+    }
+
+    return { isDirty: true, dirtySkills, nonSkillDirty };
+  } catch {
+    return { isDirty: false, dirtySkills: [], nonSkillDirty: false };
+  }
+}
+
+async function detectHttpDirty(
+  homeDir: string,
+  sourceName: string,
+  materializedSkills: string[]
+): Promise<DirtyDetectionResult> {
+  const registry = await loadSkillsRegistry(homeDir);
+  const dirtySkills: DirtySkillInfo[] = [];
+
+  for (const skillName of materializedSkills) {
+    const entry = registry.skills[skillName];
+    if (!entry || entry.origin !== sourceName || !entry.last_update_hash) continue;
+
+    // Use registry path directly instead of constructing from skillsDir
+    const skillPath = entry.path;
+    try {
+      const currentHash = await hashSkillDirectory(skillPath);
+      if (currentHash !== entry.last_update_hash) {
+        dirtySkills.push({ name: skillName, path: skillPath, hash: currentHash });
+      }
+    } catch {
+      // Skill path may not exist
+    }
+  }
+
+  return {
+    isDirty: dirtySkills.length > 0,
+    dirtySkills,
+    nonSkillDirty: false
+  };
+}
+
+async function updateRegistryHashesForHttp(
+  homeDir: string,
+  sourceName: string,
+  skillsDir: string,
+  skills: string[]
+): Promise<void> {
+  const registry = await loadSkillsRegistry(homeDir);
+  let changed = false;
+
+  for (const skillName of skills) {
+    const skillPath = join(skillsDir, skillName);
+    try {
+      const hash = await hashSkillDirectory(skillPath);
+      if (registry.skills[skillName]) {
+        registry.skills[skillName].last_update_hash = hash;
+        changed = true;
+      }
+    } catch {
+      // Skill may not exist
+    }
+  }
+
+  if (changed) {
+    await saveSkillsRegistry(homeDir, registry);
+  }
+}
+
 async function syncSource(
   homeDir: string,
   name: string,
   source: SourceDefinition,
-  updatedAt: string
+  updatedAt: string,
+  options: UpdateSourceOptions = {}
 ): Promise<SourceState> {
-  const materializedRoot = await prepareMaterializedRoot(homeDir, name, source);
+  const { skillsDir, syncDir } = getSyncPaths(homeDir);
   const previousState = await loadSourceState(homeDir, name);
+  const previousSkills = previousState?.materialized_skills ?? [];
+
+  // Dirty detection for git sources (before fetch)
+  if (source.type === 'git' && previousSkills.length > 0) {
+    const checkoutDir = join(syncDir, '.sources', name, 'checkout');
+    if (await pathExists(checkoutDir)) {
+      const dirtyResult = await detectGitDirty(checkoutDir, source.path);
+
+      if (dirtyResult.isDirty && dirtyResult.dirtySkills.length > 0) {
+        if (options.force) {
+          // Backup dirty skills before force update
+          const backupsDir = join(syncDir, 'backups');
+          console.log('⚠ Backing up dirty skills before force-update...');
+          const backupResult = await backupDirtySkills({
+            backupsDir,
+            sourceName: name,
+            dirtySkills: dirtyResult.dirtySkills.map(s => ({
+              name: s.name,
+              path: s.path,
+              hash: s.hash || 'unknown'
+            }))
+          });
+          for (const backed of backupResult.backedUp) {
+            console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
+          }
+        } else if (options.yes) {
+          // Auto-skip dirty sources with -y
+          const skillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
+          console.log(`⚠ Skipped: ${name} (dirty — ${dirtyResult.dirtySkills.length} skills have local modifications)`);
+          console.log(`  Dirty skills: ${skillNames}`);
+          console.log('  Use --force to overwrite local changes.');
+          return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt };
+        } else {
+          // Interactive mode would be handled by CLI - for now, skip
+          const skillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
+          console.log(`⚠ Source "${name}" has local modifications:`);
+          console.log(`  Dirty skills: ${skillNames}`);
+          console.log('  Use --force to backup and update, or --yes to skip.');
+          return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt };
+        }
+      }
+    }
+  }
+
+  // Dirty detection for HTTP sources (before download)
+  if (source.type === 'http' && previousSkills.length > 0) {
+    const dirtyResult = await detectHttpDirty(homeDir, name, previousSkills);
+
+    if (dirtyResult.isDirty) {
+      if (options.force) {
+        const backupsDir = join(syncDir, 'backups');
+        console.log('⚠ Backing up dirty skills before force-update...');
+        const backupResult = await backupDirtySkills({
+          backupsDir,
+          sourceName: name,
+          dirtySkills: dirtyResult.dirtySkills
+        });
+        for (const backed of backupResult.backedUp) {
+          console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
+        }
+      } else if (options.yes) {
+        const skillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
+        console.log(`⚠ Skipped: ${name} (dirty — ${dirtyResult.dirtySkills.length} skills have local modifications)`);
+        console.log(`  Dirty skills: ${skillNames}`);
+        console.log('  Use --force to overwrite local changes.');
+        return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt };
+      } else {
+        const skillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
+        console.log(`⚠ Source "${name}" has local modifications:`);
+        console.log(`  Dirty skills: ${skillNames}`);
+        console.log('  Use --force to backup and update, or --yes to skip.');
+        return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt };
+      }
+    }
+  }
+
+  const materializedRoot = await prepareMaterializedRoot(homeDir, name, source);
   const ownershipState = await loadSkillOwnershipState(homeDir);
-  const { skillsDir } = getSyncPaths(homeDir);
   const materializedSkills = await listSkillDirectories(materializedRoot);
 
-  const previousSkills = previousState?.materialized_skills ?? [];
   const nextOwnership = structuredClone(ownershipState) as SkillOwnershipState;
 
   await mkdir(skillsDir, { recursive: true });
@@ -400,6 +610,12 @@ async function syncSource(
 
   await saveSourceState(homeDir, name, nextState);
   await saveSkillOwnershipState(homeDir, nextOwnership);
+
+  // Update last_update_hash for HTTP sources after successful update
+  if (source.type === 'http') {
+    await updateRegistryHashesForHttp(homeDir, name, skillsDir, materializedSkills);
+  }
+
   return nextState;
 }
 

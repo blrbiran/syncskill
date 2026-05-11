@@ -465,7 +465,7 @@ sources:
     await commitAll(workRepoDir, 'refresh alpha');
     await git(['push', 'origin', 'main'], workRepoDir);
 
-    const result = await updateSource(homeDir, 'git-source', '2026-05-01T03:00:00.000Z');
+    const result = await updateSource(homeDir, 'git-source', {}, '2026-05-01T03:00:00.000Z');
 
     expect(result.materialized_skills).toEqual(['alpha']);
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v2\n');
@@ -512,7 +512,7 @@ sources:
 
     process.env.SYNCSKILL_TEST_FAIL_RENAME_TO = 'alpha';
 
-    await expect(updateSource(homeDir, 'git-source', '2026-05-01T03:00:00.000Z')).rejects.toThrow('simulated rename failure');
+    await expect(updateSource(homeDir, 'git-source', {}, '2026-05-01T03:00:00.000Z')).rejects.toThrow('simulated rename failure');
 
     delete process.env.SYNCSKILL_TEST_FAIL_RENAME_TO;
 
@@ -585,7 +585,7 @@ sources:
     await commitAll(workRepoDir, 'update source');
     await git(['push', 'origin', 'main'], workRepoDir);
 
-    const result = await updateSource(homeDir, 'git-source', '2026-05-01T03:00:00.000Z');
+    const result = await updateSource(homeDir, 'git-source', {}, '2026-05-01T03:00:00.000Z');
 
     expect(result.materialized_skills).toEqual(['beta']);
     await expect(access(join(homeDir, '.syncskill', 'skills', 'alpha'))).rejects.toThrow();
@@ -646,7 +646,7 @@ sources:
     await commitAll(workRepoDir, 'replace alpha with beta');
     await git(['push', 'origin', 'main'], workRepoDir);
 
-    const result = await updateSource(homeDir, 'git-source', '2026-05-01T03:00:00.000Z');
+    const result = await updateSource(homeDir, 'git-source', {}, '2026-05-01T03:00:00.000Z');
 
     expect(result.materialized_skills).toEqual(['beta']);
     await expect(readlink(join(homeDir, '.syncskill', 'skills', 'alpha'))).resolves.toBe(join(sharedRoot, 'alpha'));

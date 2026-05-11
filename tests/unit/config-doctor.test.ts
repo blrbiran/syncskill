@@ -426,7 +426,9 @@ describe('repairConfig', () => {
       removeInvalidSkillLinks: true,
       removeInvalidAgentLinks: false,
       removeInvalidAgents: false,
-      removeInvalidSources: false
+      removeInvalidSources: false,
+      removeStaleRegistryEntries: false,
+      addOrphanRegistryEntries: false
     };
 
     const repaired = repairConfig(config, report, options);
@@ -462,7 +464,9 @@ describe('repairConfig', () => {
       removeInvalidSkillLinks: false,
       removeInvalidAgentLinks: true,
       removeInvalidAgents: false,
-      removeInvalidSources: false
+      removeInvalidSources: false,
+      removeStaleRegistryEntries: false,
+      addOrphanRegistryEntries: false
     };
 
     const repaired = repairConfig(config, report, options);
@@ -498,7 +502,9 @@ describe('repairConfig', () => {
       removeInvalidSkillLinks: false,
       removeInvalidAgentLinks: false,
       removeInvalidAgents: true,
-      removeInvalidSources: false
+      removeInvalidSources: false,
+      removeStaleRegistryEntries: false,
+      addOrphanRegistryEntries: false
     };
 
     const repaired = repairConfig(config, report, options);
@@ -573,7 +579,9 @@ describe('repairConfig', () => {
       removeInvalidSkillLinks: false,
       removeInvalidAgentLinks: false,
       removeInvalidAgents: true,
-      removeInvalidSources: false
+      removeInvalidSources: false,
+      removeStaleRegistryEntries: false,
+      addOrphanRegistryEntries: false
     };
 
     repairConfig(config, report, options);
@@ -616,7 +624,9 @@ describe('repairConfig', () => {
       removeInvalidSkillLinks: false,
       removeInvalidAgentLinks: false,
       removeInvalidAgents: false,
-      removeInvalidSources: false
+      removeInvalidSources: false,
+      removeStaleRegistryEntries: false,
+      addOrphanRegistryEntries: false
     };
 
     const repaired = repairConfig(config, report, options);

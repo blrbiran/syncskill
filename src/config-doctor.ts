@@ -2,7 +2,7 @@ import { access, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { SyncSkillConfig } from './config.js';
-import { loadSkillsRegistry, getSkillsRegistryPath } from './skills-registry.js';
+import { loadSkillsRegistry, saveSkillsRegistry, getSkillsRegistryPath, type SkillsRegistry } from './skills-registry.js';
 
 export const DiagnosticCode = {
   NO_VALID_AGENTS: 'NO_VALID_AGENTS',
@@ -38,6 +38,8 @@ export interface RepairOptions {
   removeInvalidAgentLinks: boolean;
   removeInvalidAgents: boolean;
   removeInvalidSources: boolean;
+  removeStaleRegistryEntries: boolean;
+  addOrphanRegistryEntries: boolean;
 }
 
 export async function checkAgentPaths(
@@ -409,6 +411,56 @@ export function formatDiagnosticReport(report: DiagnosticReport): string {
 export function formatDiagnosticSummary(report: DiagnosticReport): string {
   const total = report.errors.length + report.warnings.length;
   return `⚠ Config has ${total} issue${total > 1 ? 's' : ''} (run \`syncskill doctor\` to fix)`;
+}
+
+export interface RepairRegistryOptions {
+  removeStaleEntries: boolean;
+  addOrphanEntries: boolean;
+}
+
+export async function repairRegistry(
+  homeDir: string,
+  skillsDir: string,
+  report: DiagnosticReport,
+  options: RepairRegistryOptions
+): Promise<{ repaired: string[] }> {
+  const registry = await loadSkillsRegistry(homeDir);
+  const repaired: string[] = [];
+
+  const allItems = [...report.errors, ...report.warnings];
+
+  for (const item of allItems) {
+    if (item.code === DiagnosticCode.REGISTRY_STALE && options.removeStaleEntries) {
+      const skillName = item.path.replace('registry.', '');
+      delete registry.skills[skillName];
+      repaired.push(item.path);
+    }
+
+    if (item.code === DiagnosticCode.REGISTRY_ORPHAN && options.addOrphanEntries) {
+      const skillName = item.path.replace('registry.', '');
+      const skillPath = join(skillsDir, skillName);
+      registry.skills[skillName] = {
+        path: skillPath,
+        origin: 'manual',
+        type: 'manual',
+        status: 'active'
+      };
+      repaired.push(item.path);
+    }
+  }
+
+  if (repaired.length > 0) {
+    await saveSkillsRegistry(homeDir, registry);
+  }
+
+  return { repaired };
+}
+
+export function isRegistryDiagnostic(code: DiagnosticCodeType): boolean {
+  return code === DiagnosticCode.REGISTRY_STALE ||
+         code === DiagnosticCode.REGISTRY_ORPHAN ||
+         code === DiagnosticCode.REGISTRY_MISSING ||
+         code === DiagnosticCode.REGISTRY_CORRUPT;
 }
 
 /**

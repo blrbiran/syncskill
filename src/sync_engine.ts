@@ -2,6 +2,7 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getConfiguredServer, loadConfig, type ConfiguredServer, type ConflictResolution } from './config.js';
+import { loadSkillsRegistry } from './skills-registry.js';
 import { applyResolution, reconcileManifest } from './conflict.js';
 import {
   applyRemoteSnapshot,
@@ -262,8 +263,13 @@ export async function pullFromServer(homeDir: string, serverName: string, option
     };
   }
 
+  // Resolve pull target paths from registry (source skills go to their source path)
+  const registry = await loadSkillsRegistry(homeDir);
   for (const skill of pulledSkills) {
-    await pullSkillDirectory(server, skill, join(getSkillsDir(homeDir), skill), runtime);
+    const entry = registry.skills[skill];
+    // Use registry path if available, otherwise default to ~/.syncskill/skills/
+    const targetPath = entry?.path ?? join(getSkillsDir(homeDir), skill);
+    await pullSkillDirectory(server, skill, targetPath, runtime);
   }
 
   const localHashes = pulledSkills.length === 0 ? {} : await buildLocalSkillHashes(homeDir);

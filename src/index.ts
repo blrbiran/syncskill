@@ -63,6 +63,8 @@ import {
   diagnoseConfig,
   formatDiagnosticReport,
   repairConfig,
+  repairRegistry,
+  isRegistryDiagnostic,
   type RepairOptions
 } from './config-doctor.js';
 import { installSyncskillSkill, installFromSource } from './install.js';
@@ -611,13 +613,31 @@ export function createProgram(homeDir?: string): Command {
     .command('update [name]')
     .description('Update one source or all configured sources')
     .option('--all', 'Update all configured sources')
-    .action(async (name: string | undefined, options: { all?: boolean }) => {
+    .option('-y, --yes', 'Skip confirmation prompts, auto-skip dirty sources')
+    .option('--force', 'Force update dirty sources (backs up first)')
+    .action(async (name: string | undefined, options: { all?: boolean; yes?: boolean; force?: boolean }) => {
       if (options.all || name === undefined) {
-        await updateAllSources(resolvedHomeDir);
+        await updateAllSources(resolvedHomeDir, undefined, { yes: options.yes, force: options.force });
         return;
       }
 
-      await updateSource(resolvedHomeDir, name);
+      await updateSource(resolvedHomeDir, name, { yes: options.yes, force: options.force });
+    });
+
+  // Top-level alias for 'source update'
+  program
+    .command('update [name]')
+    .description('Update source(s) — alias for "source update"')
+    .option('--all', 'Update all configured sources')
+    .option('-y, --yes', 'Skip confirmation prompts, auto-skip dirty sources')
+    .option('--force', 'Force update dirty sources (backs up first)')
+    .action(async (name: string | undefined, options: { all?: boolean; yes?: boolean; force?: boolean }) => {
+      if (options.all || name === undefined) {
+        await updateAllSources(resolvedHomeDir, undefined, { yes: options.yes, force: options.force });
+        return;
+      }
+
+      await updateSource(resolvedHomeDir, name, { yes: options.yes, force: options.force });
     });
 
   sourceCommand
@@ -1118,7 +1138,7 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      const report = await diagnoseConfig(config, skillsDir);
+      const report = await diagnoseConfig(config, skillsDir, resolvedHomeDir);
 
       if (!options.fix) {
         console.log(formatDiagnosticReport(report));
@@ -1134,6 +1154,9 @@ export function createProgram(homeDir?: string): Command {
 
       const allItems = [...report.errors, ...report.warnings];
 
+      let configChanged = false;
+      let registryChanged = false;
+
       for (const item of allItems) {
         const shouldFix = options.yes || (await confirm({
           message: `${item.suggestion ?? `Fix ${item.path}`}?`,
@@ -1141,15 +1164,35 @@ export function createProgram(homeDir?: string): Command {
         }));
 
         if (shouldFix) {
-          const repairOpts: RepairOptions = {
-            removeInvalidSkillLinks: item.code === 'SKILL_NOT_FOUND',
-            removeInvalidAgentLinks: item.code === 'AGENT_NOT_CONFIGURED',
-            removeInvalidAgents: item.code === 'AGENT_PATH_INVALID',
-            removeInvalidSources: item.code === 'SOURCE_PATH_INVALID'
-          };
+          if (isRegistryDiagnostic(item.code)) {
+            // Handle registry repairs
+            if (!options.dryRun) {
+              await repairRegistry(
+                resolvedHomeDir,
+                skillsDir,
+                { errors: [], warnings: [item], isHealthy: false, canProceed: true },
+                {
+                  removeStaleEntries: item.code === 'REGISTRY_STALE',
+                  addOrphanEntries: item.code === 'REGISTRY_ORPHAN'
+                }
+              );
+              registryChanged = true;
+            }
+          } else {
+            // Handle config repairs
+            const repairOpts: RepairOptions = {
+              removeInvalidSkillLinks: item.code === 'SKILL_NOT_FOUND',
+              removeInvalidAgentLinks: item.code === 'AGENT_NOT_CONFIGURED',
+              removeInvalidAgents: item.code === 'AGENT_PATH_INVALID',
+              removeInvalidSources: item.code === 'SOURCE_PATH_INVALID',
+              removeStaleRegistryEntries: false,
+              addOrphanRegistryEntries: false
+            };
 
-          if (!options.dryRun) {
-            config = repairConfig(config, { errors: [], warnings: [item], isHealthy: false, canProceed: true }, repairOpts);
+            if (!options.dryRun) {
+              config = repairConfig(config, { errors: [], warnings: [item], isHealthy: false, canProceed: true }, repairOpts);
+              configChanged = true;
+            }
           }
           console.log(`✓ Fixed ${item.path}`);
         } else {
@@ -1158,8 +1201,12 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (!options.dryRun) {
-        await saveConfig(config, resolvedHomeDir);
-        console.log('\nConfig saved.');
+        if (configChanged) {
+          await saveConfig(config, resolvedHomeDir);
+        }
+        if (configChanged || registryChanged) {
+          console.log('\nChanges saved.');
+        }
       } else {
         console.log('\n[dry-run] No changes written.');
       }
