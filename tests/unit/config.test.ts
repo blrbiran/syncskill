@@ -29,7 +29,8 @@ describe('config path helpers', () => {
       skillsDir: '/tmp/demo-home/.syncskill/skills',
       manifestsDir: '/tmp/demo-home/.syncskill/manifests',
       tempDir: '/tmp/demo-home/.syncskill/.tmp',
-      historyFile: '/tmp/demo-home/.syncskill/manifest_history.json'
+      historyFile: '/tmp/demo-home/.syncskill/manifest_history.json',
+      backupsDir: '/tmp/demo-home/.syncskill/backups'
     });
   });
 });
