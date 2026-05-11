@@ -1069,7 +1069,8 @@ export function createProgram(homeDir?: string): Command {
     .option('--fix', 'Interactively fix issues')
     .option('--dry-run', 'Preview fixes without applying')
     .option('-y, --yes', 'Auto-fix all issues without prompting')
-    .action(async (options: { fix?: boolean; dryRun?: boolean; yes?: boolean }) => {
+    .option('--rebuild-registry', 'Rebuild skills-registry.json from config and filesystem')
+    .action(async (options: { fix?: boolean; dryRun?: boolean; yes?: boolean; rebuildRegistry?: boolean }) => {
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
 
       let config: SyncSkillConfig;
@@ -1078,6 +1079,43 @@ export function createProgram(homeDir?: string): Command {
       } catch (error) {
         console.error('Failed to load config:', error instanceof Error ? error.message : error);
         process.exit(1);
+      }
+
+      // Handle --rebuild-registry
+      if (options.rebuildRegistry) {
+        const { rebuildSkillsRegistry, saveSkillsRegistry, getSkillsRegistryPath } = await import('./skills-registry.js');
+        const { readFile, writeFile } = await import('node:fs/promises');
+
+        if (options.dryRun) {
+          console.log('[dry-run] Would rebuild skills-registry.json');
+          const registry = await rebuildSkillsRegistry(resolvedHomeDir, config);
+          console.log(`Would create registry with ${Object.keys(registry.skills).length} skills`);
+          return;
+        }
+
+        const registryPath = getSkillsRegistryPath(resolvedHomeDir);
+
+        // Backup existing if exists
+        try {
+          const existing = await readFile(registryPath, 'utf8');
+          await writeFile(registryPath + '.bak', existing);
+          console.log('✓ Backed up existing registry to skills-registry.json.bak');
+        } catch {
+          // No existing registry
+        }
+
+        const registry = await rebuildSkillsRegistry(resolvedHomeDir, config);
+        await saveSkillsRegistry(resolvedHomeDir, registry);
+
+        const manualCount = Object.values(registry.skills).filter(s => s.type === 'manual').length;
+        const sourceCount = Object.values(registry.skills).filter(s => s.type !== 'manual').length;
+        const ignoredCount = Object.values(registry.skills).filter(s => s.status === 'ignored').length;
+
+        console.log('✓ Rebuilt skills-registry.json');
+        console.log(`  Manual skills: ${manualCount}`);
+        console.log(`  Source skills: ${sourceCount}`);
+        console.log(`  Ignored: ${ignoredCount}`);
+        return;
       }
 
       const report = await diagnoseConfig(config, skillsDir);
