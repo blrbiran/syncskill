@@ -73,3 +73,28 @@ export async function checkAgentPaths(
     suggestion: `Remove "${r.name}" from agents`
   }));
 }
+
+export function checkSkillReferences(
+  links: Record<string, string[]>,
+  existingSkills: Set<string>
+): DiagnosticItem[] {
+  const items: DiagnosticItem[] = [];
+
+  for (const [skill, targets] of Object.entries(links)) {
+    if (targets.length === 0) {
+      continue;
+    }
+
+    if (!existingSkills.has(skill)) {
+      items.push({
+        code: DiagnosticCode.SKILL_NOT_FOUND,
+        severity: 'warning',
+        message: `Skill "${skill}" not found in ~/.syncskill/skills/ or sources`,
+        path: `links.${skill}`,
+        suggestion: `Remove "${skill}" from links`
+      });
+    }
+  }
+
+  return items;
+}

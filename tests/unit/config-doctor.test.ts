@@ -8,7 +8,8 @@ import {
   type DiagnosticItem,
   type DiagnosticReport,
   DiagnosticCode,
-  checkAgentPaths
+  checkAgentPaths,
+  checkSkillReferences
 } from '../../src/config-doctor.js';
 
 describe('DiagnosticCode', () => {
@@ -72,5 +73,36 @@ describe('checkAgentPaths', () => {
       code: 'NO_VALID_AGENTS',
       severity: 'error'
     });
+  });
+});
+
+describe('checkSkillReferences', () => {
+  it('returns empty array when all skills exist', () => {
+    const links = { 'skill-a': ['claude'], 'skill-b': ['hermes'] };
+    const existingSkills = new Set(['skill-a', 'skill-b']);
+    const items = checkSkillReferences(links, existingSkills);
+
+    expect(items).toEqual([]);
+  });
+
+  it('returns warning for missing skill', () => {
+    const links = { 'skill-a': ['claude'], 'missing-skill': ['claude'] };
+    const existingSkills = new Set(['skill-a']);
+    const items = checkSkillReferences(links, existingSkills);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      code: 'SKILL_NOT_FOUND',
+      severity: 'warning',
+      path: 'links.missing-skill'
+    });
+  });
+
+  it('skips skills with empty targets', () => {
+    const links = { 'skill-a': [] };
+    const existingSkills = new Set<string>();
+    const items = checkSkillReferences(links, existingSkills);
+
+    expect(items).toEqual([]);
   });
 });
