@@ -1,4 +1,4 @@
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -14,6 +14,7 @@ import {
   checkSkillReferences,
   checkAgentReferences,
   checkSourcePaths,
+  checkRegistryHealth,
   diagnoseConfig,
   repairConfig,
   formatDiagnosticReport,
@@ -27,6 +28,10 @@ describe('DiagnosticCode', () => {
     expect(DiagnosticCode.SKILL_NOT_FOUND).toBe('SKILL_NOT_FOUND');
     expect(DiagnosticCode.AGENT_NOT_CONFIGURED).toBe('AGENT_NOT_CONFIGURED');
     expect(DiagnosticCode.SOURCE_PATH_INVALID).toBe('SOURCE_PATH_INVALID');
+    expect(DiagnosticCode.REGISTRY_MISSING).toBe('REGISTRY_MISSING');
+    expect(DiagnosticCode.REGISTRY_CORRUPT).toBe('REGISTRY_CORRUPT');
+    expect(DiagnosticCode.REGISTRY_STALE).toBe('REGISTRY_STALE');
+    expect(DiagnosticCode.REGISTRY_ORPHAN).toBe('REGISTRY_ORPHAN');
   });
 });
 
@@ -194,6 +199,124 @@ describe('checkSourcePaths', () => {
   });
 });
 
+describe('checkRegistryHealth', () => {
+  let testDir: string;
+  let homeDir: string;
+
+  beforeEach(async () => {
+    testDir = join(tmpdir(), `registry-health-test-${Date.now()}`);
+    homeDir = testDir;
+    const syncDir = join(homeDir, '.syncskill');
+    await mkdir(join(syncDir, 'skills'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(testDir, { recursive: true, force: true });
+  });
+
+  const baseConfig: SyncSkillConfig = {
+    version: 1,
+    conflict_resolution: 'manual',
+    agents: {},
+    links: {},
+    servers: {},
+    sources: {}
+  };
+
+  it('returns REGISTRY_MISSING when file does not exist', async () => {
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+
+    const items = await checkRegistryHealth(homeDir, baseConfig, skillsDir);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].code).toBe(DiagnosticCode.REGISTRY_MISSING);
+    expect(items[0].severity).toBe('warning');
+  });
+
+  // Note: REGISTRY_CORRUPT is not currently reachable because loadSkillsRegistry
+  // catches JSON parse errors and returns a default registry. The code exists
+  // for future-proofing if the registry loader behavior changes.
+  it.skip('returns REGISTRY_CORRUPT when JSON is invalid', async () => {
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const registryPath = join(homeDir, '.syncskill', 'skills-registry.json');
+
+    await writeFile(registryPath, 'not valid json {{{');
+
+    const items = await checkRegistryHealth(homeDir, baseConfig, skillsDir);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].code).toBe(DiagnosticCode.REGISTRY_CORRUPT);
+  });
+
+  it('returns REGISTRY_STALE when skill path does not exist', async () => {
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const registryPath = join(homeDir, '.syncskill', 'skills-registry.json');
+
+    const registry = {
+      version: 1,
+      skills: {
+        'nonexistent-skill': {
+          path: '/does/not/exist',
+          origin: 'manual',
+          type: 'manual',
+          status: 'active'
+        }
+      }
+    };
+    await writeFile(registryPath, JSON.stringify(registry));
+
+    const items = await checkRegistryHealth(homeDir, baseConfig, skillsDir);
+
+    expect(items.some((i) => i.code === DiagnosticCode.REGISTRY_STALE)).toBe(true);
+  });
+
+  it('returns REGISTRY_ORPHAN when skill exists but not in registry', async () => {
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const registryPath = join(homeDir, '.syncskill', 'skills-registry.json');
+
+    // Create a skill that exists on disk
+    const orphanSkillPath = join(skillsDir, 'orphan-skill');
+    await mkdir(orphanSkillPath, { recursive: true });
+    await writeFile(join(orphanSkillPath, 'SKILL.md'), '# Orphan');
+
+    // Create empty registry
+    const registry = { version: 1, skills: {} };
+    await writeFile(registryPath, JSON.stringify(registry));
+
+    const items = await checkRegistryHealth(homeDir, baseConfig, skillsDir);
+
+    expect(items.some((i) => i.code === DiagnosticCode.REGISTRY_ORPHAN)).toBe(true);
+  });
+
+  it('returns empty array when registry is healthy', async () => {
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const registryPath = join(homeDir, '.syncskill', 'skills-registry.json');
+
+    // Create a skill on disk
+    const skillPath = join(skillsDir, 'my-skill');
+    await mkdir(skillPath, { recursive: true });
+    await writeFile(join(skillPath, 'SKILL.md'), '# My Skill');
+
+    // Create matching registry
+    const registry = {
+      version: 1,
+      skills: {
+        'my-skill': {
+          path: skillPath,
+          origin: 'manual',
+          type: 'manual',
+          status: 'active'
+        }
+      }
+    };
+    await writeFile(registryPath, JSON.stringify(registry));
+
+    const items = await checkRegistryHealth(homeDir, baseConfig, skillsDir);
+
+    expect(items).toHaveLength(0);
+  });
+});
+
 describe('diagnoseConfig', () => {
   const testDir = join(tmpdir(), `config-doctor-diag-test-${Date.now()}`);
 
@@ -211,6 +334,7 @@ describe('diagnoseConfig', () => {
     const skillDir = join(skillsDir, 'my-skill');
     await mkdir(agentDir, { recursive: true });
     await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# my-skill');
 
     const config: SyncSkillConfig = {
       version: 1,

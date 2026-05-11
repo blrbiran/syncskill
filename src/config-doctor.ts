@@ -162,11 +162,15 @@ export async function checkSourcePaths(
   return items;
 }
 
-async function discoverExistingSkillsForRegistry(
+/**
+ * Discover existing skills by scanning skillsDir and sources.
+ * Only directories containing SKILL.md are considered valid skills.
+ */
+async function discoverExistingSkills(
   skillsDir: string,
   sources: Record<string, unknown>
-): Promise<string[]> {
-  const skills: string[] = [];
+): Promise<Set<string>> {
+  const skills = new Set<string>();
 
   // Check manual skills dir
   try {
@@ -175,9 +179,9 @@ async function discoverExistingSkillsForRegistry(
       if (entry.isDirectory()) {
         try {
           await access(join(skillsDir, entry.name, 'SKILL.md'));
-          skills.push(entry.name);
+          skills.add(entry.name);
         } catch {
-          // No SKILL.md
+          // No SKILL.md - not a valid skill
         }
       }
     }
@@ -187,8 +191,8 @@ async function discoverExistingSkillsForRegistry(
 
   // Check sources
   for (const sourceRaw of Object.values(sources)) {
-    const source = sourceRaw as Record<string, unknown>;
-    const sourcePath = source.path as string | undefined;
+    if (!isRecord(sourceRaw)) continue;
+    const sourcePath = sourceRaw.path as string | undefined;
     if (!sourcePath) continue;
 
     try {
@@ -197,11 +201,9 @@ async function discoverExistingSkillsForRegistry(
         if (entry.isDirectory()) {
           try {
             await access(join(sourcePath, entry.name, 'SKILL.md'));
-            if (!skills.includes(entry.name)) {
-              skills.push(entry.name);
-            }
+            skills.add(entry.name);
           } catch {
-            // No SKILL.md
+            // No SKILL.md - not a valid skill
           }
         }
       }
@@ -266,7 +268,7 @@ export async function checkRegistryHealth(
   }
 
   // 4. Check for orphans (skills exist but not in registry)
-  const existingSkills = await discoverExistingSkillsForRegistry(skillsDir, config.sources);
+  const existingSkills = await discoverExistingSkills(skillsDir, config.sources);
   for (const skillName of existingSkills) {
     if (!registry.skills[skillName]) {
       items.push({
@@ -280,42 +282,6 @@ export async function checkRegistryHealth(
   }
 
   return items;
-}
-
-async function discoverExistingSkills(
-  skillsDir: string,
-  sources: Record<string, unknown>
-): Promise<Set<string>> {
-  const skills = new Set<string>();
-
-  try {
-    const entries = await readdir(skillsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        skills.add(entry.name);
-      }
-    }
-  } catch {
-    // skillsDir may not exist
-  }
-
-  for (const [, sourceDef] of Object.entries(sources)) {
-    if (!isRecord(sourceDef)) continue;
-    if (typeof sourceDef.path !== 'string') continue;
-
-    try {
-      const entries = await readdir(sourceDef.path, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          skills.add(entry.name);
-        }
-      }
-    } catch {
-      // source path may not exist
-    }
-  }
-
-  return skills;
 }
 
 export async function diagnoseConfig(

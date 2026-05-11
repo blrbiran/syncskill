@@ -346,4 +346,34 @@ describe('rebuildSkillsRegistry', () => {
 
     expect(registry.skills['not-a-skill']).toBeUndefined();
   });
+
+  it('computes last_update_hash for HTTP sources', async () => {
+    // Create an HTTP source path with a skill
+    const httpSourcePath = join(testDir, 'http-source');
+    await mkdir(join(httpSourcePath, 'http-skill'), { recursive: true });
+    await writeFile(join(httpSourcePath, 'http-skill', 'SKILL.md'), '# HTTP Skill');
+
+    const config = {
+      version: 1 as const,
+      conflict_resolution: 'manual' as const,
+      agents: {},
+      links: {},
+      servers: {},
+      sources: {
+        'my-http-source': {
+          type: 'http',
+          path: httpSourcePath,
+          url: 'https://example.com/skills.zip'
+        }
+      }
+    };
+
+    const registry = await rebuildSkillsRegistry(homeDir, config);
+
+    expect(registry.skills['http-skill']).toBeDefined();
+    expect(registry.skills['http-skill'].type).toBe('http');
+    expect(registry.skills['http-skill'].last_update_hash).toBeDefined();
+    expect(typeof registry.skills['http-skill'].last_update_hash).toBe('string');
+    expect(registry.skills['http-skill'].last_update_hash!.length).toBeGreaterThan(0);
+  });
 });

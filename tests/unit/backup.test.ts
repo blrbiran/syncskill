@@ -7,7 +7,8 @@ import {
   loadBackupMeta,
   saveBackupMeta,
   getBackupDir,
-  backupSkill
+  backupSkill,
+  backupDirtySkills
 } from '../../src/backup.js';
 
 describe('backup', () => {
@@ -96,6 +97,50 @@ describe('backup', () => {
       expect(meta['my-skill']).toBeDefined();
       expect(meta['my-skill'].original_hash).toBe('hash123');
       expect(meta['my-skill'].reason).toBe('force-update');
+    });
+  });
+
+  describe('backupDirtySkills', () => {
+    it('backs up multiple dirty skills and returns results', async () => {
+      const backupsDir = join(testDir, 'backups');
+      const skillsDir = join(testDir, 'skills');
+
+      // Create two skills
+      const skill1Path = join(skillsDir, 'skill-1');
+      const skill2Path = join(skillsDir, 'skill-2');
+      await mkdir(skill1Path, { recursive: true });
+      await mkdir(skill2Path, { recursive: true });
+      await writeFile(join(skill1Path, 'SKILL.md'), '# Skill 1');
+      await writeFile(join(skill2Path, 'SKILL.md'), '# Skill 2');
+
+      const result = await backupDirtySkills({
+        backupsDir,
+        sourceName: 'test-source',
+        dirtySkills: [
+          { name: 'skill-1', path: skill1Path, hash: 'hash1' },
+          { name: 'skill-2', path: skill2Path, hash: 'hash2' }
+        ]
+      });
+
+      expect(result.backedUp).toHaveLength(2);
+      expect(result.backedUp[0].name).toBe('skill-1');
+      expect(result.backedUp[1].name).toBe('skill-2');
+
+      // Verify files were copied
+      const content1 = await readFile(join(result.backedUp[0].backupPath, 'SKILL.md'), 'utf8');
+      expect(content1).toBe('# Skill 1');
+    });
+
+    it('handles empty dirtySkills array', async () => {
+      const backupsDir = join(testDir, 'backups');
+
+      const result = await backupDirtySkills({
+        backupsDir,
+        sourceName: 'test-source',
+        dirtySkills: []
+      });
+
+      expect(result.backedUp).toHaveLength(0);
     });
   });
 });
