@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-11T01:16:32.595Z
-> Files: 72 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-11T14:26:06.982Z
+> Files: 76 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -35,9 +35,13 @@
 - `README.md` — Project documentation (~221 tok)
 - `usage-guide.md` — Usage Guide (~2091 tok)
 
+## docs/superpowers/plans/
+
+- `2026-05-11-config-doctor.md` — Config Doctor Implementation Plan (~9956 tok)
+
 ## docs/superpowers/specs/
 
-- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~6792 tok)
+- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~10580 tok)
 
 ## skills/syncskill/
 
@@ -45,10 +49,11 @@
 
 ## src/
 
+- `config-doctor.ts` — Auto-check config health before running commands. (~2670 tok)
 - `config-ui.ts` — Threshold for showing auto-refresh warning (~5954 tok)
 - `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 13 more (~2037 tok)
 - `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 5 more (~1129 tok)
-- `index.ts` — Exports createProgram (~10231 tok)
+- `index.ts` — Exports createProgram (~11502 tok)
 - `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~915 tok)
 - `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, formatLinkStatusMatrix + 8 more (~2823 tok)
 - `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3312 tok)
@@ -82,6 +87,7 @@
 - `config-cli.test.ts` — Declares homeDir (~2536 tok)
 - `config-ui.test.ts` — Declares PromptStub (~4796 tok)
 - `discover.test.ts` — Declares tempDirs (~3869 tok)
+- `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1171 tok)
 - `help-output.test.ts` — Declares help (~421 tok)
 - `install-cli.test.ts` — Declares execFileAsync (~511 tok)
 - `README.md` — Project documentation (~37 tok)
@@ -89,7 +95,7 @@
 - `remote-refresh.test.ts` — Declares tempDirs (~669 tok)
 - `repo.test.ts` — Declares pathExists (~1883 tok)
 - `server-cli.test.ts` — Declares tempDirs (~1061 tok)
-- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6225 tok)
+- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6256 tok)
 - `source-remove.test.ts` — Declares SyncSkillConfig (~3145 tok)
 - `sync-cli.test.ts` — Declares tempDirs (~4259 tok)
 - `sync-engine.test.ts` — TransportRuntime: createRuntime (~3568 tok)
@@ -97,6 +103,7 @@
 
 ## tests/unit/
 
+- `config-doctor.test.ts` — Declares DiagnosticItem (~4500 tok)
 - `config.test.ts` — Declares tempDirs (~1612 tok)
 - `conflict.test.ts` — Declares ServerManifest (~2429 tok)
 - `docs.test.ts` — Declares rootDir (~1312 tok)

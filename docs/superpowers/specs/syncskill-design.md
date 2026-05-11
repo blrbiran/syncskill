@@ -1,6 +1,6 @@
 # Syncskill — TypeScript 实现设计
 
-> 更新日期：2026-05-10
+> 更新日期：2026-05-11
 > 状态：草稿
 
 ## 1. 概述
@@ -58,12 +58,24 @@ syncskill/
 │   └── <server>.json
 ├── manifest_history.json          # hash 变更历史
 ├── skills-registry.json           # skill 注册表（来源映射 + 忽略状态，统一管理）
+├── backups/                       # --force 更新前的备份（按 source/skill 组织）
+│   └── <source-name>/
+│       ├── <skill-name>/          # 每个 skill 只保留最新一份
+│       └── _meta.json             # 备份元信息（时间、原因、原始 hash）
 └── .tmp/                          # 临时文件（运行时创建，自动清理）
 ```
 
 `syncskill init` 会在用户 home 目录下创建 `~/.syncskill/` 目录，所有运行时数据（配置、skill、manifest、历史记录）均存放于此。源码仓库不包含用户数据。
 
 ## 3. 模块职责
+
+**通用设计原则**：
+
+- **别名命令复用核心逻辑**：当一个命令是另一个命令的别名或组合（如 `install` = `source add` + `auto-link`），禁止重新实现持久化逻辑，必须复用核心命令的写入路径。这确保核心逻辑发生变更时，所有入口点自动获得修复。
+- **Skill/Source 变更的不变量**：所有会改变 skill 或 source 状态的入口点（`install`、`source add`、`source update`、`scan`）都必须保证以下三个副作用完整执行：
+  1. config.sources 持久化（新增/修改 source 条目）
+  2. config.links 持久化（新增 skill 映射）
+  3. skills-registry.json 刷新（保证 registry 与实际状态一致）
 
 ### 3.1 `index.ts` — CLI 入口
 
@@ -101,9 +113,9 @@ syncskill/
 
 | 命令 | 说明 |
 |------|------|
-| `source add <url-or-path>` | 添加外部来源（支持 GitHub URL 直接解析） |
+| `source add <url-or-path>` | 添加外部来源（支持 GitHub URL、本地压缩包文件） |
 | `source list` / `source ls` | 列出来源 |
-| `source update [name]` | 更新指定来源，无参数或 `--all` 更新全部 |
+| `source update [name] [--all] [--force]` | 更新指定来源（仅 git/http 有 URL 的），无参数交互式选择 |
 | `source remove <name> [--force]` | 移除外部来源（交互式选择处理方式） |
 
 `source add` 完整参数：
@@ -113,6 +125,18 @@ syncskill/
 - `--type git|http|local`：指定来源类型（默认自动检测）
 - `--ref <ref>`：Git ref（branch/tag）
 - `-y/--yes`：跳过确认，自动选中所有 skills
+
+`source update` 完整参数：
+- `[name]`：指定要更新的 source 名称
+- `--all`：更新所有可更新的 source
+- `-y/--yes`：跳过逐个确认（HTTP source 默认逐个确认）；dirty source 时自动 skip（安全优先）
+- `--force`：强制更新，即使 source 处于 dirty 状态也直接覆盖
+
+**Update 快捷命令**
+
+| 命令 | 说明 |
+|------|------|
+| `update [name] [--all] [-y/--yes] [--force]` | `source update` 的顶级别名 |
 
 **Scan 扫描**
 
@@ -171,6 +195,7 @@ syncskill/
 - `--no-refresh`：跳过自动刷新
 - `-y` / `--yes`：跳过交互确认
 - `--dry-run`：预览变更但不执行
+- `--force`：强制执行（update 时覆盖 dirty 状态）
 
 所有命令（除 `init`、`config`、`refresh`）执行前自动调用 `autoRefreshManifests()` 钩子。
 
@@ -352,10 +377,19 @@ syncskill install
 **从 URL/路径安装（有参数）**：
 ```
 syncskill install <url-or-path> [--name <n>] [--path <p>] [-y/--yes]
-├─ 调用 source add <url-or-path> 的内部逻辑
-├─ 自动链接发现的所有 skills 到所有 agents
+├─ 执行 source add 的核心逻辑（交互式添加来源、clone/download/link）
+├─ 应用结果到 config（复用与 source add CLI 相同的写入逻辑）
+│   持久化 sources + links，支持三种场景：
+│   - 新 source
+│   - 合并到已有 source（同 URL 时）
+│   - 新建附加 source（拒绝合并时）
+├─ 创建 symlink 到 agent 目录（install 额外步骤，source add 不做此步）
+├─ 保存 config.yaml
+├─ 刷新 skills-registry.json（注册活跃 skills，保留 ignored 条目）
 └─ 输出安装结果摘要
 ```
+
+本地压缩包安装等效于 HTTP 下载后的状态：解压到 `~/.syncskill/sources/<name>/`，`SourceConfig` 记录 `type: "local"` + `archive_path` 指向原始压缩包路径。后续的 skill 发现、link 逻辑与其他 source 类型完全一致。
 
 **输出示例**：
 ```bash
@@ -367,6 +401,12 @@ $ syncskill i https://github.com/user/my-skills
 Cloning https://github.com/user/my-skills...
 Found 3 skills: skill-a, skill-b, skill-c
 ✓ Installed 3 skills
+✓ Linked to: claude, hermes
+
+$ syncskill i ~/Downloads/my-skills.tar.gz
+Extracting my-skills.tar.gz...
+Found 2 skills: skill-x, skill-y
+✓ Installed 2 skills from local archive
 ✓ Linked to: claude, hermes
 ```
 
@@ -423,31 +463,87 @@ Found 3 skills: skill-a, skill-b, skill-c
 
 - **Git 来源**：克隆前通过 `git ls-remote --symref <url> HEAD` 自动探测远程默认分支名，然后执行 `git clone --single-branch --depth 1 --branch <detected>`
 - **HTTP 来源**：`fetch()` 下载 → 解压（支持 `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip`）
-- **Local 来源**：以 `path` 为基准目录，通过 `path` 和 `skill_subdir` 定位 skills
+- **Local 来源（目录）**：以 `path` 为基准目录，通过 `path` 和 `skill_subdir` 定位 skills
+- **Local 来源（压缩包）**：本地 `.zip` / `.tar.gz` 等压缩包文件，解压到 `~/.syncskill/sources/<name>/`，config 中记录 `archive_path` 指向原始压缩包路径
+
+**输入检测（`detectSourceInput`）**：
+
+```
+detectSourceInput(input) 判断优先级：
+
+1. 文件系统路径（/, ~, ./, ../, 或当前目录存在的路径）
+   ├─ 是目录 → type: "local"
+   └─ 是文件 + 已知压缩格式后缀 → type: "local"（压缩包模式）
+
+2. 以 .git 结尾的 URL → type: "git"
+
+3. URL 路径含压缩格式后缀（支持 ?query 参数）→ type: "http"
+   例: https://cdn.example.com/skills.tar.gz?token=abc
+
+4. GitHub / GitLab URL（含 /tree/<branch> 格式）→ type: "git"
+
+5. 其他 http(s) URL → type 未知，需要用户指定 --type
+   ├─ 若指定 --type http：下载时通过 Content-Disposition / Content-Type 推断文件格式
+   └─ 若仍无法推断格式：提示用户指定 --archive-format tar.gz|zip|...
+
+6. 裸名称（非路径、非URL）→ 交互式询问类型和路径
+```
+
+**已知压缩格式**：`.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip`
+
+**`SourceConfig` 字段**（`types.ts`）：
+
+```typescript
+interface SourceConfig {
+  type: "git" | "http" | "local";
+  url?: string;                // Git/HTTP: 远程 URL
+  path: string;                // 本地存储路径（clone/解压目标，或 local 目录路径）
+  branch?: string;             // Git: 分支名
+  skill_subdir?: string;       // skill 所在子目录（"." = 自身是 skill）
+  ignore?: string[];           // 忽略的 skill 名列表
+  archive_path?: string;       // Local 压缩包模式：原始压缩包文件的绝对路径
+}
+```
+
+**`archive_path` 使用场景**：
+- 仅在 `type: "local"` + 输入为压缩包文件时设置
+- 记录原始压缩包路径，供 `source list` 显示来源信息
+- `source update` 不支持更新有 `archive_path` 的 local source（无远程 URL）
+- 区分"本地压缩包解压后的 local source"和"本地目录引用的 local source"
+
+**设计说明**：本地压缩包使用 `type: "local"` 而非 `type: "http"` 是有意为之。虽然解压后的状态与 HTTP 下载相同，但 `type: "local"` 明确表达"无法自动更新"的语义——没有远程 URL 可供 `source update` 拉取新版本。这使 `source list` 和 `source update` 的行为更直观。
+
+**可更新判断**：
+| type | url 有值 | archive_path | 可更新 |
+|------|---------|-------------|--------|
+| `git` | ✓ | — | ✓ |
+| `http` | ✓ | — | ✓ |
+| `http` | ✗ | — | ✗ |
+| `local` | — | — | ✗（目录引用） |
+| `local` | — | ✓ | ✗（压缩包解压后） |
 
 **`source add` 命令流程**：
 
 ```
 source add <url-or-path> [--name <n>] [--path <p>] [--type git|http|local] [-y/--yes]
 
-Step 1: 检测输入类型
-├─ 文件系统路径（/, ~, ./, ../, 或当前目录存在的路径）→ local
-├─ github.com / gitlab.com（含 /tree/<branch> 格式，无需 .git 后缀）→ git
-├─ 以 .git 结尾 → git
-├─ 以 .tar.gz / .tgz / .tar.xz / .tar.bz2 / .zip 结尾 → http
-├─ 其他 URL → 交互式询问 git 或 http
-└─ 当前目录不存在的裸名称 → 交互式询问类型和路径
+Step 1: 检测输入类型（见上方 detectSourceInput）
 
 Step 2: 推断默认参数
-├─ name: 从 URL/路径提取（仓库名或目录名）
+├─ name: 从 URL/路径/压缩包文件名提取
 ├─ path: git/http → ~/.syncskill/sources/<name>
-│        local → 原路径本身
+│        local(目录) → 原路径本身
+│        local(压缩包) → ~/.syncskill/sources/<name>
 └─ 显式参数 --name / --path 覆盖推断值
 
 Step 3: 获取内容
 ├─ git: clone（支持 /tree/<branch> 解析为 --branch）
-├─ http: 下载 + 解压
-└─ local: 无需获取
+├─ http: 下载 + 解压到 path
+│   ├─ URL 有压缩格式后缀 → 直接按格式解压
+│   └─ URL 无后缀 → 检查 Content-Disposition header 获取文件名
+│       └─ 仍无法推断 → 使用 --archive-format 或报错
+├─ local(目录): 无需获取
+└─ local(压缩包): 解压到 ~/.syncskill/sources/<name>/，SourceConfig 记录 archive_path
 
 Step 4: 扫描 skills
 ├─ 递归遍历整个目录，发现所有 SKILL.md 所在位置
@@ -497,27 +593,306 @@ Step 7: -y/--yes 行为
 └─ 重名的自动加入 ignore（保留现有）
 ```
 
+**Skill 发现机制**：
+
+Skill 发现统一基于**递归搜索 SKILL.md 文件**。给定一个 subdir，在该目录下递归搜索所有含 SKILL.md 的目录，每个这样的目录是一个独立的 skill（名称 = 该目录名）。
+
+`skill_subdir` 取值语义：
+- `"."` → 仓库根目录（递归搜索整个仓库）
+- `"examples/demo-skill"` → 指定子目录（递归搜索该目录）
+- `"examples"` → 指定子目录（递归搜索该目录下所有 SKILL.md）
+- `undefined` → 隐式 `<path>/skills/`（若存在），否则 `<path>/`
+
+**首次安装行为**：
+
+递归搜索发现所有 skills 后，交互式让用户选择：
+- 选中的 → 加入 links
+- 未选中的 → 加入 ignore
+
+使用 `-y` 标志时自动选中所有发现的 skills。
+
 **同仓库合并逻辑**：
 
-第一次 clone 仓库时，扫描整个仓库发现所有 skills。用户选择后，选中的加入 links，未选中的在 skills-registry.json 中标记为 ignored。
-
-后续添加同仓库的其他 skill 时：
+核心原则：**一个 URL 对应一个 source entry**，通过调整 `skill_subdir` 层级和 `ignore` 列表来管理。
 
 ```
-source add https://github.com/org/repo/tree/main/examples/demo-skill
+同 URL 的 source 已存在时：
 
-Step 1: 解析 URL → repo = github.com/org/repo, path = examples/demo-skill
+1. 新 subdir 在 existing subdir 范围内
+   → 只更新 ignore list（从 ignore 移除目标 skills，加入 links）
+   → skill_subdir 保持不变
+   例：existing=".", new="examples/skill-a"
 
-Step 2: 检测到 repo 已存在 source "repo"
-        Store: ~/.syncskill/sources/repo (已 clone)
+2. 新 subdir 比 existing 更广
+   → 扩大 skill_subdir 为新值
+   → 新增 skills 加入 links，已有的保持不变
+   例：existing="examples/skill-a", new="."
 
-Step 3: 检查 examples/demo-skill
-        ├─ 在 ignore 列表中 → 从 ignore 移除，加入 links
-        ├─ 已在 links 中 → 提示 "Skill already added"
-        └─ 路径不存在 → 先 git pull 更新，再检查
+3. 完全不相关的路径（互不包含）
+   → 询问用户：扩大到共同父目录，还是创建独立 source？
+   → 推荐扩大到共同父目录（保持一个 source 原则）
+   例：existing="skills/", new="examples/" → 扩大到 "."
 
-Step 4: 完成
-        ✓ Added "demo-skill" from existing source "repo"
+重复安装同一 URL（无新 subdir）：
+   → 保持现有 source 不变，只 refresh 发现新 skills
+```
+
+**包含关系判断**：`subdirContains(parent, child)`
+- `"."` 包含一切（仓库根）
+- `"a/b"` 包含 `"a/b/c"` 但不包含 `"a/x"`
+- 同一路径视为包含（identity）
+
+**示例**（nuwa-skill 仓库）：
+```
+仓库结构：
+  /SKILL.md
+  /examples/andrej-karpathy-perspective/SKILL.md
+  /examples/steve-jobs-perspective/SKILL.md
+  ... (~15 个 examples/*/SKILL.md)
+
+# 首次安装
+syncskill i https://github.com/alchaincyf/nuwa-skill
+→ 递归搜索发现 ~16 个 skills
+→ 交互式选择：用户选中 "nuwa-skill"，其余加入 ignore
+→ config: skill_subdir: ".", ignore: [其余 15 个]
+
+# 后续添加子目录 skill
+syncskill i .../tree/main/examples/andrej-karpathy-perspective
+→ source 已存在，"." 包含 "examples/..."
+→ 从 ignore 移除 "andrej-karpathy-perspective"，加入 links
+→ skill_subdir 保持 "."
+```
+
+**`source update` 命令流程**：
+
+Source update **不自动触发**。用户通过 `syncskill update` 或 `syncskill source update` 手动执行。
+
+```
+source update [name] [--all] [-y/--yes] [--force]
+
+Step 1: 确定更新范围
+├─ 指定 name → 只更新该 source
+├─ --all → 更新所有可更新的 source
+├─ 无参数 → 列出所有可更新的 source，交互式选择
+│
+├─ 过滤不可更新的 source：
+│   ├─ type: "local"（无论目录还是压缩包）→ 跳过
+│   ├─ type: "http" + url 为空 → 跳过（本地压缩包，无原始 URL）
+│   └─ type: "git" / type: "http" + url 有值 → 可更新
+│
+└─ 提示用户即将更新哪些 source（列出名称、类型、URL）
+
+Step 2: 逐个执行更新
+
+  ── Git source ──
+
+  Step 2.1: Dirty 检测（以 repo 为单位）
+  ├─ 在 source.path 执行 `git status --porcelain`
+  ├─ 如果输出为空 → clean，正常更新
+  ├─ 如果有输出 → 解析修改文件映射到 skills
+  │   ├─ 遍历 dirty files，根据路径确定归属的 skill 名
+  │   ├─ dirty_skills = [...], 所有在此 repo 中的 skills 都会被影响
+  │   └─ 如果所有修改文件都不归属任何 skill（如 repo 根目录 README）
+  │       → "non-skill dirty"：不影响 skill 内容，但 reset --hard 仍会丢弃
+  │       → --force / -y → 直接清理并更新（不 skip）
+  │       → 交互模式 → 提示用户，但默认选项是 Update（与 skill dirty 默认 skip 不同）
+  │
+  ├─ --force → 跳过 dirty 检测，备份后覆盖（见下方备份机制）
+  ├─ -y/--yes（无 --force）→ skill dirty 时 skip；non-skill dirty 时直接更新
+  │   skill dirty 输出：
+  │   "⚠ Skipped: <source> (dirty — <N> skills have local modifications)"
+  │   "  Dirty skills: skill-a, skill-c"
+  │   "  Skipped skills: skill-a, skill-b, skill-c (all skills in this source)"
+  │   "  Use --force to overwrite local changes."
+  │
+  └─ 交互模式 → 提示用户选择：
+
+  ── skill dirty 时 ──
+  ┌─────────────────────────────────────────────────────────────┐
+  │ ⚠ Source "company-skills" has local modifications:          │
+  │                                                             │
+  │   Dirty skills: skill-a (3 files), skill-c (1 file)        │
+  │   All skills in this source: skill-a, skill-b, skill-c     │
+  │                                                             │
+  │ Git update is repo-level — ALL skills will be affected.     │
+  │                                                             │
+  │ Choose action:                                              │
+  │   (u) Update — discard local changes, use remote latest     │
+  │   (s) Skip — keep local modifications, skip this source     │
+  │   (q) Quit — stop update                                    │
+  └─────────────────────────────────────────────────────────────┘
+
+  ── non-skill dirty 时（修改不影响 skill，但 reset --hard 会清理）──
+  ┌─────────────────────────────────────────────────────────────┐
+  │ ⚠ Source "my-repo" has uncommitted changes (not in skills): │
+  │   Modified: README.md, notes.txt                            │
+  │                                                             │
+  │ These files are not skills, but `git reset --hard` will     │
+  │ discard them.                                               │
+  │                                                             │
+  │ Choose action:                                              │
+  │ > (u) Update — discard non-skill changes and update         │
+  │   (s) Skip — keep changes, skip this source                 │
+  │   (q) Quit — stop update                                    │
+  └─────────────────────────────────────────────────────────────┘
+
+  Step 2.2: 执行更新（clean 或用户选择 update）
+  ├─ 如果 --force 且有 dirty skills → 先执行备份（见下方备份机制）
+  ├─ git fetch --depth=1 origin <branch>
+  ├─ git reset --hard origin/<branch>
+  ├─ 扫描更新后的 skill 列表，对比变化
+  └─ 输出更新结果
+
+  ── HTTP source ──
+
+  Step 2.1: Dirty 检测（hash 比较）
+  ├─ 计算当前各 skill 的实际 hash
+  ├─ 与 skills-registry.json 中记录的 last_update_hash 对比
+  ├─ 如果有 skill 的 hash 与 last_update_hash 不一致 → dirty
+  │
+  ├─ --force → 跳过 dirty 检测，直接覆盖
+  ├─ -y/--yes（无 --force）→ skip + 打印 warning（同 git source 格式）
+  └─ 交互模式 → 同 git source 的提示格式（以 source 为单位决策）
+
+  Step 2.2: 确认更新（仅 clean source 或用户已选择 update）
+  ├─ 询问用户是否更新此 source（除非 -y）
+  │   选项：
+  │   (Y) Yes — 更新这个 source
+  │   (n) No — 跳过这个 source
+  │   (a) Yes to all — 更新这个及后续所有 HTTP source
+  │   (q) Quit — 停止更新
+  │
+  ├─ 备份当前 skill 列表（从 skills-registry.json 读取 + 各自 hash）
+  ├─ 下载到 tmp 目录（~/.syncskill/.tmp/update-<name>/）
+  ├─ 解压到 tmp 目录
+  ├─ 验证：解压后 skill 目录结构完整
+  │   ├─ 验证成功 → rm 源目录 + mv tmp → 源目录
+  │   └─ 验证失败 → 保留原目录，报错，清理 tmp
+  ├─ 扫描更新后的 skill 列表，对比变化
+  ├─ 更新 skills-registry.json 中的 last_update_hash
+  └─ 注意：HTTP URL 可能有时效性，先下载到 tmp 确认完整后才替换
+
+Step 3: 处理被删除的 skill
+├─ 列出在更新后从 source 中消失的 skill
+├─ 对每个被删除的 skill 询问（除非 -y 则默认保留）：
+│   "Skill <X> was removed from source <Y>. Keep it as a local skill?"
+│   ├─ Yes → 复制 skill 到 ~/.syncskill/skills/<name>，registry 更新为 manual
+│   └─ No → 从 links 中移除，清理软链接，registry 标记删除
+│
+└─ 新增的 skill → 提示用户是否要 link（除非 -y 则自动 link all）
+
+Step 4: 输出更新报告（始终显示，包括 -y 模式）
+├─ ✓ 更新成功的 source + 变更 skill 列表
+├─ ✗ 更新失败的 source + 原因
+├─ ⚠ 被删除的 skill 及用户的处理决定
+└─ + 新增的 skill
+```
+
+**`--force` 备份机制**：
+
+当使用 `--force` 覆盖 dirty skills 时，自动备份到 `~/.syncskill/backups/`：
+
+```
+备份目录结构：
+~/.syncskill/backups/
+├── <source-name>/
+│   ├── <skill-name>/           # 每个 skill 只保留最新一份备份
+│   │   ├── SKILL.md
+│   │   └── ...
+│   └── _meta.json              # 备份元信息
+└── ...
+
+_meta.json 格式：
+{
+  "skill-a": {
+    "backed_up_at": "2026-05-11T12:00:00Z",
+    "reason": "force-update",
+    "original_hash": "abc123..."
+  }
+}
+
+备份流程：
+├─ Git source: 将 dirty skills 复制到 backups/<source>/<skill>/
+├─ HTTP source: 将 dirty skills 复制到 backups/<source>/<skill>/
+└─ 输出提示：
+   "⚠ Backing up dirty skills before force-update..."
+   "  ✓ Backed up skill-a to ~/.syncskill/backups/company-skills/skill-a/"
+
+恢复方式（手动）：
+cp -r ~/.syncskill/backups/<source>/<skill>/* <original-skill-path>/
+```
+
+**输出示例**：
+
+```
+$ syncskill update
+
+Updatable sources:
+  1. my-repo (git) — https://github.com/user/my-repo.git
+  2. company-skills (git) — https://github.com/org/company-skills.git
+  3. skill-pack (http) — https://cdn.example.com/skills-v2.tar.gz
+
+⚠ Source "company-skills" has local modifications:
+  Dirty skills: skill-a (3 files), skill-c (1 file)
+  All skills in this source: skill-a, skill-b, skill-c
+
+Git update is repo-level — ALL skills will be affected.
+
+Choose action: (u) Update  (s) Skip  (q) Quit: s
+
+Updating my-repo (git)...
+  Fetching origin/main...
+  ✓ Updated. 1 skill modified, 1 skill added.
+
+Update source "skill-pack" (http)? [Y/n/a/q] a
+
+Updating skill-pack (http)...
+  Downloading to tmp...
+  Verifying archive contents...
+  ✓ Updated. 2 skills modified.
+
+  ⚠ Skill "old-tool" was removed from source "skill-pack".
+  Keep it as a local skill? [Y/n] y
+  ✓ Moved to ~/.syncskill/skills/old-tool
+
+Update Summary:
+  ✓ my-repo: skill-a (modified), skill-d (new)
+  ⚠ company-skills: skipped (dirty — skill-a, skill-c have local modifications)
+     Skipped skills: skill-a, skill-b, skill-c
+  ✓ skill-pack: skill-b (modified), skill-c (modified)
+  ⚠ old-tool: removed from skill-pack, kept locally
+```
+
+```
+$ syncskill update -y
+
+Updating my-repo (git)...
+  Fetching origin/main...
+  ✓ Updated. 1 skill modified.
+
+⚠ Skipped: company-skills (dirty — 2 skills have local modifications)
+  Dirty skills: skill-a, skill-c
+  Skipped skills: skill-a, skill-b, skill-c (all skills in this source)
+  Use --force to overwrite local changes.
+
+Updating skill-pack (http)...
+  ✓ Updated. 2 skills modified.
+```
+
+```
+$ syncskill update --force
+
+Updating my-repo (git)...
+  Fetching origin/main...
+  ✓ Updated. 1 skill modified.
+
+Updating company-skills (git)...
+  Fetching origin/main...
+  ✓ Force-updated. Discarded local modifications in: skill-a, skill-c
+  ✓ Updated. 2 skills modified.
+
+Updating skill-pack (http)...
+  ✓ Updated. 2 skills modified.
 ```
 
 **`source remove` 命令行为（交互式确认）**：
@@ -554,6 +929,13 @@ Choose action:
       "type": "git",
       "status": "active"
     },
+    "http-skill": {
+      "path": "~/.syncskill/sources/skill-pack/skills/http-skill",
+      "origin": "skill-pack",
+      "type": "http",
+      "status": "active",
+      "last_update_hash": "a1b2c3d4..."
+    },
     "ignored-skill": {
       "path": "~/.syncskill/sources/repo/.claude/skills/ignored-skill",
       "origin": "repo",
@@ -566,6 +948,11 @@ Choose action:
   }
 }
 ```
+
+**`last_update_hash` 字段**：
+- 仅用于 **HTTP source** 的 dirty 检测（git source 使用 `git status --porcelain`）
+- 在 `source add`（HTTP 类型解压完成后）和 `source update`（更新完成后）时写入
+- update 前计算当前 skill 实际 hash，与此字段对比判断是否 dirty
 
 **全局 skill 发现**：
 
@@ -602,8 +989,34 @@ Select servers to push:
 **Pull 流程**：
 1. 拉取远程 manifest
 2. 对比本地 hash
-3. rsync 拉取
-4. 更新本地 manifest
+3. 确定 pull 目标路径（见下方路径解析规则）
+4. rsync 拉取到目标路径
+5. 更新本地 manifest + skills-registry.json
+
+**Pull 目标路径解析**：
+
+Pull 时 skill 应放回其**原始来源目录**，而非统一放到 `~/.syncskill/skills/`。路径解析优先级：
+
+```
+resolveSkillPullTarget(skillName):
+  1. 查询 skills-registry.json
+     ├─ 找到 entry.path → 使用 registry 中记录的真实路径
+     │   例: manual skill → ~/.syncskill/skills/<name>
+     │   例: git source  → ~/.syncskill/sources/repo/skills/<name>
+     │   例: http source → ~/.syncskill/sources/archive/skills/<name>
+     │   例: local source → /external/path/skills/<name>
+     └─ 未找到 → 进入 fallback
+
+  2. Fallback（registry 异常缺失时）
+     ├─ resolveSkillPath(skillName, config.sources) — 从 config sources 推断路径
+     └─ 兜底 → ~/.syncskill/skills/<name>（manual 默认位置）
+
+  3. 远程新增（本地不存在的 skill）
+     → 拉取到 ~/.syncskill/skills/<name>（作为 manual skill）
+     → registry 中新增条目：origin: "remote", type: "manual", status: "active"
+```
+
+所有来源类型（manual / git / http / local）均允许被 pull 覆盖。用户配置了 `direction: pull` 即表示希望从远程覆盖本地。
 
 **Sync 流程**：
 1. 遍历所有配置的服务器
@@ -902,18 +1315,74 @@ function formatDiagnosticSummary(report: DiagnosticReport): string;
 | `SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 在 `~/.syncskill/skills/` 和 sources 中都不存在 | 从 `links` 中移除该 skill |
 | `AGENT_NOT_CONFIGURED` | warning | `links[skill]` 中引用的 agent 不在 `agents` 中 | 从该 skill 的 targets 中移除该 agent |
 | `SOURCE_PATH_INVALID` | warning | `sources` 中 local 类型的 `path` 不存在 | 从 `sources` 中移除 |
+| `REGISTRY_MISSING` | warning | `skills-registry.json` 文件不存在 | 从 config + 文件系统重建 |
+| `REGISTRY_CORRUPT` | warning | `skills-registry.json` 解析失败或 schema 不合法 | 备份损坏文件后重建 |
+| `REGISTRY_STALE` | warning | registry 中记录的 skill 路径不存在（skill 已删除/移动） | 移除失效条目 |
+| `REGISTRY_ORPHAN` | warning | config/文件系统中存在 skill 但 registry 中缺少对应条目 | 补充缺失条目 |
 
 **检查顺序**：
 1. 检查 `agents` 路径有效性（决定是否 error）
 2. 检查 `links` 引用完整性
 3. 检查 `sources` 路径有效性
+4. 检查 `skills-registry.json` 完整性（见下方）
 
 **注意**：`links[skill]` 的 targets 数组为空是合理情况（临时禁用），不触发诊断。
+
+**skills-registry.json 诊断与重建**：
+
+registry 是 pull 目标路径解析、source update 等功能的关键依赖。doctor 需要确保其与实际状态一致。
+
+```
+检查流程：
+1. 文件存在性
+   ├─ 不存在 → REGISTRY_MISSING，--fix 时重建
+   └─ 存在 → 继续
+
+2. 文件可解析性
+   ├─ JSON 解析失败或 version/skills 字段缺失 → REGISTRY_CORRUPT
+   │   --fix 时备份为 skills-registry.json.bak，然后重建
+   └─ 解析成功 → 继续
+
+3. 条目有效性（遍历 registry.skills）
+   ├─ entry.path 指向的目录不存在 → REGISTRY_STALE
+   │   --fix 时移除该条目
+   └─ entry.path 存在 → 正常
+
+4. 完整性（遍历 config.sources + ~/.syncskill/skills/）
+   ├─ 发现 skill 目录存在但 registry 中无对应条目 → REGISTRY_ORPHAN
+   │   --fix 时根据来源推断 origin/type 并补充条目
+   └─ 全部覆盖 → 正常
+```
+
+**重建逻辑（`rebuildSkillsRegistry`）**：
+
+从 config.yaml + 文件系统推断所有 skill 的 registry 条目：
+
+```
+rebuildSkillsRegistry(config):
+  registry = { version: 1, skills: {} }
+
+  1. 扫描 ~/.syncskill/skills/ 下所有含 SKILL.md 的目录
+     → origin: "manual", type: "manual", status: "active"
+
+  2. 遍历 config.sources，对每个 source：
+     ├─ discoverSourceSkills(source) 获取 skill 列表
+     ├─ 对每个 skill：
+     │   ├─ 在 source.ignore[] 中 → status: "ignored"
+     │   └─ 不在 ignore 中 → status: "active"
+     ├─ origin: sourceName, type: source.type
+     └─ 如果 type: "http" → 计算当前 skill hash，写入 last_update_hash
+        （重建后的状态 = "当前内容就是 baseline"，避免误判为 dirty）
+
+  3. 重名冲突时，保留 config.links 中存在的那个，其余标记 ignored
+
+  返回 registry
+```
 
 ### 10.4 CLI 命令
 
 ```
-syncskill doctor [--fix] [--dry-run] [-y/--yes]
+syncskill doctor [--fix] [--rebuild-registry] [--dry-run] [-y/--yes]
 ```
 
 | 参数 | 说明 |
@@ -921,7 +1390,14 @@ syncskill doctor [--fix] [--dry-run] [-y/--yes]
 | （无参数） | 只诊断，输出报告，不修复 |
 | `--fix` | 交互式修复（逐项确认） |
 | `--fix -y` | 自动修复所有可修复项 |
+| `--rebuild-registry` | 仅重建 `skills-registry.json`（跳过其他诊断） |
 | `--dry-run` | 预览修复操作，不实际执行 |
+
+**`--rebuild-registry` 行为**：
+- 从 config.yaml + 文件系统重新扫描所有 skill，生成全新的 `skills-registry.json`
+- 如果旧文件存在且可解析，先备份为 `skills-registry.json.bak`
+- 可与 `--dry-run` 组合使用，预览将生成的 registry 内容
+- 输出重建结果摘要（manual / source skill 数量、ignored 数量）
 
 **诊断模式输出**：
 
