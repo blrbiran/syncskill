@@ -311,3 +311,34 @@ export function formatDiagnosticSummary(report: DiagnosticReport): string {
   const total = report.errors.length + report.warnings.length;
   return `⚠ Config has ${total} issue${total > 1 ? 's' : ''} (run \`syncskill doctor\` to fix)`;
 }
+
+/**
+ * Auto-check config health before running commands.
+ * - If healthy: silent, continue
+ * - If warnings only: print one-line summary to stderr, continue
+ * - If errors (canProceed=false): print summary + "Run doctor --fix", exit 1
+ *
+ * Returns false if config could not be loaded (caller should skip auto-check).
+ */
+export async function autoDiagnoseConfig(
+  config: SyncSkillConfig | null,
+  skillsDir: string
+): Promise<void> {
+  if (!config) {
+    // Config not available - skip auto-check
+    return;
+  }
+
+  const report = await diagnoseConfig(config, skillsDir);
+
+  if (report.isHealthy) {
+    return;
+  }
+
+  console.error(formatDiagnosticSummary(report));
+
+  if (!report.canProceed) {
+    console.error('Run `syncskill doctor --fix` to repair.');
+    process.exit(1);
+  }
+}

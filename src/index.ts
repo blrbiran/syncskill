@@ -59,6 +59,7 @@ async function selectTargetServers(
 
 import { applyResolution, formatConflictMarker, reconcileManifest } from './conflict.js';
 import {
+  autoDiagnoseConfig,
   diagnoseConfig,
   formatDiagnosticReport,
   repairConfig,
@@ -403,6 +404,11 @@ export function createProgram(homeDir?: string): Command {
     .option('-v, --verbose', 'Show text status instead of symbols')
     .option('--dry-run', 'Preview changes without applying')
     .action(async (skillOrSubcommand: string | undefined, options: { all?: boolean; list?: boolean; verbose?: boolean; dryRun?: boolean }) => {
+      // Auto-check config health
+      const config = await loadConfig(resolvedHomeDir);
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+      await autoDiagnoseConfig(config, skillsDir);
+
       // Check if argument is 'list' or 'ls' subcommand
       const isListSubcommand = skillOrSubcommand === 'list' || skillOrSubcommand === 'ls';
 
@@ -456,6 +462,11 @@ export function createProgram(homeDir?: string): Command {
     .option('-y, --yes', 'Skip confirmation')
     .option('--dry-run', 'Preview changes without applying')
     .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean }) => {
+      // Auto-check config health
+      const config = await loadConfig(resolvedHomeDir);
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+      await autoDiagnoseConfig(config, skillsDir);
+
       if (options.dryRun) {
         console.log(`[dry-run] Would unlink skill "${skill}" from all agents`);
         return;
@@ -771,6 +782,16 @@ export function createProgram(homeDir?: string): Command {
     .command('status')
     .description('Show reconciliation status for all tracked manifests')
     .action(async () => {
+      // Auto-check config health (if config exists)
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+      let config: SyncSkillConfig | null = null;
+      try {
+        config = await loadConfig(resolvedHomeDir);
+      } catch {
+        // Config may not exist yet
+      }
+      await autoDiagnoseConfig(config, skillsDir);
+
       const manifests = await loadTrackedManifests(resolvedHomeDir);
 
       for (const line of formatStatusLines(manifests)) {
@@ -782,6 +803,16 @@ export function createProgram(homeDir?: string): Command {
     .command('diff <server>')
     .description('Show pending reconciliation rows for one server')
     .action(async (server: string) => {
+      // Auto-check config health (if config exists)
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+      let config: SyncSkillConfig | null = null;
+      try {
+        config = await loadConfig(resolvedHomeDir);
+      } catch {
+        // Config may not exist yet
+      }
+      await autoDiagnoseConfig(config, skillsDir);
+
       const [manifest] = await loadTrackedManifests(resolvedHomeDir, server);
 
       if (!manifest) {
@@ -927,6 +958,10 @@ export function createProgram(homeDir?: string): Command {
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; yes?: boolean }) => {
       const config = await loadConfig(resolvedHomeDir);
+      // Auto-check config health
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+      await autoDiagnoseConfig(config, skillsDir);
+
       const allServers = Object.keys(config.servers).sort();
 
       const targetServers = await selectTargetServers(allServers, server, options, 'push');
@@ -949,6 +984,10 @@ export function createProgram(homeDir?: string): Command {
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; yes?: boolean }) => {
       const config = await loadConfig(resolvedHomeDir);
+      // Auto-check config health
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+      await autoDiagnoseConfig(config, skillsDir);
+
       const allServers = Object.keys(config.servers).sort();
 
       const targetServers = await selectTargetServers(allServers, server, options, 'pull');
@@ -969,6 +1008,11 @@ export function createProgram(homeDir?: string): Command {
     .option('--all', 'Sync all configured servers')
     .option('--dry-run', 'Preview changes without syncing')
     .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean }) => {
+      // Auto-check config health
+      const config = await loadConfig(resolvedHomeDir);
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+      await autoDiagnoseConfig(config, skillsDir);
+
       const servers = options.all || server === undefined ? undefined : [server];
       const results = await syncServers(resolvedHomeDir, servers, { dryRun: options.dryRun });
 
