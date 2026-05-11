@@ -9,7 +9,8 @@ import {
   type DiagnosticReport,
   DiagnosticCode,
   checkAgentPaths,
-  checkSkillReferences
+  checkSkillReferences,
+  checkAgentReferences
 } from '../../src/config-doctor.js';
 
 describe('DiagnosticCode', () => {
@@ -102,6 +103,38 @@ describe('checkSkillReferences', () => {
     const links = { 'skill-a': [] };
     const existingSkills = new Set<string>();
     const items = checkSkillReferences(links, existingSkills);
+
+    expect(items).toEqual([]);
+  });
+});
+
+describe('checkAgentReferences', () => {
+  it('returns empty array when all agents are configured', () => {
+    const links = { 'skill-a': ['claude', 'hermes'] };
+    const configuredAgents = new Set(['claude', 'hermes']);
+    const items = checkAgentReferences(links, configuredAgents);
+
+    expect(items).toEqual([]);
+  });
+
+  it('returns warning for unconfigured agent in links', () => {
+    const links = { 'skill-a': ['claude', 'missing-agent'] };
+    const configuredAgents = new Set(['claude']);
+    const items = checkAgentReferences(links, configuredAgents);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      code: 'AGENT_NOT_CONFIGURED',
+      severity: 'warning',
+      path: 'links.skill-a'
+    });
+    expect(items[0].message).toContain('missing-agent');
+  });
+
+  it('ignores wildcard target', () => {
+    const links = { 'skill-a': ['*'] };
+    const configuredAgents = new Set(['claude']);
+    const items = checkAgentReferences(links, configuredAgents);
 
     expect(items).toEqual([]);
   });

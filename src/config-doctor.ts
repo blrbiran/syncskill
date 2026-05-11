@@ -98,3 +98,28 @@ export function checkSkillReferences(
 
   return items;
 }
+
+export function checkAgentReferences(
+  links: Record<string, string[]>,
+  configuredAgents: Set<string>
+): DiagnosticItem[] {
+  const items: DiagnosticItem[] = [];
+
+  for (const [skill, targets] of Object.entries(links)) {
+    const missingAgents = targets.filter(
+      (agent) => agent !== '*' && !configuredAgents.has(agent)
+    );
+
+    for (const agent of missingAgents) {
+      items.push({
+        code: DiagnosticCode.AGENT_NOT_CONFIGURED,
+        severity: 'warning',
+        message: `Agent "${agent}" not configured in agents`,
+        path: `links.${skill}`,
+        suggestion: `Remove "${agent}" from links.${skill} targets`
+      });
+    }
+  }
+
+  return items;
+}
