@@ -180,6 +180,7 @@ export interface SourceDefinition {
   url: string;
   path: string;
   ref?: string;
+  archive_path?: string;  // For local archive sources, points to original archive file
 }
 
 export interface SourceEntry extends SourceDefinition {
