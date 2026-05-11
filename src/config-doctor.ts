@@ -1,3 +1,5 @@
+import { access } from 'node:fs/promises';
+
 export const DiagnosticCode = {
   NO_VALID_AGENTS: 'NO_VALID_AGENTS',
   AGENT_PATH_INVALID: 'AGENT_PATH_INVALID',
@@ -28,4 +30,46 @@ export interface RepairOptions {
   removeInvalidAgentLinks: boolean;
   removeInvalidAgents: boolean;
   removeInvalidSources: boolean;
+}
+
+export async function checkAgentPaths(
+  agents: Record<string, string>
+): Promise<DiagnosticItem[]> {
+  const entries = Object.entries(agents);
+  if (entries.length === 0) {
+    return [];
+  }
+
+  const results = await Promise.all(
+    entries.map(async ([name, path]) => {
+      try {
+        await access(path);
+        return { name, path, valid: true };
+      } catch {
+        return { name, path, valid: false };
+      }
+    })
+  );
+
+  const validCount = results.filter((r) => r.valid).length;
+  const invalidResults = results.filter((r) => !r.valid);
+
+  if (validCount === 0 && entries.length > 0) {
+    return [
+      {
+        code: DiagnosticCode.NO_VALID_AGENTS,
+        severity: 'error',
+        message: 'All agent paths are invalid. At least one is required.',
+        path: 'agents'
+      }
+    ];
+  }
+
+  return invalidResults.map((r) => ({
+    code: DiagnosticCode.AGENT_PATH_INVALID,
+    severity: 'warning' as const,
+    message: `Path does not exist: ${r.path}`,
+    path: `agents.${r.name}`,
+    suggestion: `Remove "${r.name}" from agents`
+  }));
 }
