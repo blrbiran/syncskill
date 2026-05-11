@@ -312,6 +312,10 @@ export function createProgram(homeDir?: string): Command {
     .option('--migrate', 'Migrate unmanaged skills from agent directories to ~/.syncskill/skills/')
     .option('--dry-run', 'Preview scan results without making changes')
     .action(async (options: { migrate?: boolean; dryRun?: boolean }) => {
+      const config = await loadConfig(resolvedHomeDir);
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+      await autoDiagnoseConfig(config, skillsDir);
+
       const isDryRun = Boolean(options.dryRun);
 
       if (isDryRun) {
@@ -511,6 +515,10 @@ export function createProgram(homeDir?: string): Command {
       ref?: string;
       yes?: boolean;
     }) => {
+      const config = await loadConfig(resolvedHomeDir);
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+      await autoDiagnoseConfig(config, skillsDir);
+
       // Auto-detect local type when --path is provided without --type
       // If not a GitHub URL pattern and --path is provided, default to local type
       let effectiveType = options.type;
@@ -729,6 +737,10 @@ export function createProgram(homeDir?: string): Command {
     .command('show <name>')
     .description('Show configured details for one remote server')
     .action(async (name: string) => {
+      const config = await loadConfig(resolvedHomeDir);
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+      await autoDiagnoseConfig(config, skillsDir);
+
       for (const line of formatServerShowLines(await showServer(resolvedHomeDir, name))) {
         console.log(line);
       }

@@ -444,6 +444,10 @@ describe('skills-registry generation', () => {
     const syncDir = join(homeDir, '.syncskill');
     const skillsDir = join(syncDir, 'skills');
 
+    // Create agent directory
+    const agentDir = join(homeDir, '.claude', 'skills');
+    await mkdir(agentDir, { recursive: true });
+
     // Create a skill not in links
     await mkdir(join(skillsDir, 'new-skill'), { recursive: true });
     await writeFile(join(skillsDir, 'new-skill', 'SKILL.md'), '# New');
@@ -453,7 +457,7 @@ describe('skills-registry generation', () => {
       join(syncDir, 'config.yaml'),
       stringify({
         version: 1,
-        agents: { claude: join(homeDir, '.claude', 'skills') },
+        agents: { claude: agentDir },
         links: {},
         sources: {},
         servers: {},

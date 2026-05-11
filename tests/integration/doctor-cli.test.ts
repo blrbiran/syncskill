@@ -94,15 +94,11 @@ describe('syncskill doctor', () => {
       };
       await writeFile(configFile, YAML.stringify(config));
 
-      try {
-        await execFileAsync('node', [cliPath, 'link', 'list'], {
-          env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir }
-        });
-      } catch (e: unknown) {
-        const err = e as { stderr?: string };
-        expect(err.stderr).toContain('Config has');
-        expect(err.stderr).toContain('syncskill doctor');
-      }
+      const { stderr } = await execFileAsync('node', [cliPath, 'link', 'list'], {
+        env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir }
+      });
+      expect(stderr).toContain('Config has');
+      expect(stderr).toContain('syncskill doctor');
     });
 
     it('blocks when no valid agents', async () => {
