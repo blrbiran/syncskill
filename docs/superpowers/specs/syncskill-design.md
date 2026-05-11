@@ -845,3 +845,171 @@ node_modules/
 | `docs/config-guide.md` | config.yaml 完整字段参考 |
 | `docs/usage-guide.md` | CLI 命令参考、日常 workflow、SSH 配置、故障排查 |
 | `README.md` | 项目简介、快速开始、架构图、安装 |
+
+## 10. Config Doctor — 配置诊断与修复
+
+### 10.1 概述
+
+`config-doctor` 模块负责检测 `~/.syncskill/config.yaml` 中的错误和不合理配置，并提供交互式修复能力。
+
+**设计原则**：
+- 自动检查：所有命令启动时运行，轻微问题警告，严重问题阻断
+- 手动修复：`syncskill doctor --fix` 交互式修复，需用户确认
+
+### 10.2 模块接口
+
+**新增文件**：`src/config-doctor.ts`
+
+```typescript
+// 诊断结果项
+interface DiagnosticItem {
+  code: string;           // 诊断码
+  severity: 'error' | 'warning';
+  message: string;        // 人类可读描述
+  path: string;           // config 中的路径，如 'links.old-skill'
+  suggestion?: string;    // 修复建议
+}
+
+// 诊断报告
+interface DiagnosticReport {
+  errors: DiagnosticItem[];    // 严重问题
+  warnings: DiagnosticItem[];  // 轻微问题
+  isHealthy: boolean;          // errors.length === 0 && warnings.length === 0
+  canProceed: boolean;         // errors.length === 0
+}
+
+// 修复选项
+interface RepairOptions {
+  removeInvalidSkillLinks: boolean;
+  removeInvalidAgentLinks: boolean;
+  removeInvalidAgents: boolean;
+  removeInvalidSources: boolean;
+}
+
+// 核心函数
+function diagnoseConfig(config: SyncSkillConfig, paths: SyncPaths): Promise<DiagnosticReport>;
+function repairConfig(config: SyncSkillConfig, report: DiagnosticReport, options: RepairOptions): SyncSkillConfig;
+function formatDiagnosticReport(report: DiagnosticReport): string;
+function formatDiagnosticSummary(report: DiagnosticReport): string;
+```
+
+### 10.3 诊断码
+
+| Code | Severity | 触发条件 | 修复动作 |
+|------|----------|---------|---------|
+| `NO_VALID_AGENTS` | error | `agents` 中所有路径都不存在 | 阻断，提示运行 `doctor --fix` |
+| `AGENT_PATH_INVALID` | warning | 单个 agent 路径不存在 | 从 `agents` 中移除 |
+| `SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 在 `~/.syncskill/skills/` 和 sources 中都不存在 | 从 `links` 中移除该 skill |
+| `AGENT_NOT_CONFIGURED` | warning | `links[skill]` 中引用的 agent 不在 `agents` 中 | 从该 skill 的 targets 中移除该 agent |
+| `SOURCE_PATH_INVALID` | warning | `sources` 中 local 类型的 `path` 不存在 | 从 `sources` 中移除 |
+
+**检查顺序**：
+1. 检查 `agents` 路径有效性（决定是否 error）
+2. 检查 `links` 引用完整性
+3. 检查 `sources` 路径有效性
+
+**注意**：`links[skill]` 的 targets 数组为空是合理情况（临时禁用），不触发诊断。
+
+### 10.4 CLI 命令
+
+```
+syncskill doctor [--fix] [--dry-run] [-y/--yes]
+```
+
+| 参数 | 说明 |
+|------|------|
+| （无参数） | 只诊断，输出报告，不修复 |
+| `--fix` | 交互式修复（逐项确认） |
+| `--fix -y` | 自动修复所有可修复项 |
+| `--dry-run` | 预览修复操作，不实际执行 |
+
+**诊断模式输出**：
+
+```
+$ syncskill doctor
+
+Config Diagnosis
+────────────────────────────────────────
+
+✗ Error: No valid agents configured
+  All agent paths are invalid. At least one is required.
+
+⚠ Warning: links.old-skill
+  Skill "old-skill" not found in ~/.syncskill/skills/ or sources
+
+⚠ Warning: links.web-tools → hermes
+  Agent "hermes" not configured in agents
+
+⚠ Warning: agents.qoder
+  Path ~/.qoder/skills does not exist
+
+────────────────────────────────────────
+1 error, 3 warnings
+
+Run `syncskill doctor --fix` to repair.
+```
+
+**修复模式输出**：
+
+```
+$ syncskill doctor --fix
+
+Found 3 issues to fix:
+
+? Remove "old-skill" from links? (skill not found) (Y/n) y
+✓ Removed links.old-skill
+
+? Remove "hermes" from links.web-tools targets? (agent not configured) (Y/n) y
+✓ Removed hermes from links.web-tools
+
+? Remove "qoder" from agents? (path does not exist) (Y/n) n
+⊘ Skipped agents.qoder
+
+────────────────────────────────────────
+Fixed 2 of 3 issues. Config saved.
+```
+
+### 10.5 自动检查集成
+
+**执行流程**：
+
+```
+命令执行流程：
+  loadConfig()
+  → autoDiagnoseConfig()  ← 新增
+  → autoRefreshManifests()
+  → 命令主逻辑
+```
+
+**触发范围**：所有需要读取 config 的命令（与 `autoRefreshManifests` 相同，除 `init`、`config`、`doctor` 外）
+
+**autoDiagnoseConfig() 行为**：
+
+```typescript
+async function autoDiagnoseConfig(config: SyncSkillConfig, paths: SyncPaths): Promise<void> {
+  const report = await diagnoseConfig(config, paths);
+
+  if (report.isHealthy) return;  // 无问题，静默通过
+
+  // 打印警告摘要（精简为一行）
+  console.error(formatDiagnosticSummary(report));
+
+  if (!report.canProceed) {
+    // 严重问题，阻断
+    console.error('Run `syncskill doctor --fix` to repair.');
+    process.exit(1);
+  }
+
+  // 轻微问题，继续执行（警告已打印）
+}
+```
+
+**自动检查输出示例**：
+
+```
+$ syncskill link my-skill
+
+⚠ Config has 2 issues (run `syncskill doctor` to fix)
+
+✓ Linked my-skill to: claude, agents
+```
