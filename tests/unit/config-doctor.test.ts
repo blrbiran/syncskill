@@ -8,12 +8,14 @@ import type { SyncSkillConfig } from '../../src/config.js';
 import {
   type DiagnosticItem,
   type DiagnosticReport,
+  type RepairOptions,
   DiagnosticCode,
   checkAgentPaths,
   checkSkillReferences,
   checkAgentReferences,
   checkSourcePaths,
-  diagnoseConfig
+  diagnoseConfig,
+  repairConfig
 } from '../../src/config-doctor.js';
 
 describe('DiagnosticCode', () => {
@@ -266,5 +268,234 @@ describe('diagnoseConfig', () => {
     expect(report.isHealthy).toBe(false);
     expect(report.canProceed).toBe(true);
     expect(report.warnings.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('repairConfig', () => {
+  it('removes invalid skill from links', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '/valid' },
+      links: { 'valid-skill': ['claude'], 'invalid-skill': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+
+    const report: DiagnosticReport = {
+      errors: [],
+      warnings: [
+        {
+          code: DiagnosticCode.SKILL_NOT_FOUND,
+          severity: 'warning',
+          message: 'Skill not found',
+          path: 'links.invalid-skill'
+        }
+      ],
+      isHealthy: false,
+      canProceed: true
+    };
+
+    const options: RepairOptions = {
+      removeInvalidSkillLinks: true,
+      removeInvalidAgentLinks: false,
+      removeInvalidAgents: false,
+      removeInvalidSources: false
+    };
+
+    const repaired = repairConfig(config, report, options);
+
+    expect(repaired.links).toEqual({ 'valid-skill': ['claude'] });
+  });
+
+  it('removes invalid agent from link targets', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '/valid' },
+      links: { 'my-skill': ['claude', 'invalid-agent'] },
+      servers: {},
+      sources: {}
+    };
+
+    const report: DiagnosticReport = {
+      errors: [],
+      warnings: [
+        {
+          code: DiagnosticCode.AGENT_NOT_CONFIGURED,
+          severity: 'warning',
+          message: 'Agent "invalid-agent" not configured',
+          path: 'links.my-skill'
+        }
+      ],
+      isHealthy: false,
+      canProceed: true
+    };
+
+    const options: RepairOptions = {
+      removeInvalidSkillLinks: false,
+      removeInvalidAgentLinks: true,
+      removeInvalidAgents: false,
+      removeInvalidSources: false
+    };
+
+    const repaired = repairConfig(config, report, options);
+
+    expect(repaired.links['my-skill']).toEqual(['claude']);
+  });
+
+  it('removes invalid agent from agents', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '/valid', hermes: '/invalid' },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const report: DiagnosticReport = {
+      errors: [],
+      warnings: [
+        {
+          code: DiagnosticCode.AGENT_PATH_INVALID,
+          severity: 'warning',
+          message: 'Path invalid',
+          path: 'agents.hermes'
+        }
+      ],
+      isHealthy: false,
+      canProceed: true
+    };
+
+    const options: RepairOptions = {
+      removeInvalidSkillLinks: false,
+      removeInvalidAgentLinks: false,
+      removeInvalidAgents: true,
+      removeInvalidSources: false
+    };
+
+    const repaired = repairConfig(config, report, options);
+
+    expect(repaired.agents).toEqual({ claude: '/valid' });
+  });
+
+  it('removes invalid source from sources', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '/valid' },
+      links: {},
+      servers: {},
+      sources: {
+        'valid-source': { type: 'local', path: '/valid' },
+        'invalid-source': { type: 'local', path: '/invalid' }
+      }
+    };
+
+    const report: DiagnosticReport = {
+      errors: [],
+      warnings: [
+        {
+          code: DiagnosticCode.SOURCE_PATH_INVALID,
+          severity: 'warning',
+          message: 'Path does not exist',
+          path: 'sources.invalid-source'
+        }
+      ],
+      isHealthy: false,
+      canProceed: true
+    };
+
+    const options: RepairOptions = {
+      removeInvalidSkillLinks: false,
+      removeInvalidAgentLinks: false,
+      removeInvalidAgents: false,
+      removeInvalidSources: true
+    };
+
+    const repaired = repairConfig(config, report, options);
+
+    expect(repaired.sources).toEqual({ 'valid-source': { type: 'local', path: '/valid' } });
+  });
+
+  it('does not mutate original config', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '/valid', hermes: '/invalid' },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const report: DiagnosticReport = {
+      errors: [],
+      warnings: [
+        {
+          code: DiagnosticCode.AGENT_PATH_INVALID,
+          severity: 'warning',
+          message: 'Path invalid',
+          path: 'agents.hermes'
+        }
+      ],
+      isHealthy: false,
+      canProceed: true
+    };
+
+    const options: RepairOptions = {
+      removeInvalidSkillLinks: false,
+      removeInvalidAgentLinks: false,
+      removeInvalidAgents: true,
+      removeInvalidSources: false
+    };
+
+    repairConfig(config, report, options);
+
+    // Original config should be unchanged
+    expect(config.agents).toEqual({ claude: '/valid', hermes: '/invalid' });
+  });
+
+  it('does nothing when options are all false', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '/valid', hermes: '/invalid' },
+      links: { 'invalid-skill': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+
+    const report: DiagnosticReport = {
+      errors: [],
+      warnings: [
+        {
+          code: DiagnosticCode.AGENT_PATH_INVALID,
+          severity: 'warning',
+          message: 'Path invalid',
+          path: 'agents.hermes'
+        },
+        {
+          code: DiagnosticCode.SKILL_NOT_FOUND,
+          severity: 'warning',
+          message: 'Skill not found',
+          path: 'links.invalid-skill'
+        }
+      ],
+      isHealthy: false,
+      canProceed: true
+    };
+
+    const options: RepairOptions = {
+      removeInvalidSkillLinks: false,
+      removeInvalidAgentLinks: false,
+      removeInvalidAgents: false,
+      removeInvalidSources: false
+    };
+
+    const repaired = repairConfig(config, report, options);
+
+    expect(repaired.agents).toEqual({ claude: '/valid', hermes: '/invalid' });
+    expect(repaired.links).toEqual({ 'invalid-skill': ['claude'] });
   });
 });

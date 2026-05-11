@@ -226,3 +226,42 @@ export async function diagnoseConfig(
     canProceed: errors.length === 0
   };
 }
+
+export function repairConfig(
+  config: SyncSkillConfig,
+  report: DiagnosticReport,
+  options: RepairOptions
+): SyncSkillConfig {
+  const result = structuredClone(config);
+
+  const allItems = [...report.errors, ...report.warnings];
+
+  for (const item of allItems) {
+    if (item.code === DiagnosticCode.SKILL_NOT_FOUND && options.removeInvalidSkillLinks) {
+      const skillName = item.path.replace('links.', '');
+      delete result.links[skillName];
+    }
+
+    if (item.code === DiagnosticCode.AGENT_NOT_CONFIGURED && options.removeInvalidAgentLinks) {
+      const skillName = item.path.replace('links.', '');
+      const agentMatch = item.message.match(/Agent "([^"]+)"/);
+      if (agentMatch && result.links[skillName]) {
+        result.links[skillName] = result.links[skillName].filter(
+          (a) => a !== agentMatch[1]
+        );
+      }
+    }
+
+    if (item.code === DiagnosticCode.AGENT_PATH_INVALID && options.removeInvalidAgents) {
+      const agentName = item.path.replace('agents.', '');
+      delete result.agents[agentName];
+    }
+
+    if (item.code === DiagnosticCode.SOURCE_PATH_INVALID && options.removeInvalidSources) {
+      const sourceName = item.path.replace('sources.', '');
+      delete result.sources[sourceName];
+    }
+  }
+
+  return result;
+}
