@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { saveConfig } from '../../src/config.js';
-import { loadManifestHistory, loadServerManifest } from '../../src/manifest.js';
-import { pullFromServer, pushToServers } from '../../src/sync_engine.js';
-import { type TransportRuntime } from '../../src/transport.js';
+import { saveConfig } from '../../src/config/config.js';
+import { loadManifestHistory, loadServerManifest } from '../../src/core/manifest.js';
+import { pullFromServer, pushToServers } from '../../src/core/sync_engine.js';
+import { type TransportRuntime } from '../../src/core/transport.js';
 
 function createRuntime(options: {
   remoteManifest?: string;

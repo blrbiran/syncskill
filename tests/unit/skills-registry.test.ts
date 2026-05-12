@@ -17,7 +17,7 @@ import {
   activateSkill,
   ignoreSkill,
   rebuildSkillsRegistry,
-} from '../../src/skills-registry.js';
+} from '../../src/core/skills-registry.js';
 
 describe('skills-registry', () => {
   let tempDir: string;

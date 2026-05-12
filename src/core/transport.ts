@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
-import { type ConfiguredServer } from './config.js';
+import { type ConfiguredServer } from '../config/config.js';
 import { createEmptyManifest, rebuildRemoteManifestFromHashes, type ServerManifest } from './manifest.js';
 
 export interface ServerProbeResult {
@@ -199,8 +199,8 @@ export async function probeServerAccess(
 }
 
 export async function deployReceiver(server: ConfiguredServer, runtime: TransportRuntime): Promise<void> {
-  const bootstrap = await readFile(new URL('./receiver/bootstrap_remote.sh', import.meta.url), 'utf8');
-  const receiver = await readFile(new URL('./receiver/sync_receiver.mjs', import.meta.url), 'utf8');
+  const bootstrap = await readFile(new URL('../receiver/bootstrap_remote.sh', import.meta.url), 'utf8');
+  const receiver = await readFile(new URL('../receiver/sync_receiver.mjs', import.meta.url), 'utf8');
 
   await runtime.exec('ssh', buildSshArgs(server, ['sh', '-s']), { stdin: bootstrap });
   await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${REMOTE_RECEIVER}`]), { stdin: receiver });

@@ -2,7 +2,7 @@ import { cp, mkdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { getSyncPaths, loadConfig, saveConfig } from './config.js';
+import { getSyncPaths, loadConfig, saveConfig } from './config/config.js';
 import { linkConfiguredSkills } from './linker.js';
 import { addSourceFromUrl, DiscoveredSkill } from './source.js';
 

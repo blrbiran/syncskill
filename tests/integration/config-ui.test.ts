@@ -5,11 +5,11 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
-import type { PromptApi, SSHHostConfig } from '../../src/config-ui.js';
-import { runConfigUi, safeSelect, applyMatrixToLinks, editServers, applyMatrixToRemote, parseSSHConfig } from '../../src/config-ui.js';
+import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config/config.js';
+import type { PromptApi, SSHHostConfig } from '../../src/config/config-ui.js';
+import { runConfigUi, safeSelect, applyMatrixToLinks, editServers, applyMatrixToRemote, parseSSHConfig } from '../../src/config/config-ui.js';
 import { ExitPromptError } from '@inquirer/core';
-import type { SyncSkillConfig } from '../../src/config.js';
+import type { SyncSkillConfig } from '../../src/config/config.js';
 
 class PromptStub implements PromptApi {
   constructor(private readonly answers: unknown[]) {}

@@ -11,7 +11,7 @@ import {
   loadConfig,
   saveConfig,
   type SyncSkillConfig
-} from './config.js';
+} from './config/config.js';
 import { installSyncskillSkill } from './install.js';
 
 export interface InitializeRepoOptions {

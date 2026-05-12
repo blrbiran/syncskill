@@ -1,16 +1,16 @@
 import { mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { getConfiguredServer, loadConfig, getSyncPaths } from './config.js';
-import { isNotFoundError } from './utils.js';
-import { getDiffRows, getStatusRows, reconcileManifest } from './conflict.js';
+import { getConfiguredServer, loadConfig, getSyncPaths } from './config/config.js';
+import { isNotFoundError } from './utils/utils.js';
+import { getDiffRows, getStatusRows, reconcileManifest } from './core/conflict.js';
 import {
   loadServerManifest,
   refreshLocalManifest,
   saveServerManifest,
   type ServerManifest
-} from './manifest.js';
-import { createTransportRuntime, refreshRemoteManifestFromServer } from './transport.js';
+} from './core/manifest.js';
+import { createTransportRuntime, refreshRemoteManifestFromServer } from './core/transport.js';
 
 export interface RefreshStoredManifestOptions {
   all?: boolean;

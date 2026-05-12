@@ -57,7 +57,7 @@ async function selectTargetServers(
   return selected;
 }
 
-import { applyResolution, formatConflictMarker, reconcileManifest } from './conflict.js';
+import { applyResolution, formatConflictMarker, reconcileManifest } from './core/conflict.js';
 import {
   autoDiagnoseConfig,
   diagnoseConfig,
@@ -66,13 +66,13 @@ import {
   repairRegistry,
   isRegistryDiagnostic,
   type RepairOptions
-} from './config-doctor.js';
+} from './config/config-doctor.js';
 import { installSyncskillSkill, installFromSource } from './install.js';
-import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue, type SyncSkillConfig } from './config.js';
-import { createPromptApi, runConfigUi } from './config-ui.js';
+import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
+import { createPromptApi, runConfigUi } from './config/config-ui.js';
 import { collectLinkStatus, discoverSkills, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, unlinkSkill } from './linker.js';
-import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './manifest.js';
-import { formatProbeLines, formatServerListLines, formatServerShowLines, listServers, probeServer, showServer } from './server.js';
+import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './core/manifest.js';
+import { formatProbeLines, formatServerListLines, formatServerShowLines, listServers, probeServer, showServer } from './core/server.js';
 import { initializeRepo } from './repo.js';
 import {
   autoRefreshManifests,
@@ -98,7 +98,7 @@ import {
   updateAllSources,
   updateSource,
 } from './source.js';
-import { pullFromServer, pullFromServers, pushToServers, syncServers, type PullResult, type PushResult } from './sync_engine.js';
+import { pullFromServer, pullFromServers, pushToServers, syncServers, type PullResult, type PushResult } from './core/sync_engine.js';
 
 function shouldSkipAutoRefresh(command: Command): boolean {
   const commandPath: string[] = [];
@@ -1103,7 +1103,7 @@ export function createProgram(homeDir?: string): Command {
 
       // Handle --rebuild-registry
       if (options.rebuildRegistry) {
-        const { rebuildSkillsRegistry, saveSkillsRegistry, getSkillsRegistryPath } = await import('./skills-registry.js');
+        const { rebuildSkillsRegistry, saveSkillsRegistry, getSkillsRegistryPath } = await import('./core/skills-registry.js');
         const { readFile, writeFile } = await import('node:fs/promises');
 
         if (options.dryRun) {

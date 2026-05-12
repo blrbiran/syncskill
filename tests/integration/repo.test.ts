@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { loadConfig } from '../../src/config.js';
+import { loadConfig } from '../../src/config/config.js';
 import { getEmbeddedSkillPath } from '../../src/install.js';
 import { initializeRepo } from '../../src/repo.js';
 import { useTempDirs } from '../helpers/temp-dir.js';

@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile, readdir, access } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getSyncPaths } from './config.js';
-import type { SyncSkillConfig } from './config.js';
+import { getSyncPaths } from '../config/config.js';
+import type { SyncSkillConfig } from '../config/config.js';
 import { hashSkillDirectory } from './manifest.js';
-import { isNotFoundError } from './utils.js';
+import { isNotFoundError } from '../utils/utils.js';
 
 export interface SkillRegistryEntry {
   path: string;

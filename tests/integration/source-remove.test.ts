@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 import { parse, stringify } from 'yaml';
 
-import { createDefaultConfig, loadConfig, saveConfig, type SyncSkillConfig } from '../../src/config.js';
-import { listLocalSkillNames } from '../../src/manifest.js';
+import { createDefaultConfig, loadConfig, saveConfig, type SyncSkillConfig } from '../../src/config/config.js';
+import { listLocalSkillNames } from '../../src/core/manifest.js';
 import { findOrphanSkills, loadSkillOwnershipState, RemovalAction, removeSource } from '../../src/source.js';
 
 describe('removeSource', () => {

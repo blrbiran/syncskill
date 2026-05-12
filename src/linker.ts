@@ -1,9 +1,9 @@
 import { cp, lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, saveConfig, type SyncSkillConfig } from './config.js';
+import { expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, saveConfig, type SyncSkillConfig } from './config/config.js';
 import { buildSkillsIndex, saveSkillsIndex } from './source.js';
-import { isNotFoundError, pathExists } from './utils.js';
+import { isNotFoundError, pathExists } from './utils/utils.js';
 
 export interface ScanOptions {
   allAgents: boolean;

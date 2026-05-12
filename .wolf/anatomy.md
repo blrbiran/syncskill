@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T13:10:23.734Z
-> Files: 78 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T14:06:13.437Z
+> Files: 85 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -48,22 +48,35 @@
 - `backup.ts` — Exports BackupMetaEntry, BackupMeta, getBackupDir, loadBackupMeta + 6 more (~772 tok)
 - `config-doctor.ts` — Discover existing skills by scanning skillsDir and sources. (~3985 tok)
 - `config-ui.ts` — Threshold for showing auto-refresh warning (~5954 tok)
-- `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 13 more (~2055 tok)
+- `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 13 more (~2153 tok)
 - `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 5 more (~1129 tok)
-- `index.ts` — Exports createProgram (~12586 tok)
-- `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~915 tok)
-- `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, formatLinkStatusMatrix + 8 more (~2823 tok)
+- `index.ts` — Exports createProgram (~12599 tok)
+- `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~917 tok)
+- `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, formatLinkStatusMatrix + 8 more (~2826 tok)
 - `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3312 tok)
 - `matrix-editor.ts` — Exports MatrixEditorConfig, MatrixEditorResult, renderMatrixLine, createMatrixEditor (~2264 tok)
-- `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1329 tok)
-- `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
+- `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1337 tok)
+- `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1181 tok)
 - `server.ts` — Exports ProbeLine, formatServerListLines, formatServerShowLines, formatProbeLines + 3 more (~438 tok)
 - `skills-ignore.ts` — Exports IgnoredSkillEntry, SkillsIgnore, getSkillsIgnorePath, loadSkillsIgnore + 4 more (~523 tok)
 - `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 12 more (~2180 tok)
-- `source.ts` — Git only: Convert source from git to local, keep path directory (~17130 tok)
+- `source.ts` — Git only: Convert source from git to local, keep path directory (~17145 tok)
 - `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 6 more (~4689 tok)
 - `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer (~3622 tok)
 - `utils.ts` — Check if an error is a "file not found" error (ENOENT). (~359 tok)
+
+## src/config/
+
+- `config-doctor.ts` — Discover existing skills by scanning skillsDir and sources. (~3986 tok)
+- `config-ui.ts` — Threshold for showing auto-refresh warning (~5956 tok)
+
+## src/core/
+
+- `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3316 tok)
+- `server.ts` — Exports ProbeLine, formatServerListLines, formatServerShowLines, formatProbeLines + 3 more (~440 tok)
+- `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 12 more (~2187 tok)
+- `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 6 more (~4691 tok)
+- `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer (~3624 tok)
 
 ## src/receiver/
 
@@ -84,7 +97,7 @@
 - `config-cli.test.ts` — Declares homeDir (~2536 tok)
 - `config-ui.test.ts` — Declares PromptStub (~4796 tok)
 - `discover.test.ts` — Declares tempDirs (~3869 tok)
-- `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1171 tok)
+- `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1228 tok)
 - `help-output.test.ts` — Declares help (~421 tok)
 - `install-cli.test.ts` — Declares execFileAsync (~511 tok)
 - `README.md` — Project documentation (~37 tok)

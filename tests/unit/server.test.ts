@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatProbeLines, formatServerListLines, formatServerShowLines } from '../../src/server.js';
+import { formatProbeLines, formatServerListLines, formatServerShowLines } from '../../src/core/server.js';
 
 describe('server helpers', () => {
   it('formats server list lines in sorted order', () => {

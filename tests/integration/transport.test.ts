@@ -7,8 +7,8 @@ import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { saveConfig } from '../../src/config.js';
-import { createEmptyManifest } from '../../src/manifest.js';
+import { saveConfig } from '../../src/config/config.js';
+import { createEmptyManifest } from '../../src/core/manifest.js';
 
 const receiverPath = new URL('../../src/receiver/sync_receiver.mjs', import.meta.url).pathname;
 
@@ -70,7 +70,7 @@ import {
   pushSkillDirectory,
   refreshRemoteManifestFromServer,
   type TransportRuntime
-} from '../../src/transport.js';
+} from '../../src/core/transport.js';
 
 function createRuntime(stdoutByCommand: Record<string, string> = {}): TransportRuntime & {
   calls: Array<{ file: string; args: string[]; stdin?: string }>;

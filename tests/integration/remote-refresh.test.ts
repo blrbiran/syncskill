@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { saveConfig } from '../../src/config.js';
-import { loadServerManifest, saveServerManifest } from '../../src/manifest.js';
+import { saveConfig } from '../../src/config/config.js';
+import { loadServerManifest, saveServerManifest } from '../../src/core/manifest.js';
 import { refreshStoredManifests } from '../../src/refresh.js';
-import * as transportModule from '../../src/transport.js';
+import * as transportModule from '../../src/core/transport.js';
 
 describe('remote refresh orchestration', () => {
   const tempDirs = useTempDirs();

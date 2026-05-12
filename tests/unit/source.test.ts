@@ -9,12 +9,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 import YAML, { stringify } from 'yaml';
 
-import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
-import type { SyncSkillConfig } from '../../src/config.js';
+import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config/config.js';
+import type { SyncSkillConfig } from '../../src/config/config.js';
 import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectArchiveFormatFromFilename, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, DirtySourceQuitError, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, parseContentDisposition, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
 import type { SkillsRegistry } from '../../src/source.js';
-import { normalizeSkillsRegistry } from '../../src/skills-registry.js';
-import { addIgnoredSkill, isSkillIgnored } from '../../src/skills-registry.js';
+import { normalizeSkillsRegistry } from '../../src/core/skills-registry.js';
+import { addIgnoredSkill, isSkillIgnored } from '../../src/core/skills-registry.js';
 
 const execFileAsync = promisify(execFile);
 

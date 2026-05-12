@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import type { MatrixEditorConfig, MatrixEditorResult } from '../../src/matrix-editor.js';
-import { renderMatrixLine, createMatrixEditor } from '../../src/matrix-editor.js';
+import type { MatrixEditorConfig, MatrixEditorResult } from '../../src/config/matrix-editor.js';
+import { renderMatrixLine, createMatrixEditor } from '../../src/config/matrix-editor.js';
 
 describe('MatrixEditor types', () => {
   it('defines MatrixEditorConfig interface', () => {

@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
-import { getSyncPaths } from './config.js';
+import { getSyncPaths } from '../config/config.js';
 import { reconcileManifest } from './conflict.js';
-import { isNotFoundError } from './utils.js';
+import { isNotFoundError } from '../utils/utils.js';
 
 export async function listLocalSkillNames(homeDir: string): Promise<string[]> {
   const { skillsDir } = getSyncPaths(homeDir);

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { saveConfig } from '../../src/config.js';
+import { saveConfig } from '../../src/config/config.js';
 import { collectLinkStatus, ensureLinkedDirectory, formatLinkStatusMatrix, linkConfiguredSkills, unlinkSkill } from '../../src/linker.js';
 import type { LinkStatus } from '../../src/linker.js';
 

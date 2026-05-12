@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
+import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config/config.js';
 import { addSourceFromUrl, parseGitHubUrl } from '../../src/source.js';
 
 describe('parseGitHubUrl', () => {

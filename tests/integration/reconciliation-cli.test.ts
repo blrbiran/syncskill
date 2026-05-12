@@ -5,11 +5,11 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { createDefaultConfig, saveConfig } from '../../src/config.js';
-import { getSyncPaths } from '../../src/config.js';
-import { loadServerManifest, saveServerManifest } from '../../src/manifest.js';
+import { createDefaultConfig, saveConfig } from '../../src/config/config.js';
+import { getSyncPaths } from '../../src/config/config.js';
+import { loadServerManifest, saveServerManifest } from '../../src/core/manifest.js';
 import * as refreshModule from '../../src/refresh.js';
-import * as transportModule from '../../src/transport.js';
+import * as transportModule from '../../src/core/transport.js';
 import { createProgram } from '../../src/index.js';
 
 describe('reconciliation CLI', () => {

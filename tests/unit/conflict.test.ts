@@ -6,8 +6,8 @@ import {
   getDiffRows,
   getStatusRows,
   reconcileManifest
-} from '../../src/conflict.js';
-import { createEmptyManifest, type ServerManifest } from '../../src/manifest.js';
+} from '../../src/core/conflict.js';
+import { createEmptyManifest, type ServerManifest } from '../../src/core/manifest.js';
 
 describe('classifySkillDelta', () => {
   it('classifies a local-only change since the recorded hash as push', () => {

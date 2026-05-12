@@ -2,7 +2,7 @@ import { access, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { SyncSkillConfig } from './config.js';
-import { loadSkillsRegistry, saveSkillsRegistry, getSkillsRegistryPath, type SkillsRegistry } from './skills-registry.js';
+import { loadSkillsRegistry, saveSkillsRegistry, getSkillsRegistryPath, type SkillsRegistry } from '../core/skills-registry.js';
 
 export const DiagnosticCode = {
   NO_VALID_AGENTS: 'NO_VALID_AGENTS',

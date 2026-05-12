@@ -37,8 +37,19 @@ export interface ConfiguredServer {
 export const KNOWN_AGENT_DIRS = {
   claude: '.claude/skills',
   agents: '.agents/skills',
-  hermes: '.hermes/skills',
+  cursor: '.cursor/skills',
+  windsurf: '.windsurf/skills',
+  codex: '.codex/skills',
+  gemini: '.gemini/skills',
+  antigravity: '.gemini/antigravity/skills',
+  kiro: '.kiro/skills',
+  augment: '.augment/skills',
+  amp: '.config/agents/skills',
+  cline: '.cline/skills',
+  opencode: '.config/opencode/skills',
   qwen: '.qwen/skills',
+  openclaw: '.openclaw/skills',
+  hermes: '.hermes/skills',
   qoder: '.qoder/skills',
   aone_copilot: '.aone_copilot/skills'
 } as const;

@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { saveConfig } from '../../src/config.js';
-import { getSyncPaths } from '../../src/config.js';
-import { createEmptyManifest, saveServerManifest } from '../../src/manifest.js';
+import { saveConfig } from '../../src/config/config.js';
+import { getSyncPaths } from '../../src/config/config.js';
+import { createEmptyManifest, saveServerManifest } from '../../src/core/manifest.js';
 import {
   autoRefreshManifests,
   formatDiffLines,
@@ -18,8 +18,8 @@ import {
   shouldRefreshLocal,
   shouldRefreshRemote
 } from '../../src/refresh.js';
-import { rebuildRemoteManifestFromHashes } from '../../src/manifest.js';
-import * as transportModule from '../../src/transport.js';
+import { rebuildRemoteManifestFromHashes } from '../../src/core/manifest.js';
+import * as transportModule from '../../src/core/transport.js';
 
 describe('refresh orchestration', () => {
   const tempDirs = useTempDirs();

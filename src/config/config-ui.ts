@@ -10,10 +10,10 @@ import { loadConfig, saveConfig } from './config.js';
 
 /** Threshold for showing auto-refresh warning */
 export const SLOW_REFRESH_SERVER_THRESHOLD = 3;
-import { listLocalSkills } from './linker.js';
+import { listLocalSkills } from '../linker.js';
 import { createMatrixEditor, type MatrixEditorResult } from './matrix-editor.js';
-import { probeServer } from './server.js';
-import { formatSourceListLines, listSources, removeSource, RemovalAction, updateAllSources, updateSource } from './source.js';
+import { probeServer } from '../core/server.js';
+import { formatSourceListLines, listSources, removeSource, RemovalAction, updateAllSources, updateSource } from '../source.js';
 
 export interface PromptApi {
   select<T>(options: { message: string; choices: Array<{ name: string; value: T }> }): Promise<T>;

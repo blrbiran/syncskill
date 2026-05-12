@@ -1,7 +1,7 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { getConfiguredServer, loadConfig, type ConfiguredServer, type ConflictResolution } from './config.js';
+import { getConfiguredServer, loadConfig, type ConfiguredServer, type ConflictResolution } from '../config/config.js';
 import { loadSkillsRegistry } from './skills-registry.js';
 import { applyResolution, reconcileManifest } from './conflict.js';
 import {

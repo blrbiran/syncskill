@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { saveConfig, loadConfig, getSyncPaths, createDefaultConfig } from '../../src/config.js';
+import { saveConfig, loadConfig, getSyncPaths, createDefaultConfig } from '../../src/config/config.js';
 import { updateSource, materializeSource } from '../../src/source.js';
-import { loadSkillsRegistry, saveSkillsRegistry } from '../../src/skills-registry.js';
-import { loadBackupMeta } from '../../src/backup.js';
+import { loadSkillsRegistry, saveSkillsRegistry } from '../../src/core/skills-registry.js';
+import { loadBackupMeta } from '../../src/utils/backup.js';
 
 const execFileAsync = promisify(execFile);
 

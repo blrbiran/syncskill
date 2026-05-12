@@ -9,7 +9,7 @@ import {
   getBackupDir,
   backupSkill,
   backupDirtySkills
-} from '../../src/backup.js';
+} from '../../src/utils/backup.js';
 
 describe('backup', () => {
   let testDir: string;

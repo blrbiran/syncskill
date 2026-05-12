@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { saveConfig } from '../../src/config.js';
+import { saveConfig } from '../../src/config/config.js';
 import { createProgram } from '../../src/index.js';
 
 describe('sync CLI', () => {
@@ -42,7 +42,7 @@ describe('sync CLI', () => {
     await writeFile(join(skillDir, 'SKILL.md'), '# welcome\n', 'utf8');
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const pushToServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
+    const pushToServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
       {
         server: 'alpha',
         pushed_skills: ['welcome', 'docs'],
@@ -92,7 +92,7 @@ describe('sync CLI', () => {
     );
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const syncServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'syncServers').mockImplementation(async () => [
+    const syncServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'syncServers').mockImplementation(async () => [
       {
         server: 'alpha',
         pull: {
@@ -178,7 +178,7 @@ describe('sync CLI', () => {
     );
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const pullFromServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pullFromServers').mockImplementation(async () => [
+    const pullFromServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'pullFromServers').mockImplementation(async () => [
       {
         server: 'alpha',
         pulled_skills: ['skill-a'],
@@ -224,7 +224,7 @@ describe('sync CLI', () => {
     );
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const pullFromServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pullFromServers').mockImplementation(async () => [
+    const pullFromServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'pullFromServers').mockImplementation(async () => [
       {
         server: 'alpha',
         pulled_skills: ['skill-a'],
@@ -260,7 +260,7 @@ describe('sync CLI', () => {
       homeDir
     );
 
-    const pullFromServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pullFromServers').mockImplementation(async () => []);
+    const pullFromServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'pullFromServers').mockImplementation(async () => []);
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull', '--all'], { from: 'node' });
@@ -287,7 +287,7 @@ describe('sync CLI', () => {
     );
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const pullFromServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pullFromServers').mockImplementation(async () => [
+    const pullFromServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'pullFromServers').mockImplementation(async () => [
       {
         server: 'alpha',
         pulled_skills: ['skill-a'],
@@ -326,7 +326,7 @@ describe('sync CLI', () => {
     );
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const pushToServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
+    const pushToServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
       {
         server: 'alpha',
         pushed_skills: ['skill-a'],
@@ -373,7 +373,7 @@ describe('sync CLI', () => {
     );
 
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const pushToServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
+    const pushToServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
       {
         server: 'alpha',
         pushed_skills: [],
@@ -415,7 +415,7 @@ describe('sync CLI', () => {
     );
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const pushToServersSpy = vi.spyOn(await import('../../src/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
+    const pushToServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
       {
         server: 'alpha',
         pushed_skills: ['skill-a'],

@@ -10,8 +10,8 @@ import { promisify } from 'node:util';
 
 import { select } from '@inquirer/prompts';
 
-import type { SyncSkillConfig } from './config.js';
-import { getSyncPaths, loadConfig, saveConfig } from './config.js';
+import type { SyncSkillConfig } from './config/config.js';
+import { getSyncPaths, loadConfig, saveConfig } from './config/config.js';
 import {
   SkillsRegistry,
   SkillRegistryEntry,
@@ -19,10 +19,10 @@ import {
   saveSkillsRegistry,
   isSkillIgnored,
   activateSkill,
-} from './skills-registry.js';
-import { hashSkillDirectory } from './manifest.js';
-import { backupDirtySkills } from './backup.js';
-import { isNotFoundError, pathExists } from './utils.js';
+} from './core/skills-registry.js';
+import { hashSkillDirectory } from './core/manifest.js';
+import { backupDirtySkills } from './utils/backup.js';
+import { isNotFoundError, pathExists } from './utils/utils.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -201,7 +201,7 @@ export interface SkillOwnershipState {
 }
 
 // Re-export SkillsRegistry types for backward compatibility
-export type { SkillsRegistry, SkillRegistryEntry } from './skills-registry.js';
+export type { SkillsRegistry, SkillRegistryEntry } from './core/skills-registry.js';
 
 export async function listSources(homeDir = homedir()): Promise<SourceEntry[]> {
   const config = await loadConfig(homeDir);
@@ -807,7 +807,7 @@ export async function loadSkillOwnershipState(homeDir: string): Promise<SkillOwn
 }
 
 // Re-export registry functions for backward compatibility
-export { loadSkillsRegistry, saveSkillsRegistry } from './skills-registry.js';
+export { loadSkillsRegistry, saveSkillsRegistry } from './core/skills-registry.js';
 
 export async function buildSkillsRegistry(homeDir = homedir()): Promise<SkillsRegistry> {
   const config = await loadConfig(homeDir);
@@ -1384,7 +1384,7 @@ export async function detectGitDefaultBranch(url: string): Promise<string> {
 }
 
 // pathExists is now exported from utils.ts and re-exported here for backwards compatibility
-export { pathExists } from './utils.js';
+export { pathExists } from './utils/utils.js';
 
 export async function discoverSourceSkills(
   sourceRoot: string,

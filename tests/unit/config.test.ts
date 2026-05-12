@@ -14,7 +14,7 @@ import {
   loadConfig,
   saveConfig,
   validateConfig
-} from '../../src/config.js';
+} from '../../src/config/config.js';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
 describe('config path helpers', () => {

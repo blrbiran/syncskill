@@ -5,9 +5,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { saveConfig } from '../../src/config.js';
+import { saveConfig } from '../../src/config/config.js';
 import { createProgram } from '../../src/index.js';
-import * as serverModule from '../../src/server.js';
+import * as serverModule from '../../src/core/server.js';
 
 describe('server CLI', () => {
   const tempDirs = useTempDirs();

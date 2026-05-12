@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { SyncSkillConfig } from '../../src/config.js';
+import type { SyncSkillConfig } from '../../src/config/config.js';
 import {
   type DiagnosticItem,
   type DiagnosticReport,
@@ -19,7 +19,7 @@ import {
   repairConfig,
   formatDiagnosticReport,
   formatDiagnosticSummary
-} from '../../src/config-doctor.js';
+} from '../../src/config/config-doctor.js';
 
 describe('DiagnosticCode', () => {
   it('exports all expected diagnostic codes', () => {

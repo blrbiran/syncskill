@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config.js';
+import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config/config.js';
 import { createProgram } from '../../src/index.js';
 import { findExistingSourceByUrl, loadSourceState } from '../../src/source.js';
 

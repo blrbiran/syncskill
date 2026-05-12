@@ -1,4 +1,4 @@
-import { getConfiguredServer, loadConfig, type ConfiguredServer } from './config.js';
+import { getConfiguredServer, loadConfig, type ConfiguredServer } from '../config/config.js';
 import { probeServerAccess, type ServerProbeResult } from './transport.js';
 
 export type ProbeLine = ServerProbeResult;

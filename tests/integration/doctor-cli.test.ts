@@ -52,6 +52,10 @@ describe('syncskill doctor', () => {
     };
     await writeFile(configFile, YAML.stringify(config));
 
+    // Create empty skills registry for healthy state
+    const registryFile = join(syncDir, 'skills-registry.json');
+    await writeFile(registryFile, JSON.stringify({ version: 1, skills: {} }));
+
     const { stdout, code } = await runDoctor();
 
     expect(code).toBe(0);
