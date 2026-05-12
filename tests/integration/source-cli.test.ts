@@ -102,7 +102,7 @@ describe('source CLI', () => {
         'https://example.com/team.git',
         '--path',
         'skills',
-        '--ref',
+        '--branch',
         'main'
       ],
       { from: 'node' }
@@ -114,7 +114,7 @@ describe('source CLI', () => {
           type: 'git',
           url: 'https://example.com/team.git',
           path: 'skills',
-          ref: 'main'
+          branch: 'main'
         }
       }
     });
@@ -177,7 +177,7 @@ describe('source CLI', () => {
         bareRepoDir,
         '--path',
         'source.path',
-        '--ref',
+        '--branch',
         'main'
       ],
       { from: 'node' }
@@ -315,7 +315,7 @@ describe('source CLI', () => {
         'https://example.com/zeta.git',
         '--path',
         'skills',
-        '--ref',
+        '--branch',
         'main'
       ],
       { from: 'node' }

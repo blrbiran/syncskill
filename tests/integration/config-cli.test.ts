@@ -14,7 +14,7 @@ describe('config CLI', () => {
     tempDirs.push(homeDir);
 
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-sources'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
 
     await mkdir(join(homeDir, '.syncskill', 'skills', 'welcome'), { recursive: true });
     await writeFile(join(homeDir, '.syncskill', 'skills', 'welcome', 'SKILL.md'), 'hello', 'utf8');
@@ -35,7 +35,7 @@ describe('config CLI', () => {
     tempDirs.push(homeDir);
 
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-sources'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
 
     await mkdir(join(homeDir, '.syncskill', 'skills', 'my-skill'), { recursive: true });
     await writeFile(join(homeDir, '.syncskill', 'skills', 'my-skill', 'SKILL.md'), '# test', 'utf8');
@@ -55,7 +55,7 @@ describe('config CLI', () => {
     tempDirs.push(homeDir);
 
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-sources'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
 
     await mkdir(join(homeDir, '.syncskill', 'skills', 'dry-skill'), { recursive: true });
     await writeFile(join(homeDir, '.syncskill', 'skills', 'dry-skill', 'SKILL.md'), '# test', 'utf8');
@@ -76,7 +76,7 @@ describe('config CLI', () => {
     tempDirs.push(homeDir);
 
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-sources'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
 
     await mkdir(join(homeDir, '.syncskill', 'skills', 'unlink-test'), { recursive: true });
     await writeFile(join(homeDir, '.syncskill', 'skills', 'unlink-test', 'SKILL.md'), '# test', 'utf8');
@@ -102,7 +102,7 @@ describe('config CLI', () => {
     tempDirs.push(homeDir);
 
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-sources'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
 
     await mkdir(join(homeDir, '.syncskill', 'skills', 'to-unlink'), { recursive: true });
     await writeFile(join(homeDir, '.syncskill', 'skills', 'to-unlink', 'SKILL.md'), '# test', 'utf8');

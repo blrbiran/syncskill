@@ -27,7 +27,7 @@ describe('initializeRepo', () => {
 
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
 
-    await initializeRepo(homeDir, { skipSources: true });
+    await initializeRepo(homeDir, { skipScan: true });
 
     await expect(readFile(join(homeDir, '.syncskill', 'config.yaml'), 'utf8')).resolves.toContain('version: 1');
     await expect(readFile(join(homeDir, '.syncskill', 'config.example.yaml'), 'utf8')).resolves.toContain(
@@ -64,7 +64,7 @@ describe('initializeRepo', () => {
     await writeFile(join(agentsSkillDir, 'skill.txt'), 'from agents', 'utf8');
     await writeFile(join(agentsOnlySkillDir, 'skill.txt'), 'agents only', 'utf8');
 
-    await initializeRepo(homeDir, { skipSources: false });
+    await initializeRepo(homeDir, { skipScan: false });
 
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'shared-skill', 'skill.txt'), 'utf8')).resolves.toBe(
       'from claude'
@@ -112,7 +112,7 @@ describe('initializeRepo', () => {
       'utf8'
     );
 
-    await initializeRepo(homeDir, { skipSources: true });
+    await initializeRepo(homeDir, { skipScan: true });
 
     await expect(loadConfig(homeDir)).resolves.toEqual({
       version: 1,
@@ -133,7 +133,7 @@ describe('initializeRepo', () => {
 
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
 
-    await initializeRepo(homeDir, { skipSources: true, skipSkill: true });
+    await initializeRepo(homeDir, { skipScan: true, skipSkill: true });
 
     // Verify syncskill skill was NOT installed
     const syncskillPath = join(homeDir, '.syncskill', 'skills', 'syncskill');
@@ -155,7 +155,7 @@ describe('initializeRepo', () => {
       return;
     }
 
-    await initializeRepo(homeDir, { skipSources: true, yes: true });
+    await initializeRepo(homeDir, { skipScan: true, yes: true });
 
     // Verify syncskill skill was installed
     const syncskillPath = join(homeDir, '.syncskill', 'skills', 'syncskill');
@@ -174,7 +174,7 @@ describe('initializeRepo', () => {
 
     // In test environment, stdin/stdout are not TTY, so it should skip prompting
     // and not install the skill (since yes: false is the default)
-    await initializeRepo(homeDir, { skipSources: true });
+    await initializeRepo(homeDir, { skipScan: true });
 
     // The skill should NOT be installed since we're not in TTY and didn't pass yes: true
     const syncskillPath = join(homeDir, '.syncskill', 'skills', 'syncskill');

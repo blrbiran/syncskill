@@ -92,7 +92,7 @@ export type SourceType = 'local' | 'git' | 'http';
 export interface DetectedSourceType {
   type: SourceType;
   url: string;
-  ref?: string;
+  branch?: string;
 }
 
 /**
@@ -113,7 +113,7 @@ export function detectSourceType(input: string): DetectedSourceType | null {
     if (treeMatch) {
       const branch = treeMatch[1];
       const repoBase = input.replace(/\/tree\/.*$/, '');
-      return { type: 'git', url: `${repoBase}.git`, ref: branch };
+      return { type: 'git', url: `${repoBase}.git`, branch };
     }
 
     // Plain repo URL
@@ -194,7 +194,7 @@ export interface SourceDefinition {
   type: SourceType;
   url: string;
   path: string;
-  ref?: string;
+  branch?: string;
   archive_path?: string;  // For local archive sources, points to original archive file
 }
 
@@ -775,8 +775,8 @@ function normalizeSourceEntry(name: string, value: unknown): SourceEntry[] {
     return [];
   }
 
-  if (typeof value.ref === 'string') {
-    return [{ name, type: value.type, url: value.url, path: pathValue, ref: value.ref }];
+  if (typeof value.branch === 'string') {
+    return [{ name, type: value.type, url: value.url, path: pathValue, branch: value.branch }];
   }
 
   return [{ name, type: value.type, url: value.url, path: pathValue }];
@@ -984,14 +984,14 @@ async function prepareHttpMaterializedRoot(homeDir: string, name: string, source
 
 async function prepareGitMaterializedRoot(homeDir: string, name: string, source: SourceDefinition): Promise<string> {
   const checkoutDir = getGitCheckoutDir(homeDir, name);
-  const ref = source.ref ?? (await detectGitDefaultBranch(source.url));
+  const branch = source.branch ?? (await detectGitDefaultBranch(source.url));
 
   if (!(await pathExists(checkoutDir))) {
     await mkdir(dirname(checkoutDir), { recursive: true });
-    await runGit(['clone', '--single-branch', '--depth', '1', '--branch', ref, source.url, checkoutDir]);
+    await runGit(['clone', '--single-branch', '--depth', '1', '--branch', branch, source.url, checkoutDir]);
   }
 
-  await runGit(['-C', checkoutDir, 'fetch', '--depth=1', 'origin', ref]);
+  await runGit(['-C', checkoutDir, 'fetch', '--depth=1', 'origin', branch]);
   await runGit(['-C', checkoutDir, 'reset', '--hard', 'FETCH_HEAD']);
 
   if (isAbsolute(source.path)) {
@@ -1354,7 +1354,7 @@ export interface AddSourceFromUrlOptions {
   type?: SourceType;
   path?: string;
   skillSubdir?: string;
-  ref?: string;
+  branch?: string;
   /** Skip interactive skill selection, select all non-duplicate skills */
   skipPrompt?: boolean;
   /** Callback for interactive skill selection (when not skipPrompt) */
@@ -1419,7 +1419,7 @@ export async function addSourceFromUrl(
       type: options.type ?? 'git',
       url: parsed.cloneUrl,
       path: relative(syncDir, targetPath) || '.',
-      ...(parsed.branch || options.ref ? { ref: options.ref ?? parsed.branch } : {}),
+      ...(parsed.branch || options.branch ? { branch: options.branch ?? parsed.branch } : {}),
     };
 
     await addSource(homeDir, name, source);
@@ -1455,7 +1455,7 @@ export async function addSourceFromUrl(
     type: options.type,
     url: urlOrName,
     path: options.path,
-    ...(options.ref ? { ref: options.ref } : {}),
+    ...(options.branch ? { branch: options.branch } : {}),
   };
 
   await addSource(homeDir, name, source);
@@ -1763,7 +1763,7 @@ export async function handleSameRepoMerge(
       type: existingSource.type,
       url: existingSource.url,
       path: newSubdir,
-      ...(existingSource.ref ? { ref: existingSource.ref } : {}),
+      ...(existingSource.branch ? { branch: existingSource.branch } : {}),
     };
 
     const newSkillName = newSubdir.split('/').pop()!;

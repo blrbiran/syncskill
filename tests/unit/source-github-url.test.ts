@@ -84,7 +84,7 @@ describe('addSourceFromUrl', () => {
     expect(name).toBe('my-skill');
     expect(source.type).toBe('git');
     expect(source.url).toBe('https://github.com/openclaw/skills.git');
-    expect(source.ref).toBe('main');
+    expect(source.branch).toBe('main');
     expect(source.path).toMatch(/sources\/skills$/);
   });
 

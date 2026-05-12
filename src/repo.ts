@@ -15,7 +15,7 @@ import {
 import { installSyncskillSkill } from './install.js';
 
 export interface InitializeRepoOptions {
-  skipSources?: boolean;
+  skipScan?: boolean;
   skipSkill?: boolean;
   yes?: boolean;
 }
@@ -35,7 +35,7 @@ export async function initializeRepo(homeDir: string, options: InitializeRepoOpt
 
   await copyConfigExample(homeDir);
 
-  if (!options.skipSources) {
+  if (!options.skipScan) {
     await migrateSkills(homeDir, config);
   }
 

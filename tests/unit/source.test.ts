@@ -124,7 +124,7 @@ describe('source module', () => {
         links: {},
         servers: {},
         sources: {
-          zeta: { type: 'git', url: '/tmp/zeta.git', path: 'skills', ref: 'main' },
+          zeta: { type: 'git', url: '/tmp/zeta.git', path: 'skills', branch: 'main' },
           alpha: { type: 'local', url: '/tmp/local-skills', path: '.' },
           broken: { type: 'git' }
         }
@@ -144,7 +144,7 @@ describe('source module', () => {
         type: 'git',
         url: '/tmp/zeta.git',
         path: 'skills',
-        ref: 'main'
+        branch: 'main'
       }
     ]);
   });
@@ -168,7 +168,7 @@ sources:
     type: git
     url: https://example.com/repo.git
     store: skills
-    ref: main
+    branch: main
 `
     );
 
@@ -179,7 +179,7 @@ sources:
         type: 'git',
         url: 'https://example.com/repo.git',
         path: 'skills',
-        ref: 'main'
+        branch: 'main'
       }
     ]);
   });
@@ -344,7 +344,7 @@ sources:
     const result = await materializeSource(
       homeDir,
       'git-source',
-      { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
       '2026-05-01T02:00:00.000Z'
     );
 
@@ -448,7 +448,7 @@ sources:
         links: {},
         servers: {},
         sources: {
-          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' }
+          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' }
         }
       },
       homeDir
@@ -457,7 +457,7 @@ sources:
     await materializeSource(
       homeDir,
       'git-source',
-      { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
       '2026-05-01T02:00:00.000Z'
     );
 
@@ -493,7 +493,7 @@ sources:
         links: {},
         servers: {},
         sources: {
-          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' }
+          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' }
         }
       },
       homeDir
@@ -502,7 +502,7 @@ sources:
     await materializeSource(
       homeDir,
       'git-source',
-      { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
       '2026-05-01T02:00:00.000Z'
     );
 
@@ -542,7 +542,7 @@ sources:
       materializeSource(
         homeDir,
         'git-source',
-        { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
+        { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
         '2026-05-01T02:00:00.000Z'
       )
     ).rejects.toThrow('Skill path is already occupied: alpha');
@@ -566,7 +566,7 @@ sources:
         links: {},
         servers: {},
         sources: {
-          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' }
+          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' }
         }
       },
       homeDir
@@ -575,7 +575,7 @@ sources:
     await materializeSource(
       homeDir,
       'git-source',
-      { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
       '2026-05-01T02:00:00.000Z'
     );
 
@@ -625,7 +625,7 @@ sources:
         links: {},
         servers: {},
         sources: {
-          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' }
+          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' }
         }
       },
       homeDir
@@ -635,7 +635,7 @@ sources:
       materializeSource(
         homeDir,
         'git-source',
-        { type: 'git', url: bareRepoDir, path: 'source.path', ref: 'main' },
+        { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
         '2026-05-01T02:00:00.000Z'
       )
     ).rejects.toThrow('Skill path is already occupied: alpha');
@@ -1779,14 +1779,14 @@ describe('detectSourceType', () => {
     const result = detectSourceType('https://github.com/org/repo/tree/main/skills');
     expect(result?.type).toBe('git');
     expect(result?.url).toBe('https://github.com/org/repo.git');
-    expect(result?.ref).toBe('main');
+    expect(result?.branch).toBe('main');
   });
 
   it('parses /tree/<branch> format without path', () => {
     const result = detectSourceType('https://github.com/org/repo/tree/develop');
     expect(result?.type).toBe('git');
     expect(result?.url).toBe('https://github.com/org/repo.git');
-    expect(result?.ref).toBe('develop');
+    expect(result?.branch).toBe('develop');
   });
 
   it('detects gitlab URL as git type', () => {
@@ -1799,7 +1799,7 @@ describe('detectSourceType', () => {
     const result = detectSourceType('https://gitlab.com/org/repo/tree/main/skills');
     expect(result?.type).toBe('git');
     expect(result?.url).toBe('https://gitlab.com/org/repo.git');
-    expect(result?.ref).toBe('main');
+    expect(result?.branch).toBe('main');
   });
 
   it('detects generic .git URLs', () => {

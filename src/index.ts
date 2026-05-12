@@ -163,12 +163,12 @@ export function createProgram(homeDir?: string): Command {
   program
     .command('init')
     .description('Initialize the local syncskill repository')
-    .option('--skip-sources', 'Skip migrating skills from detected source directories')
+    .option('--skip-scan', 'Skip migrating skills from detected agent directories')
     .option('--skip-skill', 'Skip installing syncskill skill')
     .option('-y, --yes', 'Accept all defaults')
-    .action(async (options: { skipSources?: boolean; skipSkill?: boolean; yes?: boolean }) => {
+    .action(async (options: { skipScan?: boolean; skipSkill?: boolean; yes?: boolean }) => {
       await initializeRepo(resolvedHomeDir, {
-        skipSources: Boolean(options.skipSources),
+        skipScan: Boolean(options.skipScan),
         skipSkill: Boolean(options.skipSkill),
         yes: Boolean(options.yes)
       });
@@ -181,13 +181,13 @@ export function createProgram(homeDir?: string): Command {
     .option('--name <name>', 'Source name (for URL/path)')
     .option('--path <path>', 'Storage path for source files')
     .option('--skill-subdir <dir>', 'Subdirectory within source containing skills')
-    .option('--ref <ref>', 'Git ref (branch/tag)')
+    .option('--branch <branch>', 'Git branch')
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (urlOrPath: string | undefined, options: {
       name?: string;
       path?: string;
       skillSubdir?: string;
-      ref?: string;
+      branch?: string;
       yes?: boolean;
     }) => {
       if (!urlOrPath) {
@@ -209,7 +209,7 @@ export function createProgram(homeDir?: string): Command {
         name: options.name,
         path: options.path,
         skillSubdir: options.skillSubdir,
-        ref: options.ref,
+        branch: options.branch,
         skipPrompt: options.yes,
         onSelectSkills: async (skills: DiscoveredSkill[], existingSkills: Set<string>) => {
           const available = skills.filter(s => !existingSkills.has(s.name));
@@ -507,14 +507,14 @@ export function createProgram(homeDir?: string): Command {
     .option('--url <url>', 'Source URL (if different from first argument)')
     .option('--path <path>', 'Storage path for source files')
     .option('--skill-subdir <dir>', 'Subdirectory within source containing skills')
-    .option('--ref <ref>', 'Git ref (branch/tag)')
+    .option('--branch <branch>', 'Git branch')
     .option('-y, --yes', 'Skip confirmation prompts, select all skills')
     .action(async (nameOrUrl: string, options: {
       type?: SourceType;
       url?: string;
       path?: string;
       skillSubdir?: string;
-      ref?: string;
+      branch?: string;
       yes?: boolean;
     }) => {
       const config = await loadConfig(resolvedHomeDir);
@@ -548,7 +548,7 @@ export function createProgram(homeDir?: string): Command {
         type: effectiveType,
         path: effectiveStore,
         skillSubdir: options.skillSubdir,
-        ref: options.ref,
+        branch: options.branch,
         skipPrompt: options.yes,
         onSelectSkills: async (skills: DiscoveredSkill[], existingSkills: Set<string>) => {
           // Filter out duplicates

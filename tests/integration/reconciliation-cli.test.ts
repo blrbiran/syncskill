@@ -271,7 +271,7 @@ describe('reconciliation CLI', () => {
       from: 'node'
     });
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'refresh'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-sources'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
 
     expect(autoRefreshSpy).not.toHaveBeenCalled();
   });
