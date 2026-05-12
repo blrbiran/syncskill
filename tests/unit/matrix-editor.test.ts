@@ -188,8 +188,8 @@ describe('matrix editor shortcuts', () => {
 
     it('should return all rows when search query is empty', () => {
       const rows = ['skill-a', 'skill-b', 'other'];
-      const searchQuery = '';
-      const filteredRows = searchQuery
+      const searchQuery: string = '';
+      const filteredRows = searchQuery.length > 0
         ? rows.filter(row => row.toLowerCase().includes(searchQuery.toLowerCase()))
         : rows;
       expect(filteredRows).toEqual(rows);

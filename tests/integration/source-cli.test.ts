@@ -612,8 +612,9 @@ describe('source add with -y flag', () => {
 
     // Verify source state contains both skills
     const state = await loadSourceState(homeDir, 'test-source');
-    expect(state.materialized_skills).toContain('skill-a');
-    expect(state.materialized_skills).toContain('skill-b');
+    expect(state).not.toBeNull();
+    expect(state!.materialized_skills).toContain('skill-a');
+    expect(state!.materialized_skills).toContain('skill-b');
   });
 });
 

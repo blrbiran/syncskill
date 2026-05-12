@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 import { parse, stringify } from 'yaml';
 
-import { createDefaultConfig, loadConfig, saveConfig, type SyncSkillConfig } from '../../src/config/config.js';
+import { createDefaultConfig, loadConfig, saveConfig, type SourceConfig, type SyncSkillConfig } from '../../src/config/config.js';
 import { listLocalSkillNames } from '../../src/core/manifest.js';
 import { findOrphanSkills, loadSkillOwnershipState, RemovalAction, removeSource } from '../../src/source.js';
 
@@ -107,10 +107,11 @@ describe('removeSource with RemovalAction', () => {
     await removeSource(homeDir, 'test-source', { action: RemovalAction.ConvertToLocal });
 
     const config = parse(await readFile(join(syncDir, 'config.yaml'), 'utf-8')) as SyncSkillConfig;
-    expect(config.sources['test-source']).toBeDefined();
-    expect(config.sources['test-source'].type).toBe('local');
-    expect(config.sources['test-source'].url).toContain('checkout');
-    expect(config.sources['test-source'].path).toBe('.');
+    const source = config.sources['test-source'] as SourceConfig;
+    expect(source).toBeDefined();
+    expect(source.type).toBe('local');
+    expect(source.url).toContain('checkout');
+    expect(source.path).toBe('.');
   });
 
   it('removes config but keeps files with RemovalAction.RemoveConfigKeepFiles', async () => {

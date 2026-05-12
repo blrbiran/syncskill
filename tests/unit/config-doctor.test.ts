@@ -543,7 +543,9 @@ describe('repairConfig', () => {
       removeInvalidSkillLinks: false,
       removeInvalidAgentLinks: false,
       removeInvalidAgents: false,
-      removeInvalidSources: true
+      removeInvalidSources: true,
+      removeStaleRegistryEntries: false,
+      addOrphanRegistryEntries: false
     };
 
     const repaired = repairConfig(config, report, options);

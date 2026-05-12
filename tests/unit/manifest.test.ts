@@ -164,8 +164,8 @@ describe('manifest hashing', () => {
           local_hash: 'local-1',
           remote_hash: 'remote-1',
           recorded_hash: 'remote-1',
-          direction: 'push',
-          status: 'local-changed'
+          direction: 'push' as const,
+          status: 'local-changed' as const
         }
       }
     };
@@ -203,8 +203,8 @@ describe('manifest hashing', () => {
           local_hash: 'local-1',
           remote_hash: 'remote-1',
           recorded_hash: 'remote-1',
-          direction: 'skip',
-          status: 'in-sync'
+          direction: 'skip' as const,
+          status: 'in-sync' as const
         }
       }
     };

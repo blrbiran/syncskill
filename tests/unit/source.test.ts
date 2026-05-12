@@ -1,4 +1,4 @@
-import { createServer } from 'node:http';
+import { createServer, IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import { access, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -45,7 +45,7 @@ async function createTarGzArchive(sourceDir: string, archiveFile: string): Promi
 async function startArchiveServer(archiveFile: string): Promise<{ url: string; close: () => Promise<void> }> {
   const archive = await readFile(archiveFile);
 
-  return startHttpServer((request, response) => {
+  return startHttpServer((request: IncomingMessage, response: ServerResponse) => {
     if (request.url !== '/source.tar.gz') {
       response.statusCode = 404;
       response.end('not found');
@@ -60,7 +60,7 @@ async function startArchiveServer(archiveFile: string): Promise<{ url: string; c
 }
 
 async function startFailingArchiveServer(): Promise<{ url: string; close: () => Promise<void> }> {
-  return startHttpServer((request, response) => {
+  return startHttpServer((request: IncomingMessage, response: ServerResponse) => {
     if (request.url !== '/source.tar.gz') {
       response.statusCode = 404;
       response.end('not found');
@@ -73,7 +73,7 @@ async function startFailingArchiveServer(): Promise<{ url: string; close: () => 
 }
 
 async function startHttpServer(
-  handler: Parameters<typeof createServer>[0]
+  handler: RequestListener
 ): Promise<{ url: string; close: () => Promise<void> }> {
   const server = createServer(handler);
 
