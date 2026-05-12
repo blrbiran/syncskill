@@ -57,7 +57,7 @@ async function selectTargetServers(
   return selected;
 }
 
-import { applyResolution, formatConflictMarker, reconcileManifest } from './core/conflict.js';
+import { applyResolution, reconcileManifest } from './core/conflict.js';
 import {
   autoDiagnoseConfig,
   diagnoseConfig,

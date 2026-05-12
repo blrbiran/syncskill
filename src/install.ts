@@ -1,10 +1,11 @@
-import { cp, mkdir, stat } from 'node:fs/promises';
+import { cp, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { getSyncPaths, loadConfig, saveConfig } from './config/config.js';
 import { linkConfiguredSkills } from './linker.js';
 import { addSourceFromUrl, DiscoveredSkill } from './source.js';
+import { pathExists } from './utils/utils.js';
 
 /**
  * Get the path to the embedded syncskill skill in dist/skills/syncskill/
@@ -13,15 +14,6 @@ export function getEmbeddedSkillPath(): string {
   const thisFile = fileURLToPath(import.meta.url);
   const distDir = dirname(thisFile);
   return join(distDir, 'skills', 'syncskill');
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export interface InstallSyncskillSkillResult {

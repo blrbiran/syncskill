@@ -78,14 +78,25 @@ function buildSshArgs(server: ConfiguredServer, remoteArgs: string[]): string[] 
   ];
 }
 
-function buildRsyncArgs(server: ConfiguredServer, source: string, destination: string): string[] {
+interface RsyncOptions {
+  delete?: boolean;
+}
+
+function buildRsyncArgs(server: ConfiguredServer, source: string, destination: string, options: RsyncOptions = {}): string[] {
   const sshParts = [
     'ssh',
     ...(typeof server.port === 'number' ? ['-p', String(server.port)] : []),
     ...(typeof server.identity_file === 'string' ? ['-i', server.identity_file] : [])
   ];
 
-  return ['-az', '--delete', '-e', sshParts.join(' '), source, destination];
+  return [
+    '-az',
+    ...(options.delete ? ['--delete'] : []),
+    '-e',
+    sshParts.join(' '),
+    source,
+    destination
+  ];
 }
 
 export async function refreshRemoteManifestFromServer(
@@ -235,7 +246,7 @@ export async function pushSkillDirectory(
   try {
     await runtime.exec(
       'rsync',
-      buildRsyncArgs(server, `${sourceDir}/`, `${buildSshTarget(server)}:${REMOTE_SKILLS_DIR}/${skill}/`),
+      buildRsyncArgs(server, `${sourceDir}/`, `${buildSshTarget(server)}:${REMOTE_SKILLS_DIR}/${skill}/`, { delete: true }),
       {}
     );
     return;

@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T14:15:58.512Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T15:51:05.684Z
 > Files: 90 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
@@ -16,7 +16,7 @@
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
 - `package.json` — Node.js package manifest (~241 tok)
-- `README.md` — Project documentation (~1094 tok)
+- `README.md` — Project documentation (~1205 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
 
@@ -41,44 +41,33 @@
 
 ## skills/syncskill/
 
-- `SKILL.md` — syncskill (~936 tok)
+- `SKILL.md` — syncskill (~978 tok)
 
 ## src/
 
-- `backup.ts` — Exports BackupMetaEntry, BackupMeta, getBackupDir, loadBackupMeta + 6 more (~772 tok)
-- `config-doctor.ts` — Discover existing skills by scanning skillsDir and sources. (~3985 tok)
-- `config-ui.ts` — Threshold for showing auto-refresh warning (~5954 tok)
-- `config.ts` — Exports SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer + 13 more (~2153 tok)
-- `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 5 more (~1129 tok)
-- `index.ts` — Exports createProgram (~12599 tok)
-- `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~917 tok)
-- `linker.ts` — Exports ScanOptions, LinkRequest, LinkStatus, formatLinkStatusMatrix + 8 more (~2826 tok)
-- `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3312 tok)
-- `matrix-editor.ts` — Exports MatrixEditorConfig, MatrixEditorResult, renderMatrixLine, createMatrixEditor (~2264 tok)
-- `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1337 tok)
-- `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1181 tok)
-- `server.ts` — Exports ProbeLine, formatServerListLines, formatServerShowLines, formatProbeLines + 3 more (~438 tok)
-- `skills-ignore.ts` — Exports IgnoredSkillEntry, SkillsIgnore, getSkillsIgnorePath, loadSkillsIgnore + 4 more (~523 tok)
-- `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 12 more (~2180 tok)
-- `source.ts` — Git only: Convert source from git to local, keep path directory (~16334 tok)
-- `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 6 more (~4689 tok)
-- `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer (~3622 tok)
-- `utils.ts` — Check if an error is a "file not found" error (ENOENT). (~359 tok)
+- `index.ts` — CLI entry point, commander setup (~12599 tok)
+- `install.ts` — Install embedded syncskill skill or from URL/path (~888 tok)
+- `linker.ts` — Soft link management with 3-level fallback (~2826 tok)
+- `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
+- `repo.ts` — Repository initialization (~1181 tok)
+- `source.ts` — External source management (git/http/local) (~16334 tok)
 
 ## src/config/
 
-- `config-doctor.ts` — Discover existing skills by scanning skillsDir and sources. (~3986 tok)
-- `config-ui.ts` — Threshold for showing auto-refresh warning (~5956 tok)
-- `config.ts` — Re-export types from types.ts (~2032 tok)
-- `types.ts` — TypeScript type definitions for syncskill configuration (~266 tok)
+- `config-doctor.ts` — Config diagnosis and repair (~3986 tok)
+- `config-ui.ts` — Interactive TUI config editing (~5956 tok)
+- `config.ts` — Config loading and validation (~2032 tok)
+- `matrix-editor.ts` — 2D matrix editor component (~2264 tok)
+- `types.ts` — TypeScript type definitions (~266 tok)
 
 ## src/core/
 
-- `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3316 tok)
-- `server.ts` — Exports ProbeLine, formatServerListLines, formatServerShowLines, formatProbeLines + 3 more (~440 tok)
+- `conflict.ts` — 3-way conflict detection and resolution (~1129 tok)
+- `manifest.ts` — Hash computation and manifest management (~3316 tok)
+- `server.ts` — Server config formatting (~440 tok)
 - `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 12 more (~2187 tok)
 - `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 6 more (~4691 tok)
-- `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer (~3624 tok)
+- `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer (~3668 tok)
 
 ## src/receiver/
 
@@ -135,7 +124,6 @@
 - `README.md` — Project documentation (~35 tok)
 - `refresh.test.ts` — Declares tempDirs (~5658 tok)
 - `server.test.ts` (~406 tok)
-- `skills-ignore.test.ts` — Declares ignore (~510 tok)
 - `skills-registry.test.ts` — Declares registry (~3690 tok)
 - `source-github-url.test.ts` — Declares result (~1288 tok)
 - `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~22331 tok)
