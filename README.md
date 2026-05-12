@@ -77,7 +77,9 @@ syncskill status
 | `syncskill source list` / `ls` | List configured sources |
 | `syncskill source update [name]` | Update one or all sources |
 | `syncskill source update --all` | Update all sources |
+| `syncskill source update --force` | Force update, overwriting dirty sources |
 | `syncskill source remove <name>` | Remove a source (interactive) |
+| `syncskill update [name]` | Top-level alias for `source update` |
 
 ### Reconciliation
 
@@ -105,6 +107,15 @@ syncskill status
 | `syncskill push [server\|--all]` | Push local changes to servers |
 | `syncskill pull [server\|--all]` | Pull remote changes from servers |
 | `syncskill sync [server\|--all]` | Full sync (pull then push) |
+
+### Diagnostics
+
+| Command | Description |
+|---------|-------------|
+| `syncskill doctor` | Diagnose config issues |
+| `syncskill doctor --fix` | Interactive repair |
+| `syncskill doctor --fix -y` | Auto-repair all issues |
+| `syncskill doctor --rebuild-registry` | Rebuild skills-registry.json |
 
 ### Global Options
 

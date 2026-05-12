@@ -41,8 +41,9 @@ Use this skill when:
 |---------|-------------|
 | `source add <url> [options]` | Add external source |
 | `source list` / `ls` | List configured sources |
-| `source update [name] [--all]` | Update sources |
+| `source update [name] [--all] [--force]` | Update sources |
 | `source remove <name> [--force]` | Remove a source |
+| `update [name] [--all] [--force]` | Top-level alias for `source update` |
 
 Source add options: `--name`, `--type git|http|local`, `--path`, `--skill-subdir`, `--ref`, `-y`
 
@@ -84,6 +85,7 @@ Source add options: `--name`, `--type git|http|local`, `--path`, `--skill-subdir
 | `config set <key> <value>` | Set config value |
 | `config set --show-paths` | Show all config paths |
 | `remote` | Manage skill→server mappings (matrix editor) |
+| `doctor [--fix] [--rebuild-registry] [-y]` | Diagnose and repair config issues |
 
 ### Global Options
 
