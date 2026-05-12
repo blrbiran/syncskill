@@ -19,9 +19,9 @@ Use this skill when:
 
 | Command | Description |
 |---------|-------------|
-| `init [--skip-sources] [--skip-skill] [-y]` | Initialize ~/.syncskill/ directory |
+| `init [--skip-scan] [--skip-skill] [-y]` | Initialize ~/.syncskill/ directory |
 | `install` / `i` | Install syncskill skill itself |
-| `install <url-or-path> [--name] [--ref] [-y]` | Install skill from URL or path |
+| `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path |
 
 ### Link Management
 
@@ -45,7 +45,7 @@ Use this skill when:
 | `source remove <name> [--force]` | Remove a source |
 | `update [name] [--all] [--force]` | Top-level alias for `source update` |
 
-Source add options: `--name`, `--type git|http|local`, `--path`, `--skill-subdir`, `--ref`, `-y`
+Source add options: `--name`, `--type git|http|local`, `--path`, `--skill-subdir`, `--branch`, `-y`
 
 ### Scanning
 

@@ -17,7 +17,7 @@ After `init`, local state lives under `~/.syncskill/`, including the managed ski
 
 | Option | Description |
 |--------|-------------|
-| `--skip-sources` | Skip migrating skills from detected agent directories |
+| `--skip-scan` | Skip migrating skills from detected agent directories |
 | `--skip-skill` | Skip installing the syncskill skill |
 | `-y, --yes` | Accept all defaults without prompting |
 
@@ -82,7 +82,7 @@ syncskill source add https://github.com/org/skills-repo
 syncskill source add https://github.com/org/repo/tree/develop
 
 # Add with explicit options
-syncskill source add https://github.com/org/repo --name my-skills --ref main
+syncskill source add https://github.com/org/repo --name my-skills --branch main
 
 # Add a local directory
 syncskill source add my-local --type local --path /path/to/skills
@@ -129,7 +129,7 @@ Source add options:
 | `--type <type>` | Source type: `git`, `http`, or `local` |
 | `--path <path>` | Storage path for source files |
 | `--skill-subdir <dir>` | Subdirectory containing skills |
-| `--ref <ref>` | Git branch or tag |
+| `--branch <branch>` | Git branch or tag |
 | `-y, --yes` | Skip confirmation, select all skills |
 
 Run `syncskill source update` with no name to update every configured source, or pass a source name to update just one.
@@ -157,7 +157,7 @@ syncskill install https://github.com/org/skills-repo
 syncskill i https://github.com/org/skills-repo
 
 # Install with options
-syncskill install https://github.com/org/repo --name my-skills --ref main
+syncskill install https://github.com/org/repo --name my-skills --branch main
 
 # Install without prompts
 syncskill install https://github.com/org/repo -y
@@ -170,7 +170,7 @@ Install options:
 | `--name <name>` | Source name |
 | `--path <path>` | Storage path |
 | `--skill-subdir <dir>` | Subdirectory containing skills |
-| `--ref <ref>` | Git branch or tag |
+| `--branch <branch>` | Git branch or tag |
 | `-y, --yes` | Skip confirmation prompts |
 
 ### Typical Loop

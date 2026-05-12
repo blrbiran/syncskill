@@ -59,7 +59,7 @@ sources:
     type: git
     url: https://github.com/org/internal-playbooks.git
     path: skills
-    ref: main
+    branch: main
   local-experiments:
     type: local
     url: /Users/alice/dev/local-skills
@@ -186,7 +186,7 @@ Each source entry includes:
 | `url` | Varies | Remote URL (required for git/http) |
 | `path` | Yes | Storage path (clone/download target, or local directory path) |
 | `skill_subdir` | No | Subdirectory within source containing skills |
-| `branch` | No | Git branch (git sources only) |
+| `branch` | No | Git branch or tag (git sources only) |
 | `ignore` | No | List of skill names to ignore |
 | `archive_path` | No | Original archive file path (local archives only) |
 
