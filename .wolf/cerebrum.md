@@ -29,3 +29,7 @@
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->
 
 - **[2026-05-07]** Main design spec is `docs/superpowers/specs/syncskill-design.md`. All future major changes should prompt whether to update this spec document.
+- **[2026-05-12]** Agent 目录路径跟随各 agent 官方约定，不统一风格（如 amp 用 `~/.config/agents/skills`）
+- **[2026-05-12]** `antigravity` 作为独立 agent 列出，不作为 gemini 变体处理
+- **[2026-05-12]** 多 skills 安装需用户确认，单个 skill 直接安装（避免意外安装大量 skills）
+- **[2026-05-12]** `compressing` 依赖是必要的，CLI 在 Windows 支持不好，需要跨平台纯 JS 方案

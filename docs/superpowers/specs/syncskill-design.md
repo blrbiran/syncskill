@@ -9,7 +9,7 @@
 
 **设计约束**：
 - 兼容 Node 20+
-- 运行时依赖 `yaml` + `commander` + `@inquirer/prompts` 三个 npm 包，其余全部 Node 原生 API
+- 运行时依赖 `yaml` + `commander` + `@inquirer/prompts` + `@inquirer/core` + `compressing` 五个 npm 包，其余全部 Node 原生 API
 - ESM 优先，远程 receiver 脚本也用 `.mjs`（Node 20+ 原生运行）
 - Hash 算法与 Python 版本完全兼容（MD5 + sorted 文件遍历）
 - 跨平台：macOS / Linux / Windows
@@ -37,16 +37,25 @@ syncskill/
 │       └── SKILL.md                 # syncskill 自身的 skill 定义
 └── src/
     ├── index.ts                   # CLI 入口 (commander)
-    ├── config.ts                  # YAML 加载 + 自动检测 agent 目录
     ├── repo.ts                    # init 命令：目录结构 + 配置模板
-    ├── linker.ts                  # 软链接管理（三级降级）
-    ├── manifest.ts                # MD5 hash + manifest 读写/比较
+    ├── install.ts                 # install 命令：内置 skill 安装、从 URL/路径安装
+    ├── linker.ts                  # 软链接管理（三级降级）+ expandLinkTargets
     ├── source.ts                  # 外部来源 (git clone/pull, HTTP tar.gz/zip)
-    ├── sync_engine.ts             # push/pull/relay 核心流程
-    ├── transport.ts               # SSH/rsync 传输 + 降级
-    ├── conflict.ts                # 三路冲突检测与解决
+    ├── skills_ignore.ts           # 统一 skills 注册表 (skills-registry.json)
     ├── refresh.ts                 # 全局自动刷新钩子
-    ├── utils.ts                   # 共享工具函数 (错误处理、路径检查)
+    ├── config/
+    │   ├── types.ts               # TypeScript 类型定义 (ConfigV1, ManifestV1, etc.)
+    │   ├── config.ts              # YAML 加载 + 自动检测 agent 目录
+    │   ├── config-ui.ts           # 交互式 TUI 配置菜单 (@inquirer/prompts)
+    │   └── config-doctor.ts       # 配置健康诊断与修复 (agents/links/sources/registry)
+    ├── core/
+    │   ├── manifest.ts            # MD5 hash + manifest 读写/比较
+    │   ├── sync_engine.ts         # push/pull/relay 核心流程
+    │   ├── transport.ts           # SSH/rsync 传输 + 降级
+    │   └── conflict.ts            # 三路冲突检测与解决
+    ├── utils/
+    │   ├── utils.ts               # 共享工具函数 (expandTilde, dirExists, fileExists)
+    │   └── archive.ts             # 归档检测 + 跨平台解压 (compressing → CLI fallback)
     └── receiver/
         ├── bootstrap_remote.sh    # 远程部署脚本
         └── sync_receiver.mjs      # 远程零依赖接收脚本
@@ -85,14 +94,14 @@ syncskill/
 
 | 命令 | 说明 |
 |------|------|
-| `init [--skip-sources] [--skip-skill] [-y/--yes]` | 创建 `~/.syncskill/` 目录结构和 config.yaml，交互式询问是否安装 syncskill skill |
+| `init [--skip-scan] [--skip-skill] [-y/--yes]` | 创建 `~/.syncskill/` 目录结构和 config.yaml，交互式询问是否安装 syncskill skill |
 | `install [url-or-path]` / `i` | 安装 skill。无参数安装 syncskill skill；有参数等同于 `source add` + 自动 link |
 
 `install` 完整参数：
 - `--name <name>`：指定 source 名称
 - `--path <path>`：指定存储路径
 - `--skill-subdir <dir>`：指定 skill 所在子目录
-- `--ref <ref>`：Git ref（branch/tag）
+- `--branch <branch>`：Git 分支（默认自动检测）
 - `-y/--yes`：跳过确认
 
 **Link 管理**
@@ -123,7 +132,7 @@ syncskill/
 - `--path <path>`：指定存储路径
 - `--skill-subdir <dir>`：指定 skill 所在子目录
 - `--type git|http|local`：指定来源类型（默认自动检测）
-- `--ref <ref>`：Git ref（branch/tag）
+- `--branch <branch>`：Git 分支（默认自动检测）
 - `-y/--yes`：跳过确认，自动选中所有 skills
 
 `source update` 完整参数：
@@ -214,8 +223,19 @@ Use --no-refresh to skip, then run `syncskill refresh` manually.
 - 自动检测本地 agent 目录（存在即添加）：
   - `claude` → `~/.claude/skills`
   - `agents` → `~/.agents/skills`
-  - `hermes` → `~/.hermes/skills`
+  - `cursor` → `~/.cursor/skills`
+  - `windsurf` → `~/.windsurf/skills`
+  - `codex` → `~/.codex/skills`
+  - `gemini` → `~/.gemini/skills`
+  - `antigravity` → `~/.gemini/antigravity/skills`
+  - `kiro` → `~/.kiro/skills`
+  - `augment` → `~/.augment/skills`
+  - `amp` → `~/.config/agents/skills`
+  - `cline` → `~/.cline/skills`
+  - `opencode` → `~/.config/opencode/skills`
   - `qwen` → `~/.qwen/skills`
+  - `openclaw` → `~/.openclaw/skills`
+  - `hermes` → `~/.hermes/skills`
   - `qoder` → `~/.qoder/skills`
   - `aone_copilot` → `~/.aone_copilot/skills`
 - 验证必填字段：`version`, `agents`, `links`
@@ -354,7 +374,7 @@ xlsx                     broken      missing
 - 创建 `~/.syncskill/` 目录（含 `skills/`, `manifests/` 子目录）
 - 生成 `~/.syncskill/config.yaml`（含自动检测的 agent）
 - 复制 `config.example.yaml` 作为参考
-- **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-sources` 参数跳过此步骤。
+- **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-scan` 参数跳过此步骤。
 - **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.yaml` 的 `links` 字段（设为 `["*"]` 即所有 agent）。
 - **交互式安装 syncskill skill**：流程末尾询问是否安装 syncskill skill（默认 Y）。`--skip-skill` 参数跳过此询问，`-y`/`--yes` 参数自动选择 yes。
 
@@ -408,6 +428,14 @@ Extracting my-skills.tar.gz...
 Found 2 skills: skill-x, skill-y
 ✓ Installed 2 skills from local archive
 ✓ Linked to: claude, hermes
+
+# 重复安装 → 无新 skill 时也输出结果消息
+$ syncskill i https://github.com/user/my-skills
+Source "my-skills" is up to date. All skills already linked.
+
+# 已包含的子目录 skill
+$ syncskill i https://github.com/user/my-skills/tree/main/examples/skill-a
+All skills from "examples/skill-a" are already included in source "my-skills".
 ```
 
 ### 3.6 `linker.ts` — 软链接管理
@@ -603,13 +631,22 @@ Skill 发现统一基于**递归搜索 SKILL.md 文件**。给定一个 subdir�
 - `"examples"` → 指定子目录（递归搜索该目录下所有 SKILL.md）
 - `undefined` → 隐式 `<path>/skills/`（若存在），否则 `<path>/`
 
+**GitHub URL → `skill_subdir` 推断规则**：
+- `https://github.com/user/repo` → `skill_subdir="."` （裸仓库 URL = 整个仓库）
+- `https://github.com/user/repo.git` → `skill_subdir="."` （同上）
+- `https://github.com/user/repo/tree/main` → `skill_subdir="."` （指向分支根 = 整个仓库）
+- `https://github.com/user/repo/tree/main/examples` → `skill_subdir="examples"`
+- `https://github.com/user/repo/tree/main/examples/foo` → `skill_subdir="examples/foo"`
+
 **首次安装行为**：
 
-递归搜索发现所有 skills 后，交互式让用户选择：
-- 选中的 → 加入 links
-- 未选中的 → 加入 ignore
+递归搜索发现所有 skills 后：
+- **单个 skill**：直接安装，无需确认
+- **多个 skills**：交互式让用户选择要安装哪些
+  - 选中的 → 加入 links
+  - 未选中的 → 加入 ignore
 
-使用 `-y` 标志时自动选中所有发现的 skills。
+使用 `-y` 标志时自动选中所有发现的 skills（跳过确认）。
 
 **同仓库合并逻辑**：
 
@@ -633,7 +670,13 @@ Skill 发现统一基于**递归搜索 SKILL.md 文件**。给定一个 subdir�
    → 推荐扩大到共同父目录（保持一个 source 原则）
    例：existing="skills/", new="examples/" → 扩大到 "."
 
-重复安装同一 URL（无新 subdir）：
+裸仓库 URL（无 /tree/branch/subdir）：
+   → GitHub URL 无 /tree/... 部分时，等同于 skill_subdir="."（整个仓库）
+   → 若 existing 范围比 "." 窄，走 Case 2 扩大到 "."
+   → 若 existing 已是 "."，走 Case 1 identity（all already included）
+   例：existing="examples", new=bare URL → expand to "."
+
+重复安装完全相同的 URL+subdir：
    → 保持现有 source 不变，只 refresh 发现新 skills
 ```
 
@@ -1033,7 +1076,7 @@ resolveSkillPullTarget(skillName):
 
   skill-one:
     + file1.md (new)
-    ~ file2.ts (modified, 42 lines changed)
+    ~ file2.ts (modified)
     - old-file.js (deleted)
 
   skill-two:
@@ -1045,12 +1088,18 @@ Summary: 1 skill changed, 2 files added, 1 file modified, 1 file deleted
 ### 3.10 `transport.ts` — SSH/rsync 传输
 
 - `fetchRemoteManifest()` — rsync/scp manifest.json
-- `rsyncPush()` — rsync -avz --delete
-- `rsyncPull()` — rsync -avz 反方向
+- `rsyncPush()` — rsync -avz --delete（`--delete` 确保远程与本地完全一致，删除远程多余文件）
+- `rsyncPull()` — rsync -avz 反方向（**有意不使用 `--delete`**，保护本地可能存在的未纳管文件；pull 只添加/覆盖，不删除本地多余文件）
 - `pushManifest()` — 推送 manifest
 - `deployReceiver()` — 首次推送时部署 receiver
 - `checkRemoteReceiver()` — 检查 receiver 是否存在
 - `sshExec()` — 执行 SSH 命令
+
+**SSH 命令构建**：所有 rsync/scp 的 `-e` 选项需根据服务器配置动态构建 SSH 命令。如果配置了 `identity_file`（服务器级或全局 `ssh_defaults`），必须通过 `-i` 参数传递给 SSH：
+```
+rsync -avz -e "ssh -p <port> -i <identity_file>" ...
+scp -P <port> -i <identity_file> ...
+```
 
 降级：rsync 不可用时，Node 原生逐文件传输（对比 hash 只传变更文件）。
 
@@ -1092,12 +1141,14 @@ syncskill resolve <skill> --remote --diff   # 先显示差异，再用远程覆�
   try-catch：刷新失败只打印 WARNING，不阻断主流程
 ```
 
+**远程 hash 一致性要求**：`refreshRemoteManifest()` 在远程执行的 Node 脚本必须使用 `lstatSync`（而非 `statSync`）来检测文件类型，以确保与本地 `computeHash()`（§3.7）的 symlink 跳过行为一致。使用 `statSync` 会导致 `isSymbolicLink()` 永远返回 false，从而将 symlink 文件内容错误地纳入 hash 计算。
+
 **refresh 命令**：
 ```bash
-syncskill refresh          # --all + --status（刷新所有，然后显示状态）
+syncskill refresh          # 等同于 refresh --all（刷新所有，然后显示状态）
 syncskill refresh --local  # 只刷新本地 hash
 syncskill refresh --remote # SSH 刷新远程 hash
-syncskill refresh --all    # 刷新本地 + 远程（不显示状态）
+syncskill refresh --all    # 刷新本地 + 远程，然后显示状态
 syncskill refresh --status # 仅显示状态，不刷新
 ```
 
@@ -1107,6 +1158,8 @@ syncskill refresh --status # 仅显示状态，不刷新
 - `apply` 命令：遍历 `~/.syncskill/skills/` 下 skill
 - 根据 `receiver_config.json` 中的 remote_agents 映射创建软链接
 - 更新 `manifest.json`
+
+**hash 一致性要求**：receiver 内部的 `computeHash()` 必须使用 `lstatSync`（而非 `statSync`）来检测文件类型，与本地 `computeHash()`（§3.7）及 `refreshRemoteManifest()`（§3.12）保持一致。使用 `statSync` 会导致 `isSymbolicLink()` 永远返回 false，将 symlink 文件内容错误地纳入 hash 计算。
 
 ### 3.14 `receiver/bootstrap_remote.sh` — 远程部署脚本
 
@@ -1143,6 +1196,65 @@ Migrate to ~/.syncskill/skills/? [Y/n]
 - 扫描 sources → 发现新 skill → 直接注册到 links
 - 扫描 ~/.syncskill/skills/ → 发现新 skill → 直接注册到 links
 - 扫描 agent 目录 → 发现未纳管的 skill → 仅提示，使用 `--migrate` 才询问迁移
+
+**`scan --dry-run` 行为**：
+
+预览扫描结果但不执行任何写操作（不修改 config.yaml、不迁移文件、不更新 registry）。
+
+```
+$ syncskill scan --dry-run
+
+Scanning for new skills...
+
+Found 2 new skill(s) in sources:
+  [dry-run] Would add "new-skill-1"
+  [dry-run] Would add "new-skill-2"
+
+Found 1 unmanaged skill(s) in agent directories:
+  ~/.claude/skills/local-experiment
+
+Use `syncskill scan --migrate` to migrate unmanaged skills.
+```
+
+```
+$ syncskill scan --migrate --dry-run
+
+Found 1 unmanaged skill(s) in agent directories:
+  [dry-run] Would migrate "local-experiment" to skills/ and add to links
+```
+
+### 3.16 `source list` 输出格式
+
+```
+$ syncskill source list
+
+Sources:
+
+  my-repo (git)
+    url:    https://github.com/user/my-repo.git
+    path:   ~/.syncskill/sources/my-repo
+    branch: main
+    skills: skill-a, skill-b, skill-c
+    ignored: old-skill
+
+  skill-pack (http)
+    url:    https://cdn.example.com/skills-v2.tar.gz
+    path:   ~/.syncskill/sources/skill-pack
+    skills: http-skill-1, http-skill-2
+
+  local-tools (local)
+    path:   /home/user/my-tools
+    skills: tool-a, tool-b
+
+  archive-skills (local)
+    path:    ~/.syncskill/sources/archive-skills
+    archive: ~/Downloads/my-skills.tar.gz
+    skills:  skill-x, skill-y
+```
+
+**显示规则**：
+- 每个 source 显示：名称、类型、URL（如有）、路径、分支（Git）、archive 路径（本地压缩包）、活跃 skills、忽略的 skills（如有）
+- 无 source 时显示 `No sources configured.`
 
 ## 4. 同步协议
 
@@ -1189,7 +1301,9 @@ Phase 3: RECONCILE (远程 receiver)
   "dependencies": {
     "commander": "^12.x",
     "yaml": "^2.x",
-    "@inquirer/prompts": "^7.x"
+    "@inquirer/prompts": "^8.x",
+    "@inquirer/core": "^10.x",
+    "compressing": "^2.x"
   },
   "devDependencies": {
     "@types/node": "^20.x",
@@ -1242,7 +1356,7 @@ node_modules/
 | 场景 | 策略 |
 |------|------|
 | 路径处理 | `node:path` 自动适配 `/` 和 `\` |
-| 压缩/解压 | `node:zlib` + `node:stream` + `extract-zip`（zip 场景） |
+| 压缩/解压 | `compressing`（跨平台纯 JS，支持 tar.gz/tgz/zip）→ fallback `tar`/`unzip` CLI；bz2/xz 仅 CLI。所有 CLI fallback 先通过 `command -v` 检测可用性，不可用时抛出包含安装指引的错误（如 `apt install xz-utils`） |
 | HTTP 下载 | `fetch()`（Node 18+ 原生支持） |
 | 文件同步 | 优先 rsync，无 rsync 时 Node fs 逐文件传输 |
 | SSH | `child_process.exec('ssh')` |
@@ -1382,21 +1496,19 @@ rebuildSkillsRegistry(config):
 ### 10.4 CLI 命令
 
 ```
-syncskill doctor [--fix] [--rebuild-registry] [--dry-run] [-y/--yes]
+syncskill doctor [--fix] [--rebuild-registry] [-y/--yes]
 ```
 
 | 参数 | 说明 |
 |------|------|
-| （无参数） | 只诊断，输出报告，不修复 |
+| （无参数） | 只诊断，输出报告，不修复（等同于 dry-run） |
 | `--fix` | 交互式修复（逐项确认） |
 | `--fix -y` | 自动修复所有可修复项 |
 | `--rebuild-registry` | 仅重建 `skills-registry.json`（跳过其他诊断） |
-| `--dry-run` | 预览修复操作，不实际执行 |
 
 **`--rebuild-registry` 行为**：
 - 从 config.yaml + 文件系统重新扫描所有 skill，生成全新的 `skills-registry.json`
 - 如果旧文件存在且可解析，先备份为 `skills-registry.json.bak`
-- 可与 `--dry-run` 组合使用，预览将生成的 registry 内容
 - 输出重建结果摘要（manual / source skill 数量、ignored 数量）
 
 **诊断模式输出**：
