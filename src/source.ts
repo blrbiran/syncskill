@@ -986,6 +986,15 @@ async function prepareGitMaterializedRoot(homeDir: string, name: string, source:
   const checkoutDir = getGitCheckoutDir(homeDir, name);
   const branch = source.branch ?? (await detectGitDefaultBranch(source.url));
 
+  if (await pathExists(checkoutDir)) {
+    // Directory exists - check if it's a valid git repo with matching remote URL
+    const isValid = await isValidGitRepoWithMatchingRemote(checkoutDir, source.url);
+    if (!isValid) {
+      // Remove stale/mismatched checkout and re-clone
+      await rm(checkoutDir, { recursive: true, force: true });
+    }
+  }
+
   if (!(await pathExists(checkoutDir))) {
     await mkdir(dirname(checkoutDir), { recursive: true });
     await runGit(['clone', '--single-branch', '--depth', '1', '--branch', branch, source.url, checkoutDir]);
@@ -1281,6 +1290,27 @@ async function runGit(args: string[]): Promise<void> {
   } catch (error) {
     const execError = error as Error & { stderr?: string };
     throw new Error(execError.stderr?.trim() || execError.message);
+  }
+}
+
+function normalizeGitUrl(url: string): string {
+  let normalized = url.trim();
+  // Remove trailing slashes
+  normalized = normalized.replace(/\/+$/, '');
+  // Remove .git suffix for comparison
+  normalized = normalized.replace(/\.git$/, '');
+  return normalized;
+}
+
+async function isValidGitRepoWithMatchingRemote(checkoutDir: string, expectedUrl: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', checkoutDir, 'remote', 'get-url', 'origin']);
+    const currentUrl = stdout.trim();
+    return normalizeGitUrl(currentUrl) === normalizeGitUrl(expectedUrl);
+  } catch {
+    // Any git error (not a git repo, no 'origin' remote, permission denied, corrupted repo)
+    // is treated as invalid — we'll re-clone to ensure correctness
+    return false;
   }
 }
 

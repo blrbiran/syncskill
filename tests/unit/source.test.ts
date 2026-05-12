@@ -357,6 +357,182 @@ sources:
     });
   });
 
+  it('materializeSource re-clones when checkout directory exists but is not a git repo', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    // Pre-create checkout directory as a non-git directory (simulates stale directory)
+    const checkoutDir = join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout');
+    await mkdir(checkoutDir, { recursive: true });
+    await writeFile(join(checkoutDir, 'stale-file.txt'), 'stale content', 'utf8');
+
+    const result = await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['alpha']);
+    await expect(access(join(checkoutDir, '.git'))).resolves.toBeUndefined();
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v1\n');
+    // Stale file should be gone after re-clone
+    await expect(access(join(checkoutDir, 'stale-file.txt'))).rejects.toThrow();
+  });
+
+  it('materializeSource re-clones when checkout directory has a different remote URL', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    // Create first repo (old)
+    const oldBareRepoDir = join(homeDir, 'old-remote.git');
+    const oldWorkRepoDir = join(homeDir, 'old-work');
+    await git(['init', '--bare', oldBareRepoDir]);
+    await git(['clone', oldBareRepoDir, oldWorkRepoDir]);
+    await git(['branch', '-M', 'main'], oldWorkRepoDir);
+    await mkdir(join(oldWorkRepoDir, 'source.path', 'old-skill'), { recursive: true });
+    await writeFile(join(oldWorkRepoDir, 'source.path', 'old-skill', 'SKILL.md'), '# old skill\n', 'utf8');
+    await commitAll(oldWorkRepoDir, 'old content');
+    await git(['push', '-u', 'origin', 'main'], oldWorkRepoDir);
+
+    // Create second repo (new)
+    const { bareRepoDir: newBareRepoDir, workRepoDir: newWorkRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(newWorkRepoDir, 'source.path', 'new-skill'), { recursive: true });
+    await writeFile(join(newWorkRepoDir, 'source.path', 'new-skill', 'SKILL.md'), '# new skill\n', 'utf8');
+    await commitAll(newWorkRepoDir, 'new content');
+    await git(['push', '-u', 'origin', 'main'], newWorkRepoDir);
+
+    // Pre-clone the old repo to the checkout directory
+    const checkoutDir = join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout');
+    await mkdir(join(homeDir, '.syncskill', '.sources', 'git-source'), { recursive: true });
+    await git(['clone', '--single-branch', '--depth', '1', '--branch', 'main', oldBareRepoDir, checkoutDir]);
+
+    // Now materialize with the NEW repo URL - should re-clone
+    const result = await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: newBareRepoDir, path: 'source.path', branch: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['new-skill']);
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'new-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# new skill\n');
+    // Old skill should not exist
+    await expect(access(join(homeDir, '.syncskill', 'skills', 'old-skill'))).rejects.toThrow();
+  });
+
+  it('materializeSource re-clones when checkout directory is empty', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    // Pre-create checkout directory as an empty directory
+    const checkoutDir = join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout');
+    await mkdir(checkoutDir, { recursive: true });
+
+    const result = await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['alpha']);
+    await expect(access(join(checkoutDir, '.git'))).resolves.toBeUndefined();
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v1\n');
+  });
+
+  it('materializeSource re-clones when checkout is git repo without origin remote', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    // Pre-create checkout directory as a git repo with no 'origin' remote
+    const checkoutDir = join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout');
+    await mkdir(checkoutDir, { recursive: true });
+    await git(['init'], checkoutDir);
+    await git(['remote', 'add', 'upstream', 'https://example.com/other.git'], checkoutDir);
+
+    const result = await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['alpha']);
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v1\n');
+  });
+
+  it('materializeSource re-clones when checkout has corrupted .git directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    // Pre-create checkout directory with corrupted .git (empty directory)
+    const checkoutDir = join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout');
+    await mkdir(join(checkoutDir, '.git'), { recursive: true });
+
+    const result = await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['alpha']);
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v1\n');
+  });
+
+  it('materializeSource reuses checkout when URL differs only by .git suffix', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    // Pre-clone with the bare URL (no .git suffix in stored remote)
+    const checkoutDir = join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout');
+    await mkdir(join(homeDir, '.syncskill', '.sources', 'git-source'), { recursive: true });
+    await git(['clone', '--single-branch', '--depth', '1', '--branch', 'main', bareRepoDir, checkoutDir]);
+
+    // Now materialize with URL that has .git suffix added - should NOT re-clone
+    const urlWithGitSuffix = bareRepoDir.endsWith('.git') ? bareRepoDir : bareRepoDir + '.git';
+    const result = await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: urlWithGitSuffix, path: 'source.path', branch: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['alpha']);
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v1\n');
+  });
+
   it('materializeSource downloads an http source archive, extracts checkout, and copies skills into the sync store', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
     tempDirs.push(homeDir);

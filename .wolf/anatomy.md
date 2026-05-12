@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T15:51:05.684Z
-> Files: 90 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T16:49:27.425Z
+> Files: 78 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -30,27 +30,27 @@
 
 ## docs/
 
-- `config-guide.md` — Configuration Guide (~1606 tok)
-- `design-guide.md` — Design Guide (~1544 tok)
+- `config-guide.md` — Configuration Guide (~1840 tok)
+- `design-guide.md` — Design Guide (~1875 tok)
 - `README.md` — Project documentation (~221 tok)
-- `usage-guide.md` — Usage Guide (~2091 tok)
+- `usage-guide.md` — Usage Guide (~2427 tok)
 
 ## docs/superpowers/specs/
 
-- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~11676 tok)
+- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~11700 tok)
 
 ## skills/syncskill/
 
-- `SKILL.md` — syncskill (~978 tok)
+- `SKILL.md` — syncskill (~979 tok)
 
 ## src/
 
-- `index.ts` — CLI entry point, commander setup (~12599 tok)
-- `install.ts` — Install embedded syncskill skill or from URL/path (~888 tok)
+- `index.ts` — Exports createProgram (~12592 tok)
+- `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~890 tok)
 - `linker.ts` — Soft link management with 3-level fallback (~2826 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
-- `repo.ts` — Repository initialization (~1181 tok)
-- `source.ts` — External source management (git/http/local) (~16334 tok)
+- `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
+- `source.ts` — Git only: Convert source from git to local, keep path directory (~16678 tok)
 
 ## src/config/
 
@@ -91,19 +91,19 @@
 
 ## tests/integration/
 
-- `config-cli.test.ts` — Declares homeDir (~2536 tok)
+- `config-cli.test.ts` — Declares homeDir (~2534 tok)
 - `config-ui.test.ts` — Declares PromptStub (~4796 tok)
 - `discover.test.ts` — Declares tempDirs (~3869 tok)
 - `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1228 tok)
 - `help-output.test.ts` — Declares help (~421 tok)
-- `install-cli.test.ts` — Declares execFileAsync (~511 tok)
+- `install-cli.test.ts` — Declares execFileAsync (~512 tok)
 - `README.md` — Project documentation (~37 tok)
-- `reconciliation-cli.test.ts` — Declares tempDirs (~6355 tok)
+- `reconciliation-cli.test.ts` — Declares tempDirs (~6348 tok)
 - `remote-refresh.test.ts` — Declares tempDirs (~669 tok)
-- `repo.test.ts` — Declares pathExists (~1883 tok)
+- `repo.test.ts` — Declares pathExists (~1880 tok)
 - `server-cli.test.ts` — Declares tempDirs (~1061 tok)
-- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6256 tok)
-- `source-remove.test.ts` — Declares SyncSkillConfig (~3145 tok)
+- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6272 tok)
+- `source-remove.test.ts` — Declares SourceConfig (~3048 tok)
 - `source-update-force.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~4705 tok)
 - `sync-cli.test.ts` — Declares tempDirs (~4259 tok)
 - `sync-engine.test.ts` — TransportRuntime: createRuntime (~3568 tok)
@@ -112,19 +112,19 @@
 ## tests/unit/
 
 - `backup.test.ts` — Declares result (~1339 tok)
-- `config-doctor.test.ts` — Declares DiagnosticItem (~5718 tok)
+- `config-doctor.test.ts` — Declares DiagnosticItem (~5859 tok)
 - `config.test.ts` — Declares tempDirs (~1628 tok)
 - `conflict.test.ts` — Declares ServerManifest (~2429 tok)
-- `docs.test.ts` — Declares rootDir (~1312 tok)
+- `docs.test.ts` — Declares rootDir (~1320 tok)
 - `install.test.ts` — Declares path (~1694 tok)
 - `linker.test.ts` — Declares tempDirs (~2232 tok)
-- `manifest.test.ts` — Declares tempDirs (~2639 tok)
-- `matrix-editor.test.ts` — Declares config (~2278 tok)
+- `manifest.test.ts` — Declares tempDirs (~2630 tok)
+- `matrix-editor.test.ts` — Declares config (~2288 tok)
 - `package.test.ts` — Declares rootDir (~584 tok)
 - `README.md` — Project documentation (~35 tok)
 - `refresh.test.ts` — Declares tempDirs (~5658 tok)
 - `server.test.ts` (~406 tok)
 - `skills-registry.test.ts` — Declares registry (~3690 tok)
-- `source-github-url.test.ts` — Declares result (~1288 tok)
-- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~22331 tok)
+- `source-github-url.test.ts` — Declares result (~1291 tok)
+- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~24940 tok)
 - `test-tiers.test.ts` — Declares rootDir (~368 tok)

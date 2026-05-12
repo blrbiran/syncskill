@@ -493,6 +493,7 @@ All skills from "examples/skill-a" are already included in source "my-skills".
 ### 3.8 `source.ts` — 外部来源管理
 
 - **Git 来源**：克隆前通过 `git ls-remote --symref <url> HEAD` 自动探测远程默认分支名，然后执行 `git clone --single-branch --depth 1 --branch <detected>`
+  - **Stale checkout 检测**：若 checkout 目录已存在，检查是否为有效 git 仓库且 remote URL 匹配；若不匹配或非 git 仓库，删除后重新 clone
 - **HTTP 来源**：`fetch()` 下载 → 解压（支持 `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip`）
 - **Local 来源（目录）**：以 `path` 为基准目录，通过 `path` 和 `skill_subdir` 定位 skills
 - **Local 来源（压缩包）**：本地 `.zip` / `.tar.gz` 等压缩包文件，解压到 `~/.syncskill/sources/<name>/`，config 中记录 `archive_path` 指向原始压缩包路径
