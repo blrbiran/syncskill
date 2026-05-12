@@ -41,21 +41,24 @@ syncskill/
     ├── install.ts                 # install 命令：内置 skill 安装、从 URL/路径安装
     ├── linker.ts                  # 软链接管理（三级降级）+ expandLinkTargets
     ├── source.ts                  # 外部来源 (git clone/pull, HTTP tar.gz/zip)
-    ├── skills_ignore.ts           # 统一 skills 注册表 (skills-registry.json)
     ├── refresh.ts                 # 全局自动刷新钩子
     ├── config/
-    │   ├── types.ts               # TypeScript 类型定义 (ConfigV1, ManifestV1, etc.)
+    │   ├── types.ts               # TypeScript 类型定义 (SyncSkillConfig, SourceConfig, etc.)
     │   ├── config.ts              # YAML 加载 + 自动检测 agent 目录
     │   ├── config-ui.ts           # 交互式 TUI 配置菜单 (@inquirer/prompts)
-    │   └── config-doctor.ts       # 配置健康诊断与修复 (agents/links/sources/registry)
+    │   ├── config-doctor.ts       # 配置健康诊断与修复 (agents/links/sources/registry)
+    │   └── matrix-editor.ts       # 二维矩阵编辑器组件 (@inquirer/core createPrompt)
     ├── core/
     │   ├── manifest.ts            # MD5 hash + manifest 读写/比较
     │   ├── sync_engine.ts         # push/pull/relay 核心流程
     │   ├── transport.ts           # SSH/rsync 传输 + 降级
-    │   └── conflict.ts            # 三路冲突检测与解决
+    │   ├── conflict.ts            # 三路冲突检测与解决
+    │   ├── server.ts              # 服务器配置格式化输出
+    │   └── skills-registry.ts     # 统一 skills 注册表 (skills-registry.json)
     ├── utils/
-    │   ├── utils.ts               # 共享工具函数 (expandTilde, dirExists, fileExists)
-    │   └── archive.ts             # 归档检测 + 跨平台解压 (compressing → CLI fallback)
+    │   ├── utils.ts               # 共享工具函数 (isNotFoundError, pathExists)
+    │   ├── archive.ts             # 归档检测 + 跨平台解压 (compressing → CLI fallback)
+    │   └── backup.ts              # 备份管理 (dirty skill 备份与元信息)
     └── receiver/
         ├── bootstrap_remote.sh    # 远程部署脚本
         └── sync_receiver.mjs      # 远程零依赖接收脚本

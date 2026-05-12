@@ -23,6 +23,7 @@
     "@inquirer/core": "^11.1.9",
     "@inquirer/prompts": "^7.5.1",
     "commander": "^14.0.0",
+    "compressing": "^2.1.1",
     "yaml": "^2.8.1"
   },
   "devDependencies": {

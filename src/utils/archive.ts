@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import * as compressing from 'compressing';
+
 const execFileAsync = promisify(execFile);
 
 export type ArchiveType = 'tar.gz' | 'tar.bz2' | 'tar.xz' | 'zip';
@@ -71,6 +73,21 @@ export function detectArchiveFormatFromFilename(filename: string): ArchiveFormat
 }
 
 export async function extractArchive(archiveFile: string, destinationDir: string, archiveType: ArchiveType): Promise<void> {
+  switch (archiveType) {
+    case 'tar.gz':
+      await compressing.tgz.uncompress(archiveFile, destinationDir);
+      break;
+    case 'zip':
+      await compressing.zip.uncompress(archiveFile, destinationDir);
+      break;
+    case 'tar.bz2':
+    case 'tar.xz':
+      await extractArchiveCli(archiveFile, destinationDir, archiveType);
+      break;
+  }
+}
+
+async function extractArchiveCli(archiveFile: string, destinationDir: string, archiveType: ArchiveType): Promise<void> {
   try {
     switch (archiveType) {
       case 'tar.gz':

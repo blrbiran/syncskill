@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T14:09:09.232Z
-> Files: 88 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T14:15:58.512Z
+> Files: 90 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -37,7 +37,7 @@
 
 ## docs/superpowers/specs/
 
-- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~11628 tok)
+- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~11676 tok)
 
 ## skills/syncskill/
 
@@ -87,7 +87,7 @@
 
 ## src/utils/
 
-- `archive.ts` — Exports ArchiveType, ArchiveFormat, detectArchiveFormat, parseContentDisposition + 2 more (~830 tok)
+- `archive.ts` — Exports ArchiveType, ArchiveFormat, detectArchiveFormat, parseContentDisposition + 2 more (~980 tok)
 - `backup.ts` — Exports BackupMetaEntry, BackupMeta, getBackupDir, loadBackupMeta + 6 more (~772 tok)
 - `utils.ts` — Check if an error is a "file not found" error (ENOENT), pathExists (~359 tok)
 
