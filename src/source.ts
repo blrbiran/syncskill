@@ -8,6 +8,8 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 
+import { select } from '@inquirer/prompts';
+
 import type { SyncSkillConfig } from './config.js';
 import { getSyncPaths, loadConfig, saveConfig } from './config.js';
 import {
@@ -290,7 +292,15 @@ export async function updateAllSources(
   const states: SourceState[] = [];
 
   for (const source of sources) {
-    states.push(await updateSource(homeDir, source.name, options, updatedAt));
+    try {
+      states.push(await updateSource(homeDir, source.name, options, updatedAt));
+    } catch (error) {
+      if (error instanceof DirtySourceQuitError) {
+        console.log('\nUpdate cancelled by user.');
+        break;
+      }
+      throw error;
+    }
   }
 
   return states;
@@ -382,6 +392,141 @@ export interface DirtyDetectionResult {
   isDirty: boolean;
   dirtySkills: DirtySkillInfo[];
   nonSkillDirty: boolean;
+}
+
+/** Thrown when user chooses 'quit' in dirty source interactive prompt */
+export class DirtySourceQuitError extends Error {
+  constructor() {
+    super('User quit dirty source update');
+    this.name = 'DirtySourceQuitError';
+  }
+}
+
+type DirtyDecision = 'update' | 'skip' | 'quit';
+
+interface HandleDirtySourceOptions {
+  sourceName: string;
+  sourceType: 'git' | 'http';
+  dirtyResult: DirtyDetectionResult;
+  hasSkillDirty: boolean;
+  hasNonSkillDirty: boolean;
+  options: UpdateSourceOptions;
+  backupsDir: string;
+}
+
+/**
+ * Handle dirty source detection with interactive prompts.
+ * Returns 'update' to proceed, 'skip' to skip this source, 'quit' to stop all updates.
+ */
+async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyDecision> {
+  const { sourceName, sourceType, dirtyResult, hasSkillDirty, hasNonSkillDirty, options, backupsDir } = opts;
+  const skillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
+
+  // --force: backup and update
+  if (options.force) {
+    if (hasSkillDirty) {
+      console.log('⚠ Backing up dirty skills before force-update...');
+      const backupResult = await backupDirtySkills({
+        backupsDir,
+        sourceName,
+        dirtySkills: dirtyResult.dirtySkills.map(s => ({
+          name: s.name,
+          path: s.path,
+          hash: s.hash || 'unknown'
+        }))
+      });
+      for (const backed of backupResult.backedUp) {
+        console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
+      }
+    }
+    return 'update';
+  }
+
+  // -y/--yes: behavior differs based on dirty type
+  if (options.yes) {
+    if (hasSkillDirty) {
+      // Skill dirty with -y: skip (safe default)
+      console.log(`⚠ Skipped: ${sourceName} (dirty — ${dirtyResult.dirtySkills.length} skills have local modifications)`);
+      console.log(`  Dirty skills: ${skillNames}`);
+      console.log('  Use --force to overwrite local changes.');
+      return 'skip';
+    } else if (hasNonSkillDirty) {
+      // Non-skill dirty with -y: update (doesn't affect skills)
+      return 'update';
+    }
+  }
+
+  // Interactive mode
+  const isTTY = process.stdin.isTTY && process.stdout.isTTY;
+  if (!isTTY) {
+    // Non-interactive: skip with message
+    if (hasSkillDirty) {
+      console.log(`⚠ Skipped: ${sourceName} (dirty — ${dirtyResult.dirtySkills.length} skills have local modifications)`);
+      console.log(`  Dirty skills: ${skillNames}`);
+    } else {
+      console.log(`⚠ Skipped: ${sourceName} (uncommitted non-skill changes)`);
+    }
+    console.log('  Use --force to backup and update, or --yes to skip.');
+    return 'skip';
+  }
+
+  // Interactive prompt
+  if (hasSkillDirty) {
+    console.log(`\n⚠ Source "${sourceName}" has local modifications:`);
+    console.log(`  Dirty skills: ${skillNames}`);
+    if (sourceType === 'git') {
+      console.log(`  All skills in this source will be affected by git reset.`);
+    }
+    console.log('');
+
+    const choice = await select({
+      message: 'Choose action:',
+      choices: [
+        { name: '(u) Update — discard local changes, use remote latest', value: 'update' as const },
+        { name: '(s) Skip — keep local modifications, skip this source', value: 'skip' as const },
+        { name: '(q) Quit — stop update', value: 'quit' as const }
+      ],
+      default: 'skip' // Default to skip for skill dirty (safe)
+    });
+
+    if (choice === 'update' && dirtyResult.dirtySkills.length > 0) {
+      // Backup before updating
+      console.log('⚠ Backing up dirty skills before update...');
+      const backupResult = await backupDirtySkills({
+        backupsDir,
+        sourceName,
+        dirtySkills: dirtyResult.dirtySkills.map(s => ({
+          name: s.name,
+          path: s.path,
+          hash: s.hash || 'unknown'
+        }))
+      });
+      for (const backed of backupResult.backedUp) {
+        console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
+      }
+    }
+
+    return choice;
+  } else if (hasNonSkillDirty) {
+    // Non-skill dirty: different message, default to update
+    console.log(`\n⚠ Source "${sourceName}" has uncommitted changes (not in skills):`);
+    console.log(`  These files are not skills, but \`git reset --hard\` will discard them.`);
+    console.log('');
+
+    const choice = await select({
+      message: 'Choose action:',
+      choices: [
+        { name: '(u) Update — discard non-skill changes and update', value: 'update' as const },
+        { name: '(s) Skip — keep changes, skip this source', value: 'skip' as const },
+        { name: '(q) Quit — stop update', value: 'quit' as const }
+      ],
+      default: 'update' // Default to update for non-skill dirty
+    });
+
+    return choice;
+  }
+
+  return 'update';
 }
 
 async function detectGitDirty(checkoutDir: string, sourcePath: string): Promise<DirtyDetectionResult> {
@@ -509,39 +654,27 @@ async function syncSource(
     const checkoutDir = join(syncDir, '.sources', name, 'checkout');
     if (await pathExists(checkoutDir)) {
       const dirtyResult = await detectGitDirty(checkoutDir, source.path);
+      const hasSkillDirty = dirtyResult.dirtySkills.length > 0;
+      const hasNonSkillDirty = dirtyResult.nonSkillDirty && !hasSkillDirty;
 
-      if (dirtyResult.isDirty && dirtyResult.dirtySkills.length > 0) {
-        if (options.force) {
-          // Backup dirty skills before force update
-          const backupsDir = join(syncDir, 'backups');
-          console.log('⚠ Backing up dirty skills before force-update...');
-          const backupResult = await backupDirtySkills({
-            backupsDir,
-            sourceName: name,
-            dirtySkills: dirtyResult.dirtySkills.map(s => ({
-              name: s.name,
-              path: s.path,
-              hash: s.hash || 'unknown'
-            }))
-          });
-          for (const backed of backupResult.backedUp) {
-            console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
-          }
-        } else if (options.yes) {
-          // Auto-skip dirty sources with -y
-          const skillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
-          console.log(`⚠ Skipped: ${name} (dirty — ${dirtyResult.dirtySkills.length} skills have local modifications)`);
-          console.log(`  Dirty skills: ${skillNames}`);
-          console.log('  Use --force to overwrite local changes.');
-          return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt };
-        } else {
-          // Interactive mode would be handled by CLI - for now, skip
-          const skillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
-          console.log(`⚠ Source "${name}" has local modifications:`);
-          console.log(`  Dirty skills: ${skillNames}`);
-          console.log('  Use --force to backup and update, or --yes to skip.');
+      if (dirtyResult.isDirty && (hasSkillDirty || hasNonSkillDirty)) {
+        const decision = await handleDirtySource({
+          sourceName: name,
+          sourceType: 'git',
+          dirtyResult,
+          hasSkillDirty,
+          hasNonSkillDirty,
+          options,
+          backupsDir: join(syncDir, 'backups')
+        });
+
+        if (decision === 'skip') {
           return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt };
         }
+        if (decision === 'quit') {
+          throw new DirtySourceQuitError();
+        }
+        // decision === 'update' - continue with update
       }
     }
   }
@@ -551,30 +684,23 @@ async function syncSource(
     const dirtyResult = await detectHttpDirty(homeDir, name, previousSkills);
 
     if (dirtyResult.isDirty) {
-      if (options.force) {
-        const backupsDir = join(syncDir, 'backups');
-        console.log('⚠ Backing up dirty skills before force-update...');
-        const backupResult = await backupDirtySkills({
-          backupsDir,
-          sourceName: name,
-          dirtySkills: dirtyResult.dirtySkills
-        });
-        for (const backed of backupResult.backedUp) {
-          console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
-        }
-      } else if (options.yes) {
-        const skillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
-        console.log(`⚠ Skipped: ${name} (dirty — ${dirtyResult.dirtySkills.length} skills have local modifications)`);
-        console.log(`  Dirty skills: ${skillNames}`);
-        console.log('  Use --force to overwrite local changes.');
-        return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt };
-      } else {
-        const skillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
-        console.log(`⚠ Source "${name}" has local modifications:`);
-        console.log(`  Dirty skills: ${skillNames}`);
-        console.log('  Use --force to backup and update, or --yes to skip.');
+      const decision = await handleDirtySource({
+        sourceName: name,
+        sourceType: 'http',
+        dirtyResult,
+        hasSkillDirty: dirtyResult.dirtySkills.length > 0,
+        hasNonSkillDirty: false, // HTTP sources don't have non-skill files
+        options,
+        backupsDir: join(syncDir, 'backups')
+      });
+
+      if (decision === 'skip') {
         return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt };
       }
+      if (decision === 'quit') {
+        throw new DirtySourceQuitError();
+      }
+      // decision === 'update' - continue with update
     }
   }
 
@@ -793,15 +919,27 @@ async function prepareHttpMaterializedRoot(homeDir: string, name: string, source
   const runtimeDir = dirname(checkoutDir);
   const stagingDir = join(runtimeDir, 'checkout.next');
   const backupDir = join(runtimeDir, 'checkout.prev');
-  const archiveFormat = detectArchiveFormat(source.url);
-  const archiveFile = join(runtimeDir, `archive${archiveFormat.extension}`);
+
+  // Detect format from URL first
+  const urlFormat = detectArchiveFormat(source.url);
+  // Use a temporary extension for download, will be updated after checking Content-Disposition
+  const tempArchiveFile = join(runtimeDir, 'archive.download');
 
   await rm(stagingDir, { recursive: true, force: true });
   await rm(backupDir, { recursive: true, force: true });
   await mkdir(stagingDir, { recursive: true });
 
   try {
-    await downloadHttpArchive(source.url, archiveFile);
+    const { detectedFormat } = await downloadHttpArchive(source.url, tempArchiveFile);
+
+    // Prefer Content-Disposition format over URL format (for URLs without clear extension)
+    // Only use Content-Disposition if URL gave us the default tar.gz fallback
+    const isUrlFormatDefault = urlFormat.type === 'tar.gz' && !source.url.split('?')[0].toLowerCase().match(/\.(tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz|zip)$/);
+    const archiveFormat = (isUrlFormatDefault && detectedFormat) ? detectedFormat : urlFormat;
+
+    const archiveFile = join(runtimeDir, `archive${archiveFormat.extension}`);
+    await rename(tempArchiveFile, archiveFile);
+
     await extractArchive(archiveFile, stagingDir, archiveFormat.type);
 
     if (isAbsolute(source.path)) {
@@ -821,7 +959,14 @@ async function prepareHttpMaterializedRoot(homeDir: string, name: string, source
     await rm(stagingDir, { recursive: true, force: true });
     throw error;
   } finally {
-    await rm(archiveFile, { force: true });
+    // Clean up any archive files (both temp and final)
+    await rm(tempArchiveFile, { force: true });
+    const archiveFiles = await readdir(runtimeDir).catch(() => []);
+    for (const file of archiveFiles) {
+      if (file.startsWith('archive.')) {
+        await rm(join(runtimeDir, file), { force: true });
+      }
+    }
     await rm(backupDir, { recursive: true, force: true });
   }
 }
@@ -1066,12 +1211,22 @@ async function isSymbolicLink(targetPath: string): Promise<boolean> {
   }
 }
 
-async function downloadHttpArchive(url: string, destinationFile: string): Promise<void> {
+interface DownloadResult {
+  /** Archive format detected from Content-Disposition header, if any */
+  detectedFormat: ArchiveFormat | null;
+}
+
+async function downloadHttpArchive(url: string, destinationFile: string): Promise<DownloadResult> {
   const response = await fetch(url);
 
   if (!response.ok || response.body === null) {
     throw new Error(`Failed to download HTTP source archive: ${response.status} ${response.statusText}`.trim());
   }
+
+  // Try to detect format from Content-Disposition header
+  const contentDisposition = response.headers.get('content-disposition');
+  const filename = parseContentDisposition(contentDisposition);
+  const detectedFormat = filename ? detectArchiveFormatFromFilename(filename) : null;
 
   try {
     await pipeline(Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(destinationFile));
@@ -1079,6 +1234,8 @@ async function downloadHttpArchive(url: string, destinationFile: string): Promis
     await rm(destinationFile, { force: true });
     throw error;
   }
+
+  return { detectedFormat };
 }
 
 async function replaceCheckoutDirectory(checkoutDir: string, stagingDir: string, backupDir: string): Promise<void> {
@@ -1115,7 +1272,9 @@ export interface ArchiveFormat {
 }
 
 export function detectArchiveFormat(url: string): ArchiveFormat {
-  const lowerUrl = url.toLowerCase();
+  // Strip query parameters before checking extension
+  const urlWithoutQuery = url.split('?')[0];
+  const lowerUrl = urlWithoutQuery.toLowerCase();
 
   if (lowerUrl.endsWith('.tar.gz') || lowerUrl.endsWith('.tgz')) {
     return { type: 'tar.gz', extension: '.tar.gz' };
@@ -1132,6 +1291,55 @@ export function detectArchiveFormat(url: string): ArchiveFormat {
 
   // Default to tar.gz for unknown formats
   return { type: 'tar.gz', extension: '.tar.gz' };
+}
+
+/**
+ * Parse Content-Disposition header to extract filename
+ */
+export function parseContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+
+  // Try to match filename*= (RFC 5987 extended notation) first
+  const extendedMatch = /filename\*=(?:utf-8''|UTF-8'')([^;\s]+)/i.exec(header);
+  if (extendedMatch) {
+    try {
+      return decodeURIComponent(extendedMatch[1]);
+    } catch {
+      // Fall through to regular filename
+    }
+  }
+
+  // Try to match filename= with quoted value first (handles spaces)
+  const quotedMatch = /filename=["']([^"']+)["']/i.exec(header);
+  if (quotedMatch) {
+    return quotedMatch[1];
+  }
+
+  // Try unquoted filename
+  const unquotedMatch = /filename=([^;\s]+)/i.exec(header);
+  return unquotedMatch ? unquotedMatch[1] : null;
+}
+
+/**
+ * Detect archive format from Content-Disposition filename
+ */
+export function detectArchiveFormatFromFilename(filename: string): ArchiveFormat | null {
+  const lower = filename.toLowerCase();
+
+  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+    return { type: 'tar.gz', extension: '.tar.gz' };
+  }
+  if (lower.endsWith('.tar.bz2') || lower.endsWith('.tbz2')) {
+    return { type: 'tar.bz2', extension: '.tar.bz2' };
+  }
+  if (lower.endsWith('.tar.xz') || lower.endsWith('.txz')) {
+    return { type: 'tar.xz', extension: '.tar.xz' };
+  }
+  if (lower.endsWith('.zip')) {
+    return { type: 'zip', extension: '.zip' };
+  }
+
+  return null;
 }
 
 async function extractArchive(archiveFile: string, destinationDir: string, archiveType: ArchiveType): Promise<void> {

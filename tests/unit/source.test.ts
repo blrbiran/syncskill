@@ -11,7 +11,7 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config.js';
 import type { SyncSkillConfig } from '../../src/config.js';
-import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
+import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectArchiveFormatFromFilename, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, DirtySourceQuitError, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, parseContentDisposition, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
 import type { SkillsRegistry } from '../../src/source.js';
 import { normalizeSkillsRegistry } from '../../src/skills-registry.js';
 import { addIgnoredSkill, isSkillIgnored } from '../../src/skills-registry.js';
@@ -1628,6 +1628,113 @@ describe('detectArchiveFormat', () => {
   it('handles case-insensitive extensions', () => {
     expect(detectArchiveFormat('https://example.com/archive.TAR.GZ')).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
     expect(detectArchiveFormat('https://example.com/archive.ZIP')).toEqual({ type: 'zip', extension: '.zip' });
+  });
+
+  it('strips query parameters before detecting extension', () => {
+    expect(detectArchiveFormat('https://example.com/archive.tar.gz?token=abc123')).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
+    expect(detectArchiveFormat('https://cdn.example.com/skills.zip?v=2&sig=xyz')).toEqual({ type: 'zip', extension: '.zip' });
+    expect(detectArchiveFormat('https://example.com/archive.tgz?foo=bar')).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
+  });
+
+  it('defaults to tar.gz for URLs with query params but no extension', () => {
+    expect(detectArchiveFormat('https://example.com/download?file=123')).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
+  });
+});
+
+describe('detectArchiveFormatFromFilename', () => {
+  it('detects tar.gz from filename', () => {
+    expect(detectArchiveFormatFromFilename('skills-v1.2.3.tar.gz')).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
+    expect(detectArchiveFormatFromFilename('archive.tgz')).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
+  });
+
+  it('detects tar.bz2 from filename', () => {
+    expect(detectArchiveFormatFromFilename('skills.tar.bz2')).toEqual({ type: 'tar.bz2', extension: '.tar.bz2' });
+    expect(detectArchiveFormatFromFilename('archive.tbz2')).toEqual({ type: 'tar.bz2', extension: '.tar.bz2' });
+  });
+
+  it('detects tar.xz from filename', () => {
+    expect(detectArchiveFormatFromFilename('skills.tar.xz')).toEqual({ type: 'tar.xz', extension: '.tar.xz' });
+    expect(detectArchiveFormatFromFilename('archive.txz')).toEqual({ type: 'tar.xz', extension: '.tar.xz' });
+  });
+
+  it('detects zip from filename', () => {
+    expect(detectArchiveFormatFromFilename('skills-pack.zip')).toEqual({ type: 'zip', extension: '.zip' });
+  });
+
+  it('returns null for unknown extensions', () => {
+    expect(detectArchiveFormatFromFilename('README.md')).toBeNull();
+    expect(detectArchiveFormatFromFilename('archive.unknown')).toBeNull();
+    expect(detectArchiveFormatFromFilename('noextension')).toBeNull();
+  });
+
+  it('handles case-insensitive filenames', () => {
+    expect(detectArchiveFormatFromFilename('SKILLS.TAR.GZ')).toEqual({ type: 'tar.gz', extension: '.tar.gz' });
+    expect(detectArchiveFormatFromFilename('Archive.ZIP')).toEqual({ type: 'zip', extension: '.zip' });
+  });
+});
+
+describe('parseContentDisposition', () => {
+  it('returns null for null header', () => {
+    expect(parseContentDisposition(null)).toBeNull();
+  });
+
+  it('returns null for empty header', () => {
+    expect(parseContentDisposition('')).toBeNull();
+  });
+
+  it('extracts filename from basic header', () => {
+    expect(parseContentDisposition('attachment; filename=skills.tar.gz')).toBe('skills.tar.gz');
+  });
+
+  it('extracts filename from quoted value', () => {
+    expect(parseContentDisposition('attachment; filename="skills-v1.0.zip"')).toBe('skills-v1.0.zip');
+    expect(parseContentDisposition("attachment; filename='archive.tgz'")).toBe('archive.tgz');
+  });
+
+  it('extracts filename with spaces in quotes', () => {
+    expect(parseContentDisposition('attachment; filename="my skills archive.zip"')).toBe('my skills archive.zip');
+    expect(parseContentDisposition("attachment; filename='my archive pack.tar.gz'")).toBe('my archive pack.tar.gz');
+  });
+
+  it('extracts filename from RFC 5987 extended notation', () => {
+    expect(parseContentDisposition("attachment; filename*=utf-8''skills%20pack.tar.gz")).toBe('skills pack.tar.gz');
+    expect(parseContentDisposition("attachment; filename*=UTF-8''my%2Farchive.zip")).toBe('my/archive.zip');
+  });
+
+  it('prefers RFC 5987 over regular filename', () => {
+    expect(parseContentDisposition("attachment; filename=fallback.zip; filename*=utf-8''preferred.tar.gz")).toBe('preferred.tar.gz');
+  });
+
+  it('falls back to regular filename on invalid RFC 5987 encoding', () => {
+    expect(parseContentDisposition("attachment; filename*=utf-8''%invalid; filename=fallback.zip")).toBe('fallback.zip');
+  });
+
+  it('handles header without filename', () => {
+    expect(parseContentDisposition('attachment')).toBeNull();
+    expect(parseContentDisposition('inline')).toBeNull();
+  });
+
+  it('handles case-insensitive filename parameter', () => {
+    expect(parseContentDisposition('attachment; FILENAME=upper.zip')).toBe('upper.zip');
+    expect(parseContentDisposition('attachment; FileName=mixed.tar.gz')).toBe('mixed.tar.gz');
+  });
+});
+
+describe('DirtySourceQuitError', () => {
+  it('has correct name property', () => {
+    const error = new DirtySourceQuitError();
+    expect(error.name).toBe('DirtySourceQuitError');
+  });
+
+  it('has descriptive message', () => {
+    const error = new DirtySourceQuitError();
+    expect(error.message).toBe('User quit dirty source update');
+  });
+
+  it('is instanceof Error', () => {
+    const error = new DirtySourceQuitError();
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toBeInstanceOf(DirtySourceQuitError);
   });
 });
 
