@@ -7,14 +7,19 @@ The system is split so each layer has one primary concern:
 | Layer | Module | Responsibility |
 |-------|--------|----------------|
 | CLI | `src/index.ts` | Command parsing, option handling, user-facing descriptions |
-| Config | `src/config.ts`, `src/config-ui.ts` | Config loading, saving, validation, interactive editing |
+| Config | `src/config/config.ts`, `src/config/config-ui.ts` | Config loading, saving, validation, interactive editing |
+| Config Doctor | `src/config/config-doctor.ts` | Configuration diagnosis and repair |
+| Matrix Editor | `src/config/matrix-editor.ts` | 2D matrix editor component |
 | Repository | `src/repo.ts` | Local repository initialization under `~/.syncskill/` |
 | Linking | `src/linker.ts` | Symlink management with three-level fallback |
-| Manifest | `src/manifest.ts` | Skill hashing, manifest persistence, history tracking |
-| Conflict | `src/conflict.ts` | Delta classification, status/diff derivation, resolution |
+| Manifest | `src/core/manifest.ts` | Skill hashing, manifest persistence, history tracking |
+| Conflict | `src/core/conflict.ts` | Delta classification, status/diff derivation, resolution |
 | Sources | `src/source.ts` | External source management (git/http/local) |
-| Transport | `src/transport.ts` | SSH/rsync primitives, receiver deployment |
-| Sync | `src/sync_engine.ts` | Push/pull/sync orchestration across servers |
+| Transport | `src/core/transport.ts` | SSH/rsync primitives, receiver deployment |
+| Sync | `src/core/sync_engine.ts` | Push/pull/sync orchestration across servers |
+| Registry | `src/core/skills-registry.ts` | Unified skills registry (origin mapping + ignore status) |
+| Archive | `src/utils/archive.ts` | Archive format detection and extraction |
+| Backup | `src/utils/backup.ts` | Backup management for --force updates |
 
 ## Module Boundaries
 
@@ -22,11 +27,11 @@ The system is split so each layer has one primary concern:
 
 Owns CLI registration, command parsing, option handling, and human-facing command descriptions. Wires subcommands to implementation modules without owning storage or transport details.
 
-### `src/config.ts`
+### `src/config/config.ts`
 
 Owns config path helpers, config loading and saving, default config generation, validation, dotted-path updates, and server lookup helpers.
 
-### `src/config-ui.ts`
+### `src/config/config-ui.ts`
 
 Owns interactive TUI for config editing using `@inquirer/prompts` and `@inquirer/core`. Implements:
 
@@ -34,7 +39,11 @@ Owns interactive TUI for config editing using `@inquirer/prompts` and `@inquirer
 - Matrix editor for skill-to-agent and skill-to-server mappings
 - Server management with SSH config parsing
 
-### `src/matrix-editor.ts`
+### `src/config/config-doctor.ts`
+
+Owns configuration diagnosis and repair. Checks for invalid agents, missing skills in links, stale registry entries, and provides interactive repair via `syncskill doctor --fix`.
+
+### `src/config/matrix-editor.ts`
 
 Implements the two-dimensional matrix editor component using `@inquirer/core` createPrompt:
 
@@ -66,7 +75,7 @@ Owns symlink creation with three-level fallback:
 
 Also owns status checking, unlinking, and skill discovery scanning.
 
-### `src/manifest.ts`
+### `src/core/manifest.ts`
 
 Owns local skill hashing (MD5, compatible with Python/Hermes), manifest persistence, manifest history persistence, and helpers that update recorded local and remote hashes.
 
@@ -76,7 +85,7 @@ Hash algorithm:
 - Ignore directories and symlinks (uses `lstatSync`)
 - Returns 32-character hex digest
 
-### `src/conflict.ts`
+### `src/core/conflict.ts`
 
 Owns manifest delta classification, status and diff row derivation, and explicit conflict resolution logic.
 
@@ -93,19 +102,33 @@ Owns configured source definitions, source materialization, source state trackin
 
 Git sources: Auto-detect default branch via `git ls-remote --symref`, then `git clone --single-branch --depth 1`.
 
-### `src/skills-registry.ts`
+### `src/core/skills-registry.ts`
 
 Owns the unified skills registry that tracks all skills' origin mapping and ignore status.
 
-### `src/transport.ts`
+### `src/core/transport.ts`
 
-Owns SSH and rsync transport primitives, remote receiver deployment, remote manifest exchange, and receiver fallback coordination. Symlink handling:
+Owns SSH and rsync transport primitives, remote receiver deployment, remote manifest exchange, and receiver fallback coordination.
+
+rsync behavior:
+- **Push**: Uses `rsync -az --delete` to ensure remote matches local exactly
+- **Pull**: Uses `rsync -az` (NO `--delete`) to protect local unmanaged files
+
+Symlink handling:
 - rsync: `-a` preserves symlinks
 - scp fallback: JSON format `{files, symlinks}` with security validation
 
-### `src/sync_engine.ts`
+### `src/core/sync_engine.ts`
 
 Owns push, pull, and sync orchestration across configured servers. Combines config loading, manifest preparation, conflict policy application, transport operations, and manifest persistence.
+
+### `src/utils/archive.ts`
+
+Owns archive format detection and extraction. Supports `.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip`. Uses `compressing` npm package with CLI fallback for formats not supported by the library.
+
+### `src/utils/backup.ts`
+
+Owns backup management for `--force` updates. Backs up dirty skills to `~/.syncskill/backups/<source>/<skill>/` with metadata in `_meta.json`.
 
 ### `src/receiver/`
 
@@ -155,7 +178,7 @@ Phase 3: RECONCILE (remote receiver)
 | Scenario | Strategy |
 |----------|----------|
 | Path handling | `node:path` auto-adapts `/` and `\` |
-| Compression | `node:zlib` + `node:stream` |
+| Compression | `compressing` npm package (tar.gz/zip) -> CLI fallback (bz2/xz) |
 | HTTP download | `fetch()` (Node 18+ native) |
 | File sync | rsync preferred, Node fs fallback |
 | SSH | `child_process.exec('ssh')` |

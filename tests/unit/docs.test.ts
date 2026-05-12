@@ -74,12 +74,12 @@ describe('ship-readiness docs', () => {
 
     expect(designGuide).toContain('# Design Guide');
     expect(designGuide).toContain('src/index.ts');
-    expect(designGuide).toContain('src/config.ts');
+    expect(designGuide).toContain('src/config/config.ts');
     expect(designGuide).toContain('src/repo.ts');
-    expect(designGuide).toContain('src/manifest.ts');
-    expect(designGuide).toContain('src/conflict.ts');
+    expect(designGuide).toContain('src/core/manifest.ts');
+    expect(designGuide).toContain('src/core/conflict.ts');
     expect(designGuide).toContain('src/source.ts');
-    expect(designGuide).toContain('src/transport.ts');
-    expect(designGuide).toContain('src/sync_engine.ts');
+    expect(designGuide).toContain('src/core/transport.ts');
+    expect(designGuide).toContain('src/core/sync_engine.ts');
   });
 });

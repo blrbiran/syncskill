@@ -13,6 +13,10 @@
 │   └── <server>.json
 ├── manifest_history.json          # Hash change history
 ├── skills-registry.json           # Skill registry (source mapping + ignore status)
+├── backups/                       # Backups from --force updates
+│   └── <source-name>/
+│       ├── <skill-name>/          # Latest backup per skill
+│       └── _meta.json             # Backup metadata
 └── .tmp/                          # Temporary files (auto-cleaned)
 ```
 
@@ -84,8 +88,19 @@ Maps local agent names to their skill directories. `syncskill init` auto-detects
 
 - `claude` -> `~/.claude/skills`
 - `agents` -> `~/.agents/skills`
-- `hermes` -> `~/.hermes/skills`
+- `cursor` -> `~/.cursor/skills`
+- `windsurf` -> `~/.windsurf/skills`
+- `codex` -> `~/.codex/skills`
+- `gemini` -> `~/.gemini/skills`
+- `antigravity` -> `~/.gemini/antigravity/skills`
+- `kiro` -> `~/.kiro/skills`
+- `augment` -> `~/.augment/skills`
+- `amp` -> `~/.config/agents/skills`
+- `cline` -> `~/.cline/skills`
+- `opencode` -> `~/.config/opencode/skills`
 - `qwen` -> `~/.qwen/skills`
+- `openclaw` -> `~/.openclaw/skills`
+- `hermes` -> `~/.hermes/skills`
 - `qoder` -> `~/.qoder/skills`
 - `aone_copilot` -> `~/.aone_copilot/skills`
 
@@ -168,10 +183,12 @@ Each source entry includes:
 | Field | Required | Description |
 |-------|----------|-------------|
 | `type` | Yes | Source type (`local`, `git`, `http`) |
-| `url` | Yes | Source URL or local path |
-| `path` | Yes | Storage path for cloned/downloaded files |
+| `url` | Varies | Remote URL (required for git/http) |
+| `path` | Yes | Storage path (clone/download target, or local directory path) |
 | `skill_subdir` | No | Subdirectory within source containing skills |
-| `ref` | No | Git branch/tag (git sources only) |
+| `branch` | No | Git branch (git sources only) |
+| `ignore` | No | List of skill names to ignore |
+| `archive_path` | No | Original archive file path (local archives only) |
 
 Example:
 
@@ -180,12 +197,16 @@ sources:
   vendor-docs:
     type: git
     url: https://github.com/org/vendor-docs.git
-    path: skills
-    ref: stable
+    path: ~/.syncskill/sources/vendor-docs
+    branch: stable
+    skill_subdir: skills
   local-dev:
     type: local
-    url: /Users/alice/dev/skills
-    path: .
+    path: /Users/alice/dev/skills
+  archive-skills:
+    type: local
+    path: ~/.syncskill/sources/archive-skills
+    archive_path: ~/Downloads/my-skills.tar.gz
 ```
 
 ## Skills Registry

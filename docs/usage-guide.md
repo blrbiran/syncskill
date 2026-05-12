@@ -104,6 +104,16 @@ syncskill source update --all
 # Update a specific source
 syncskill source update vendor-docs
 
+# Update with yes to all confirmations (skips dirty sources)
+syncskill source update --all -y
+
+# Force update (overwrites dirty sources after backup)
+syncskill source update --all --force
+
+# Top-level alias for source update
+syncskill update
+syncskill update --all --force
+
 # Remove a source (interactive)
 syncskill source remove vendor-docs
 
@@ -123,6 +133,17 @@ Source add options:
 | `-y, --yes` | Skip confirmation, select all skills |
 
 Run `syncskill source update` with no name to update every configured source, or pass a source name to update just one.
+
+Source update options:
+
+| Option | Description |
+|--------|-------------|
+| `[name]` | Update specific source (interactive selection if omitted) |
+| `--all` | Update all updatable sources |
+| `-y, --yes` | Skip confirmations (skips dirty sources unless --force) |
+| `--force` | Force update dirty sources (backs up modified skills first) |
+
+**Dirty source handling**: When a source has local modifications (`git status` shows changes, or HTTP source hash differs from last update), the update is skipped by default. Use `--force` to overwrite after automatic backup to `~/.syncskill/backups/`.
 
 ### Installing Skills
 
@@ -284,6 +305,29 @@ syncskill config server
 ```
 
 Note: `syncskill server` and `syncskill remote` are shortcuts that go directly to the respective configuration menus.
+
+## Diagnostics
+
+```bash
+# Check config for issues
+syncskill doctor
+
+# Interactive repair
+syncskill doctor --fix
+
+# Auto-repair all fixable issues
+syncskill doctor --fix -y
+
+# Rebuild skills-registry.json from scratch
+syncskill doctor --rebuild-registry
+```
+
+The doctor command checks for:
+- Invalid agent paths
+- Skills in links that don't exist
+- Agents in links that aren't configured
+- Invalid source paths
+- Stale or corrupt skills-registry.json entries
 
 ## Global Options
 
