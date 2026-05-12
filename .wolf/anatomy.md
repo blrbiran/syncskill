@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T14:06:13.437Z
-> Files: 85 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T14:09:09.232Z
+> Files: 88 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -60,7 +60,7 @@
 - `server.ts` — Exports ProbeLine, formatServerListLines, formatServerShowLines, formatProbeLines + 3 more (~438 tok)
 - `skills-ignore.ts` — Exports IgnoredSkillEntry, SkillsIgnore, getSkillsIgnorePath, loadSkillsIgnore + 4 more (~523 tok)
 - `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 12 more (~2180 tok)
-- `source.ts` — Git only: Convert source from git to local, keep path directory (~17145 tok)
+- `source.ts` — Git only: Convert source from git to local, keep path directory (~16334 tok)
 - `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 6 more (~4689 tok)
 - `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer (~3622 tok)
 - `utils.ts` — Check if an error is a "file not found" error (ENOENT). (~359 tok)
@@ -69,6 +69,8 @@
 
 - `config-doctor.ts` — Discover existing skills by scanning skillsDir and sources. (~3986 tok)
 - `config-ui.ts` — Threshold for showing auto-refresh warning (~5956 tok)
+- `config.ts` — Re-export types from types.ts (~2032 tok)
+- `types.ts` — TypeScript type definitions for syncskill configuration (~266 tok)
 
 ## src/core/
 
@@ -82,6 +84,12 @@
 
 - `bootstrap_remote.sh` (~140 tok)
 - `sync_receiver.mjs` — syncRoot: readJson, readStdin, collectFileEntries + 11 more (~3101 tok)
+
+## src/utils/
+
+- `archive.ts` — Exports ArchiveType, ArchiveFormat, detectArchiveFormat, parseContentDisposition + 2 more (~830 tok)
+- `backup.ts` — Exports BackupMetaEntry, BackupMeta, getBackupDir, loadBackupMeta + 6 more (~772 tok)
+- `utils.ts` — Check if an error is a "file not found" error (ENOENT), pathExists (~359 tok)
 
 ## tests/end2end/
 

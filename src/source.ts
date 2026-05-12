@@ -23,8 +23,19 @@ import {
 import { hashSkillDirectory } from './core/manifest.js';
 import { backupDirtySkills } from './utils/backup.js';
 import { isNotFoundError, pathExists } from './utils/utils.js';
+import {
+  type ArchiveType,
+  type ArchiveFormat,
+  detectArchiveFormat,
+  parseContentDisposition,
+  detectArchiveFormatFromFilename,
+  extractArchive,
+} from './utils/archive.js';
 
 const execFileAsync = promisify(execFile);
+
+export type { ArchiveType, ArchiveFormat };
+export { detectArchiveFormat, parseContentDisposition, detectArchiveFormatFromFilename };
 
 export enum RemovalAction {
   /** Git only: Convert source from git to local, keep path directory */
@@ -1262,106 +1273,6 @@ async function renamePath(sourcePath: string, destinationPath: string): Promise<
   }
 
   await rename(sourcePath, destinationPath);
-}
-
-export type ArchiveType = 'tar.gz' | 'tar.bz2' | 'tar.xz' | 'zip';
-
-export interface ArchiveFormat {
-  type: ArchiveType;
-  extension: string;
-}
-
-export function detectArchiveFormat(url: string): ArchiveFormat {
-  // Strip query parameters before checking extension
-  const urlWithoutQuery = url.split('?')[0];
-  const lowerUrl = urlWithoutQuery.toLowerCase();
-
-  if (lowerUrl.endsWith('.tar.gz') || lowerUrl.endsWith('.tgz')) {
-    return { type: 'tar.gz', extension: '.tar.gz' };
-  }
-  if (lowerUrl.endsWith('.tar.bz2') || lowerUrl.endsWith('.tbz2')) {
-    return { type: 'tar.bz2', extension: '.tar.bz2' };
-  }
-  if (lowerUrl.endsWith('.tar.xz') || lowerUrl.endsWith('.txz')) {
-    return { type: 'tar.xz', extension: '.tar.xz' };
-  }
-  if (lowerUrl.endsWith('.zip')) {
-    return { type: 'zip', extension: '.zip' };
-  }
-
-  // Default to tar.gz for unknown formats
-  return { type: 'tar.gz', extension: '.tar.gz' };
-}
-
-/**
- * Parse Content-Disposition header to extract filename
- */
-export function parseContentDisposition(header: string | null): string | null {
-  if (!header) return null;
-
-  // Try to match filename*= (RFC 5987 extended notation) first
-  const extendedMatch = /filename\*=(?:utf-8''|UTF-8'')([^;\s]+)/i.exec(header);
-  if (extendedMatch) {
-    try {
-      return decodeURIComponent(extendedMatch[1]);
-    } catch {
-      // Fall through to regular filename
-    }
-  }
-
-  // Try to match filename= with quoted value first (handles spaces)
-  const quotedMatch = /filename=["']([^"']+)["']/i.exec(header);
-  if (quotedMatch) {
-    return quotedMatch[1];
-  }
-
-  // Try unquoted filename
-  const unquotedMatch = /filename=([^;\s]+)/i.exec(header);
-  return unquotedMatch ? unquotedMatch[1] : null;
-}
-
-/**
- * Detect archive format from Content-Disposition filename
- */
-export function detectArchiveFormatFromFilename(filename: string): ArchiveFormat | null {
-  const lower = filename.toLowerCase();
-
-  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
-    return { type: 'tar.gz', extension: '.tar.gz' };
-  }
-  if (lower.endsWith('.tar.bz2') || lower.endsWith('.tbz2')) {
-    return { type: 'tar.bz2', extension: '.tar.bz2' };
-  }
-  if (lower.endsWith('.tar.xz') || lower.endsWith('.txz')) {
-    return { type: 'tar.xz', extension: '.tar.xz' };
-  }
-  if (lower.endsWith('.zip')) {
-    return { type: 'zip', extension: '.zip' };
-  }
-
-  return null;
-}
-
-async function extractArchive(archiveFile: string, destinationDir: string, archiveType: ArchiveType): Promise<void> {
-  try {
-    switch (archiveType) {
-      case 'tar.gz':
-        await execFileAsync('tar', ['-xzf', archiveFile, '-C', destinationDir]);
-        break;
-      case 'tar.bz2':
-        await execFileAsync('tar', ['-xjf', archiveFile, '-C', destinationDir]);
-        break;
-      case 'tar.xz':
-        await execFileAsync('tar', ['-xJf', archiveFile, '-C', destinationDir]);
-        break;
-      case 'zip':
-        await execFileAsync('unzip', ['-q', archiveFile, '-d', destinationDir]);
-        break;
-    }
-  } catch (error) {
-    const execError = error as Error & { stderr?: string };
-    throw new Error(execError.stderr?.trim() || execError.message);
-  }
 }
 
 async function runGit(args: string[]): Promise<void> {

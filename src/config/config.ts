@@ -4,35 +4,9 @@ import { join } from 'node:path';
 
 import YAML from 'yaml';
 
-export interface SyncPaths {
-  syncDir: string;
-  configFile: string;
-  skillsDir: string;
-  manifestsDir: string;
-  tempDir: string;
-  historyFile: string;
-  backupsDir: string;
-}
-
-export type ConflictResolution = 'manual' | 'keep-local' | 'keep-remote';
-
-export interface SyncSkillConfig {
-  version: number;
-  conflict_resolution: ConflictResolution;
-  agents: Record<string, string>;
-  links: Record<string, string[]>;
-  servers: Record<string, unknown>;
-  sources: Record<string, unknown>;
-}
-
-export interface ConfiguredServer {
-  name: string;
-  host: string;
-  user?: string;
-  port?: number;
-  identity_file?: string;
-  remote_agents: Record<string, string>;
-}
+// Re-export types from types.ts
+export type { SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer, SourceConfig } from './types.js';
+import type { SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer } from './types.js';
 
 export const KNOWN_AGENT_DIRS = {
   claude: '.claude/skills',
