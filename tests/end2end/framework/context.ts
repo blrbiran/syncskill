@@ -170,9 +170,28 @@ export class E2EContext {
 
   /**
    * Run syncskill CLI with HOME override.
+   * Supports two calling patterns:
+   * - Variadic: ctx.run('syncskill', 'init', '-y')
+   * - Array with options: ctx.run('syncskill', ['init', '-y'], { timeout: 60000 })
    */
-  async run(cmd: 'syncskill', ...args: string[]): Promise<RunResult> {
-    return runSyncskill(this.homeDir, this.projectRoot, args);
+  async run(cmd: 'syncskill', ...args: string[]): Promise<RunResult>;
+  async run(cmd: 'syncskill', args: string[], options?: Omit<RunOptions, 'cwd'>): Promise<RunResult>;
+  async run(
+    cmd: 'syncskill',
+    firstArg?: string | string[],
+    ...rest: (string | Omit<RunOptions, 'cwd'> | undefined)[]
+  ): Promise<RunResult> {
+    // Detect which signature is being used
+    if (Array.isArray(firstArg)) {
+      // Array signature: run('syncskill', ['init', '-y'], { timeout: 60000 })
+      const args = firstArg;
+      const options = rest[0] as Omit<RunOptions, 'cwd'> | undefined;
+      return runSyncskill(this.homeDir, this.projectRoot, args, options);
+    } else {
+      // Variadic signature: run('syncskill', 'init', '-y')
+      const args = firstArg !== undefined ? [firstArg, ...(rest as string[])] : [];
+      return runSyncskill(this.homeDir, this.projectRoot, args);
+    }
   }
 
   /**
