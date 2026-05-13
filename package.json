@@ -13,10 +13,15 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && shx cp -r skills dist/",
     "dev": "tsx src/index.ts",
-    "test": "vitest run tests/unit",
+    "test": "vitest run tests/unit tests/integration",
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "test:end2end": "vitest run tests/end2end",
+    "test:e2e": "vitest run tests/end2end/cases --exclude '**/network/**'",
+    "test:e2e:network": "vitest run tests/end2end/cases/network",
+    "test:e2e:all": "vitest run tests/end2end/cases",
+    "test:e2e:verbose": "E2E_VERBOSE=1 vitest run tests/end2end/cases --exclude '**/network/**'",
+    "test:e2e:all:verbose": "E2E_VERBOSE=1 vitest run tests/end2end/cases",
+    "test:all": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
