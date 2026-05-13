@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T17:22:26.959Z
-> Files: 78 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-13T11:52:58.287Z
+> Files: 80 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -16,7 +16,7 @@
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
 - `package.json` — Node.js package manifest (~241 tok)
-- `README.md` — Project documentation (~1205 tok)
+- `README.md` — Project documentation (~1212 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
 
@@ -30,24 +30,26 @@
 
 ## docs/
 
-- `config-guide.md` — Configuration Guide (~1840 tok)
-- `design-guide.md` — Design Guide (~1875 tok)
-- `README.md` — Project documentation (~221 tok)
-- `usage-guide.md` — Usage Guide (~2427 tok)
+- `config-guide.md` — Configuration Guide (~2161 tok)
+- `design-guide.md` — Design Guide (~2402 tok)
+- `e2e-test-guide.md` — E2E 测试编写指南 (~3540 tok)
+- `README.md` — Project documentation (~246 tok)
+- `usage-guide.md` — Usage Guide (~2700 tok)
 
 ## docs/superpowers/specs/
 
-- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~11700 tok)
+- `e2e-test-design.md` — E2E 测试框架设计 (~4850 tok)
+- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~12239 tok)
 
 ## skills/syncskill/
 
-- `SKILL.md` — syncskill (~979 tok)
+- `SKILL.md` — syncskill (~1256 tok)
 
 ## src/
 
-- `index.ts` — Exports createProgram (~12592 tok)
+- `index.ts` — Exports createProgram (~13938 tok)
 - `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~890 tok)
-- `linker.ts` — Soft link management with 3-level fallback (~2826 tok)
+- `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4402 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
 - `source.ts` — Git only: Convert source from git to local, keep path directory (~20413 tok)
@@ -117,7 +119,7 @@
 - `conflict.test.ts` — Declares ServerManifest (~2429 tok)
 - `docs.test.ts` — Declares rootDir (~1320 tok)
 - `install.test.ts` — Declares path (~1694 tok)
-- `linker.test.ts` — Declares tempDirs (~2232 tok)
+- `linker.test.ts` — Declares SyncSkillConfig (~6552 tok)
 - `manifest.test.ts` — Declares tempDirs (~2630 tok)
 - `matrix-editor.test.ts` — Declares config (~2288 tok)
 - `package.test.ts` — Declares rootDir (~584 tok)
