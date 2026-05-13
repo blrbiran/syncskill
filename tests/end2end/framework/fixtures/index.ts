@@ -4,3 +4,4 @@ export * from './git.js';
 export * from './archive.js';
 export * from './server.js';
 export * from './github.js';
+export * from './stale.js';
