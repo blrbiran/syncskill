@@ -56,12 +56,59 @@ syncskill link --all
 syncskill link --dry-run
 syncskill link welcome --dry-run
 
+# Auto-confirm stale link removal
+syncskill link --all -y
+
 # Unlink a skill from all agents
 syncskill unlink welcome
 
 # Preview unlink without applying
 syncskill unlink welcome --dry-run
 ```
+
+### Stale Link Reconciliation
+
+The `link` command automatically detects and offers to remove stale links. Stale links occur when:
+
+- You remove a skill from an agent in the matrix editor
+- You unlink a skill but symlinks remain from a previous session
+- Configuration changes leave orphaned symlinks in agent directories
+
+When linking, syncskill checks for symlinks that point to managed skills but are no longer in the current configuration:
+
+```bash
+$ syncskill link my-skill
+
+✓ Linked my-skill to: claude
+
+Remove my-skill from hermes, qoder? (no longer in config) [Y/n] y
+✓ Removed
+```
+
+For batch operations:
+
+```bash
+$ syncskill link --all
+
+✓ Linked 5 skills
+
+Links to remove (no longer in config):
+  my-repo:
+    skill-a: hermes, qoder
+    skill-b: qoder
+  manual:
+    local-tool: hermes
+
+Remove 4 links? [Y/n] y
+✓ Removed 4 links
+```
+
+Link reconciliation options:
+
+| Option | Description |
+|--------|-------------|
+| `-y, --yes` | Auto-confirm stale link removal |
+| `--dry-run` | Preview what would be linked and removed |
 
 Link status symbols:
 

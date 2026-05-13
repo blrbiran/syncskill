@@ -63,7 +63,7 @@ syncskill status
 |---------|-------------|
 | `syncskill link` | Open matrix editor for skill-to-agent links |
 | `syncskill link <skill>` | Link a specific skill |
-| `syncskill link --all` | Link all configured skills |
+| `syncskill link --all` | Link all configured skills (auto-cleans stale symlinks) |
 | `syncskill link list` / `ls` | Show link status |
 | `syncskill link list -v` | Show link status with verbose text |
 | `syncskill link --dry-run` | Preview link changes |

@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { saveConfig } from '../../src/config/config.js';
-import { collectLinkStatus, ensureLinkedDirectory, formatLinkStatusMatrix, linkConfiguredSkills, unlinkSkill } from '../../src/linker.js';
+import { saveConfig, type SyncSkillConfig } from '../../src/config/config.js';
+import { collectLinkStatus, ensureLinkedDirectory, formatLinkStatusMatrix, linkConfiguredSkills, reconcileStaleLinks, unlinkSkill } from '../../src/linker.js';
 import type { LinkStatus } from '../../src/linker.js';
 
 describe('linker', () => {
@@ -219,5 +219,442 @@ describe('formatLinkStatusMatrix', () => {
     const dataRows = lines.filter(l => l.startsWith('alpha') || l.startsWith('zebra'));
     expect(dataRows[0]).toMatch(/^alpha/);
     expect(dataRows[1]).toMatch(/^zebra/);
+  });
+});
+
+describe('reconcileStaleLinks', () => {
+  const tempDirs = useTempDirs();
+
+  it('returns empty result when no stale links exist', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const sourceDir = join(skillsDir, 'my-skill');
+    const targetDir = join(agentDir, 'my-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    await symlink(sourceDir, targetDir);
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: { 'my-skill': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+
+    const result = await reconcileStaleLinks([], config);
+
+    expect(result.removed).toEqual([]);
+    expect(result.skipped).toEqual([]);
+    expect(result.errors).toEqual([]);
+    // Verify symlink still exists
+    await expect(readlink(targetDir)).resolves.toBe(sourceDir);
+  });
+
+  it('identifies and removes stale symlinks', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const sourceDir = join(skillsDir, 'removed-skill');
+    const targetDir = join(agentDir, 'removed-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    await symlink(sourceDir, targetDir);
+
+    // Config no longer has 'removed-skill'
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const result = await reconcileStaleLinks([], config);
+
+    expect(result.removed).toEqual([targetDir]);
+    expect(result.skipped).toEqual([]);
+    expect(result.errors).toEqual([]);
+    // Verify symlink was removed
+    await expect(access(targetDir)).rejects.toThrow();
+  });
+
+  it('skips real directories (non-symlinks)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const realDir = join(agentDir, 'real-dir');
+
+    await mkdir(realDir, { recursive: true });
+    await writeFile(join(realDir, 'SKILL.md'), '# real skill', 'utf8');
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const result = await reconcileStaleLinks([], config);
+
+    expect(result.removed).toEqual([]);
+    expect(result.skipped).toEqual([realDir]);
+    expect(result.errors).toEqual([]);
+    // Verify real directory still exists
+    await expect(access(realDir)).resolves.toBeUndefined();
+  });
+
+  it('skips symlinks not pointing to syncskill-managed paths', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const externalSource = join(homeDir, 'external', 'my-skill');
+    const targetDir = join(agentDir, 'my-skill');
+
+    await mkdir(externalSource, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    await symlink(externalSource, targetDir);
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const result = await reconcileStaleLinks([], config);
+
+    expect(result.removed).toEqual([]);
+    expect(result.skipped).toEqual([targetDir]);
+    expect(result.errors).toEqual([]);
+    // Verify symlink still exists
+    await expect(readlink(targetDir)).resolves.toBe(externalSource);
+  });
+
+  it('skips symlinks that are still valid per config', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const sourceDir = join(skillsDir, 'valid-skill');
+    const targetDir = join(agentDir, 'valid-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    await symlink(sourceDir, targetDir);
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: { 'valid-skill': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+
+    const result = await reconcileStaleLinks([], config);
+
+    expect(result.removed).toEqual([]);
+    expect(result.skipped).toEqual([]);
+    expect(result.errors).toEqual([]);
+    // Verify symlink still exists
+    await expect(readlink(targetDir)).resolves.toBe(sourceDir);
+  });
+
+  it('detects skill in config.links but agent removed from targets', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const hermesDir = join(homeDir, '.hermes', 'skills');
+    const sourceDir = join(skillsDir, 'my-skill');
+    const claudeTarget = join(claudeDir, 'my-skill');
+    const hermesTarget = join(hermesDir, 'my-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(hermesDir, { recursive: true });
+    await symlink(sourceDir, claudeTarget);
+    await symlink(sourceDir, hermesTarget);
+
+    // Config has skill but only for claude, not hermes
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: claudeDir, hermes: hermesDir },
+      links: { 'my-skill': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+
+    const result = await reconcileStaleLinks([], config);
+
+    expect(result.removed).toEqual([hermesTarget]);
+    expect(result.skipped).toEqual([]);
+    expect(result.errors).toEqual([]);
+    // Verify claude link still exists
+    await expect(readlink(claudeTarget)).resolves.toBe(sourceDir);
+    // Verify hermes link was removed
+    await expect(access(hermesTarget)).rejects.toThrow();
+  });
+
+  it('detects skill completely removed from config.links', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const hermesDir = join(homeDir, '.hermes', 'skills');
+    const sourceDir = join(skillsDir, 'deleted-skill');
+    const claudeTarget = join(claudeDir, 'deleted-skill');
+    const hermesTarget = join(hermesDir, 'deleted-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(hermesDir, { recursive: true });
+    await symlink(sourceDir, claudeTarget);
+    await symlink(sourceDir, hermesTarget);
+
+    // Config has no links at all
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: claudeDir, hermes: hermesDir },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const result = await reconcileStaleLinks([], config);
+
+    expect(result.removed).toContain(claudeTarget);
+    expect(result.removed).toContain(hermesTarget);
+    expect(result.removed.length).toBe(2);
+    expect(result.skipped).toEqual([]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it('reports errors when symlink removal fails', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const sourceDir = join(skillsDir, 'error-skill');
+    const targetDir = join(agentDir, 'error-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    await symlink(sourceDir, targetDir);
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    vi.resetModules();
+    vi.doMock('node:fs/promises', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      return {
+        ...actual,
+        rm: vi.fn<typeof actual.rm>().mockRejectedValue(new Error('Permission denied'))
+      };
+    });
+
+    const { reconcileStaleLinks: mockedReconcileStaleLinks } = await import('../../src/linker.js');
+
+    const result = await mockedReconcileStaleLinks([], config);
+
+    expect(result.errors.length).toBe(1);
+    expect(result.errors[0]).toContain('Failed to remove');
+    expect(result.errors[0]).toContain('Permission denied');
+
+    vi.doUnmock('node:fs/promises');
+    vi.resetModules();
+  });
+
+  it('continues processing other links after error', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const sourceDir1 = join(skillsDir, 'skill-a');
+    const sourceDir2 = join(skillsDir, 'skill-b');
+    const targetDir1 = join(agentDir, 'skill-a');
+    const targetDir2 = join(agentDir, 'skill-b');
+
+    await mkdir(sourceDir1, { recursive: true });
+    await mkdir(sourceDir2, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    await symlink(sourceDir1, targetDir1);
+    await symlink(sourceDir2, targetDir2);
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    vi.resetModules();
+    vi.doMock('node:fs/promises', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      let callCount = 0;
+      return {
+        ...actual,
+        rm: vi.fn<typeof actual.rm>().mockImplementation(async (path, options) => {
+          callCount++;
+          if (callCount === 1) {
+            throw new Error('First removal failed');
+          }
+          return actual.rm(path, options);
+        })
+      };
+    });
+
+    const { reconcileStaleLinks: mockedReconcileStaleLinks } = await import('../../src/linker.js');
+
+    const result = await mockedReconcileStaleLinks([], config);
+
+    // One error and one success
+    expect(result.errors.length).toBe(1);
+    expect(result.removed.length).toBe(1);
+
+    vi.doUnmock('node:fs/promises');
+    vi.resetModules();
+  });
+
+  it('single skill mode only checks specified skillNames', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const sourceDir1 = join(skillsDir, 'skill-a');
+    const sourceDir2 = join(skillsDir, 'skill-b');
+    const targetDir1 = join(agentDir, 'skill-a');
+    const targetDir2 = join(agentDir, 'skill-b');
+
+    await mkdir(sourceDir1, { recursive: true });
+    await mkdir(sourceDir2, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    await symlink(sourceDir1, targetDir1);
+    await symlink(sourceDir2, targetDir2);
+
+    // Both skills are stale (not in config)
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    // Only reconcile skill-a
+    const result = await reconcileStaleLinks(['skill-a'], config);
+
+    expect(result.removed).toEqual([targetDir1]);
+    expect(result.skipped).toEqual([]);
+    expect(result.errors).toEqual([]);
+    // skill-b should still exist
+    await expect(readlink(targetDir2)).resolves.toBe(sourceDir2);
+  });
+
+  it('all skills mode checks all skills in agent directories (empty skillNames array)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const sourceDir1 = join(skillsDir, 'skill-a');
+    const sourceDir2 = join(skillsDir, 'skill-b');
+    const targetDir1 = join(agentDir, 'skill-a');
+    const targetDir2 = join(agentDir, 'skill-b');
+
+    await mkdir(sourceDir1, { recursive: true });
+    await mkdir(sourceDir2, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    await symlink(sourceDir1, targetDir1);
+    await symlink(sourceDir2, targetDir2);
+
+    // Both skills are stale (not in config)
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    // Empty array means all skills mode
+    const result = await reconcileStaleLinks([], config);
+
+    expect(result.removed).toContain(targetDir1);
+    expect(result.removed).toContain(targetDir2);
+    expect(result.removed.length).toBe(2);
+  });
+
+  it('handles wildcard target expansion correctly', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const hermesDir = join(homeDir, '.hermes', 'skills');
+    const sourceDir = join(skillsDir, 'wildcard-skill');
+    const claudeTarget = join(claudeDir, 'wildcard-skill');
+    const hermesTarget = join(hermesDir, 'wildcard-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(hermesDir, { recursive: true });
+    await symlink(sourceDir, claudeTarget);
+    await symlink(sourceDir, hermesTarget);
+
+    // Config uses wildcard '*' which should expand to all agents
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: claudeDir, hermes: hermesDir },
+      links: { 'wildcard-skill': ['*'] },
+      servers: {},
+      sources: {}
+    };
+
+    const result = await reconcileStaleLinks([], config);
+
+    // Both links should be valid (wildcard expands to all agents)
+    expect(result.removed).toEqual([]);
+    expect(result.skipped).toEqual([]);
+    expect(result.errors).toEqual([]);
+    // Verify both symlinks still exist
+    await expect(readlink(claudeTarget)).resolves.toBe(sourceDir);
+    await expect(readlink(hermesTarget)).resolves.toBe(sourceDir);
   });
 });

@@ -286,6 +286,22 @@ export interface UnmanagedSkill {
   agent: string;
 }
 
+export interface StaleLink {
+  skill: string;
+  agent: string;
+  path: string;
+}
+
+export interface ReconcileResult {
+  removed: string[];   // Paths that were cleaned up
+  skipped: string[];   // Paths skipped (not managed by syncskill)
+  errors: string[];    // Paths that failed to clean up
+}
+
+export interface StaleLinksBySkill {
+  [skillName: string]: StaleLink[];
+}
+
 export async function findUnmanagedSkills(homeDir: string): Promise<UnmanagedSkill[]> {
   const config = await loadConfig(homeDir);
   const { skillsDir } = getSyncPaths(homeDir);
@@ -332,4 +348,171 @@ export async function findUnmanagedSkills(homeDir: string): Promise<UnmanagedSki
   }
 
   return unmanaged;
+}
+
+/**
+ * Find stale links - symlinks in agent directories that point to syncskill-managed skills
+ * but are no longer configured in config.links for that agent.
+ */
+export async function findStaleLinks(
+  homeDir: string,
+  skillNames?: string[]
+): Promise<StaleLinksBySkill> {
+  const config = await loadConfig(homeDir);
+  const { skillsDir } = getSyncPaths(homeDir);
+  const staleBySkill: StaleLinksBySkill = {};
+
+  // If specific skills provided, only check those; otherwise check all configured links
+  const skillsToCheck = skillNames ?? Object.keys(config.links);
+
+  for (const [agentName, agentPath] of Object.entries(config.agents)) {
+    const resolvedPath = agentPath.replace(/^~/, homeDir);
+
+    try {
+      const entries = await readdir(resolvedPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const skillPath = join(resolvedPath, entry.name);
+        const skillName = entry.name;
+
+        // Only check skills we're interested in
+        if (skillNames && !skillNames.includes(skillName)) {
+          continue;
+        }
+
+        // Check if it's a symlink pointing to our managed skills directory
+        try {
+          const linkTarget = await readlink(skillPath);
+          if (!linkTarget.startsWith(skillsDir)) {
+            // Not managed by syncskill, skip
+            continue;
+          }
+
+          // Check if this skill-agent combination is still in config
+          const configuredAgents = expandTargetAgents(config, config.links[skillName] ?? []);
+          if (!configuredAgents.includes(agentName)) {
+            // This link is stale - skill exists in agent but not configured
+            if (!staleBySkill[skillName]) {
+              staleBySkill[skillName] = [];
+            }
+            staleBySkill[skillName].push({
+              skill: skillName,
+              agent: agentName,
+              path: skillPath
+            });
+          }
+        } catch {
+          // Not a symlink or error reading, skip
+        }
+      }
+    } catch {
+      // Agent directory doesn't exist or not accessible
+    }
+  }
+
+  return staleBySkill;
+}
+
+/**
+ * Reconcile stale symlinks in agent directories.
+ *
+ * A link is considered stale if:
+ * - It's a symlink pointing to a syncskill-managed path (.syncskill/skills/)
+ * - The skill was removed from config.links OR the agent was removed from the skill's targets
+ *
+ * @param skillNames - Specific skills to check, or empty array for all skills in all agent dirs
+ * @param config - The current SyncSkillConfig
+ * @returns ReconcileResult with removed paths, skipped paths, and errors
+ */
+export function reconcileStaleLinks(
+  skillNames: string[],
+  config: SyncSkillConfig
+): Promise<ReconcileResult> {
+  return reconcileStaleLinksImpl(skillNames, config);
+}
+
+async function reconcileStaleLinksImpl(
+  skillNames: string[],
+  config: SyncSkillConfig
+): Promise<ReconcileResult> {
+  const result: ReconcileResult = {
+    removed: [],
+    skipped: [],
+    errors: []
+  };
+
+  // Build a set of valid (skill, agent) pairs from config
+  const validPairs = new Set<string>();
+  for (const [skill, targets] of Object.entries(config.links)) {
+    const agents = expandTargetAgents(config, targets);
+    for (const agent of agents) {
+      validPairs.add(`${skill}:${agent}`);
+    }
+  }
+
+  // Check each agent directory for stale links
+  for (const [agentName, agentPath] of Object.entries(config.agents)) {
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = await readdir(agentPath, { withFileTypes: true });
+    } catch {
+      // Agent directory doesn't exist, skip
+      continue;
+    }
+
+    for (const entry of entries) {
+      const skillName = entry.name;
+
+      // In single-skill mode, only check the specified skills
+      if (skillNames.length > 0 && !skillNames.includes(skillName)) {
+        continue;
+      }
+
+      const targetPath = join(agentPath, skillName);
+
+      // Skip if not a symlink (real directories should not be touched)
+      let lstats: import('node:fs').Stats;
+      try {
+        lstats = await lstat(targetPath);
+      } catch {
+        continue;
+      }
+
+      if (!lstats.isSymbolicLink()) {
+        result.skipped.push(targetPath);
+        continue;
+      }
+
+      // Check if symlink points to a syncskill-managed path
+      let linkTarget: string;
+      try {
+        linkTarget = await readlink(targetPath);
+      } catch {
+        continue;
+      }
+
+      // Only manage symlinks that point to .syncskill/skills/
+      if (!linkTarget.includes('.syncskill') || !linkTarget.includes('skills')) {
+        result.skipped.push(targetPath);
+        continue;
+      }
+
+      // Check if this (skill, agent) pair is still valid
+      const pairKey = `${skillName}:${agentName}`;
+      if (validPairs.has(pairKey)) {
+        // Still valid, skip
+        continue;
+      }
+
+      // Stale link detected - remove it
+      try {
+        await rm(targetPath, { force: true });
+        result.removed.push(targetPath);
+      } catch (error) {
+        result.errors.push(`Failed to remove ${targetPath}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
+  return result;
 }

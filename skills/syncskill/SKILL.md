@@ -21,29 +21,33 @@ Use this skill when:
 |---------|-------------|
 | `init [--skip-scan] [--skip-skill] [-y]` | Initialize ~/.syncskill/ directory |
 | `install` / `i` | Install syncskill skill itself |
-| `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path |
+| `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path (= source add + auto-link) |
+
+Install options: `--name`, `--path`, `--skill-subdir`, `--branch`, `-y`
 
 ### Link Management
 
 | Command | Description |
 |---------|-------------|
 | `link` | Interactive matrix editor for skill→agent mapping |
-| `link list` / `ls` / `--list` | Show link status |
+| `link list` / `ls` / `--list` | Show link status matrix |
 | `link list -v` | Show verbose text status |
-| `link <skill>` | Link specific skill to agents |
-| `link --all` | Link all configured skills |
+| `link <skill>` | Link specific skill to agents + reconcile stale links |
+| `link --all` | Link all configured skills + reconcile all stale links |
 | `link --dry-run` | Preview link changes |
-| `unlink <skill> [-y] [--dry-run]` | Remove skill links |
+| `unlink <skill> [-y] [--dry-run]` | Remove skill links from all agents |
+
+**Reconcile behavior**: `link` and `link --all` automatically clean up stale symlinks (links pointing to skills no longer in config or to non-existent paths).
 
 ### Source Management
 
 | Command | Description |
 |---------|-------------|
-| `source add <url> [options]` | Add external source |
+| `source add <url-or-path>` | Add external source (GitHub URL, local archive, local path) |
 | `source list` / `ls` | List configured sources |
-| `source update [name] [--all] [--force]` | Update sources |
-| `source remove <name> [--force]` | Remove a source |
-| `update [name] [--all] [--force]` | Top-level alias for `source update` |
+| `source update [name] [--all] [--force] [-y]` | Update sources (git pull / re-download) |
+| `source remove <name> [--force]` | Remove source (interactive or force-remove all) |
+| `update [name] [--all] [--force] [-y]` | Top-level alias for `source update` |
 
 Source add options: `--name`, `--type git|http|local`, `--path`, `--skill-subdir`, `--branch`, `-y`
 
@@ -51,7 +55,7 @@ Source add options: `--name`, `--type git|http|local`, `--path`, `--skill-subdir
 
 | Command | Description |
 |---------|-------------|
-| `scan` | Scan for new/unmanaged skills |
+| `scan` | Scan sources for new skills + detect unmanaged skills in agent dirs |
 | `scan --migrate` | Migrate unmanaged skills to ~/.syncskill/skills/ |
 | `scan --dry-run` | Preview scan results |
 
@@ -62,30 +66,36 @@ Source add options: `--name`, `--type git|http|local`, `--path`, `--skill-subdir
 | `server` | Open server management menu |
 | `server list` / `ls` | List configured servers |
 | `server show <name>` | Show server configuration |
-| `server probe <name>` | Diagnose server connectivity |
+| `server probe <name>` | Diagnose connectivity (SSH, Node version, receiver status) |
 
 ### Sync Operations
 
 | Command | Description |
 |---------|-------------|
-| `push [server] [--all] [--dry-run] [-y]` | Push to remote |
-| `pull [server] [--all] [--dry-run] [-y]` | Pull from remote |
+| `push [server] [--all] [--dry-run] [-y]` | Push skills to remote server |
+| `pull [server] [--all] [--dry-run] [-y]` | Pull skills from remote server |
 | `sync [server] [--all] [--dry-run]` | Full sync (pull then push) |
-| `status` | Show sync status |
-| `diff <server>` | Show pending changes |
-| `resolve <skill> [--local|--remote] [--diff]` | Resolve conflicts |
-| `refresh [server] [--local|--remote|--all|--status]` | Refresh manifests |
+| `status` | Show sync status for all tracked servers |
+| `diff <server>` | Show pending changes for a server |
+| `resolve <skill> [--local|--remote|--diff]` | Resolve sync conflicts |
+| `refresh [server] [--local|--remote|--all|--status]` | Refresh manifest state |
 
-### Configuration
+### Configuration & Diagnostics
 
 | Command | Description |
 |---------|-------------|
 | `config` | Interactive config editor |
-| `config show` | Print current config |
+| `config show` | Print current config (JSON) |
 | `config set <key> <value>` | Set config value |
-| `config set --show-paths` | Show all config paths |
-| `remote` | Manage skill→server mappings (matrix editor) |
-| `doctor [--fix] [--rebuild-registry] [-y]` | Diagnose and repair config issues |
+| `config set --show-paths` | Show all configurable paths |
+| `config server` | Server management menu |
+| `config remote` | Remote skills matrix editor |
+| `remote` | Shortcut for `config remote` |
+| `doctor` | Diagnose config issues (agents, links, sources, registry) |
+| `doctor --fix [-y]` | Interactive repair of config issues |
+| `doctor --rebuild-registry` | Rebuild skills-registry.json from scratch |
+
+**Doctor checks**: missing agent directories, orphaned links, invalid sources, registry inconsistencies.
 
 ### Global Options
 
@@ -94,6 +104,7 @@ Source add options: `--name`, `--type git|http|local`, `--path`, `--skill-subdir
 | `--no-refresh` | Skip automatic manifest refresh |
 | `-y, --yes` | Skip confirmation prompts |
 | `--dry-run` | Preview changes without executing |
+| `--force` | Force operation (e.g., update dirty sources) |
 
 ## Usage Examples
 
@@ -105,9 +116,15 @@ syncskill install
 # Install skills from GitHub
 syncskill i https://github.com/user/skills-repo
 
-# Manage links
+# Manage links (includes stale link cleanup)
 syncskill link list
 syncskill link --all
+
+# Update sources
+syncskill update --all
+
+# Diagnose and fix config issues
+syncskill doctor --fix
 
 # Sync with remote servers
 syncskill status

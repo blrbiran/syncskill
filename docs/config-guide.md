@@ -131,6 +131,50 @@ links:
 
 When saving via the matrix editor, if a skill is linked to all agents, it is automatically saved as `["*"]` rather than listing all agent names.
 
+#### Config vs Actual Symlinks
+
+The `links` configuration defines *desired* state, not actual symlinks. Modifying `config.links` (via `config set` or the matrix editor) only updates the YAML file — it does not create or remove symlinks immediately.
+
+To synchronize actual symlinks with the configuration, run the `link` command:
+
+```bash
+# Reconcile links for a specific skill
+syncskill link my-skill
+
+# Reconcile all links
+syncskill link --all
+```
+
+The `link` command performs reconciliation:
+
+1. **Creates missing links** — symlinks defined in config but not present on disk
+2. **Removes stale links** — symlinks on disk that are no longer in config
+
+Stale link removal requires confirmation by default. Use flags to control this:
+
+```bash
+# Preview what would change without making changes
+syncskill link --all --dry-run
+
+# Auto-confirm stale link removal
+syncskill link --all -y
+```
+
+Example workflow:
+
+```bash
+# 1. Edit config to remove 'qoder' from 'my-skill' links
+syncskill config set links.my-skill '["claude"]'
+
+# 2. Preview the reconciliation
+syncskill link my-skill --dry-run
+# Output: Would remove stale link: /Users/alice/.qoder/skills/my-skill
+
+# 3. Apply the change
+syncskill link my-skill
+# Prompts: Remove stale link /Users/alice/.qoder/skills/my-skill? [y/N]
+```
+
 ### `servers`
 
 Defines named remote sync targets used by `diff`, `push`, `pull`, `sync`, `server show`, `server probe`, and `refresh --remote`.

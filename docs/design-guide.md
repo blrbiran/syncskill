@@ -73,7 +73,52 @@ Owns symlink creation with three-level fallback:
 2. `fs.symlink(target, link, 'junction')` - Windows junction
 3. `fs.cp(source, target, { recursive: true })` - Copy with warning
 
-Also owns status checking, unlinking, and skill discovery scanning.
+Also owns status checking, unlinking, skill discovery scanning, and **stale link reconciliation**.
+
+#### Reconcile Architecture
+
+The `reconcileStaleLinks()` function cleans up orphaned symlinks after configuration changes. It returns a `ReconcileResult`:
+
+```typescript
+interface ReconcileResult {
+  removed: string[];   // paths successfully cleaned up
+  skipped: string[];   // paths skipped (not syncskill managed)
+  errors: string[];    // paths that failed to remove
+}
+```
+
+**Cleanup Rules:**
+
+| Condition | Action | Rationale |
+|-----------|--------|-----------|
+| Real directory (not symlink) | Skip | User-managed content, never touch |
+| Symlink pointing outside `~/.syncskill/` | Skip | Not syncskill-managed |
+| Symlink to skill no longer in config | Remove | Source was removed entirely |
+| Symlink to skill, but agent not in targets | Remove | Agent removed from skill's link targets |
+| Valid symlink matching current config | Keep | Still active |
+
+**Safety Guarantees:**
+
+1. **Only touches syncskill-managed symlinks** - A symlink is considered "managed" only if it points to a path under `~/.syncskill/skills/` or `~/.syncskill/sources/`. External symlinks are never modified.
+
+2. **Never deletes real directories** - Uses `lstatSync()` to distinguish symlinks from directories. Real directories are always skipped, even if they have the same name as a skill.
+
+3. **Graceful error handling** - If removal fails (permissions, locked file), the path is added to `errors[]` and processing continues. No partial failures cause full abort.
+
+**Staleness Detection:**
+
+A symlink becomes "stale" when:
+- The skill it points to was removed from config (source deleted)
+- The agent directory is no longer in the skill's `links[skill].agents` list
+- The source containing the skill was removed via `syncskill source remove`
+
+**Integration Points:**
+
+| Command | Reconcile Behavior |
+|---------|-------------------|
+| `syncskill link` | Calls `reconcileStaleLinks()` after creating new links |
+| `syncskill source remove` | Option 3 ("remove source + clean links") reuses reconcile logic |
+| `syncskill doctor --fix` | Can trigger reconcile for detected stale links |
 
 ### `src/core/manifest.ts`
 

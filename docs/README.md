@@ -16,6 +16,7 @@ Documentation for the syncskill CLI tool.
 - **Command reference**: See [Usage Guide](usage-guide.md) or run `syncskill --help`
 - **Config file format**: See [Configuration Guide](config-guide.md#configuration-shape)
 - **Remote sync setup**: See [Usage Guide - Remote Sync Workflow](usage-guide.md#remote-sync-workflow)
+- **Stale symlink cleanup**: The `link` command automatically reconciles and removes stale symlinks
 
 ## Specifications
 
