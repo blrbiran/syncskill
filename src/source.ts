@@ -93,7 +93,11 @@ export interface DetectedSourceType {
   type: SourceType;
   url: string;
   branch?: string;
+  isArchive?: boolean;
 }
+
+/** Archive file extensions regex */
+const ARCHIVE_EXTENSIONS_REGEX = /\.(tar\.gz|tgz|tar\.xz|tar\.bz2|zip)$/i;
 
 /**
  * Auto-detect source type from a URL or path string.
@@ -102,7 +106,9 @@ export interface DetectedSourceType {
 export function detectSourceType(input: string): DetectedSourceType | null {
   // File system paths
   if (input.startsWith('/') || input.startsWith('~') || input.startsWith('./') || input.startsWith('../')) {
-    return { type: 'local', url: input };
+    // Check if it's an archive file
+    const isArchive = ARCHIVE_EXTENSIONS_REGEX.test(input);
+    return { type: 'local', url: input, isArchive };
   }
 
   // GitHub/GitLab URLs - delegate to existing parseGitHubUrl for detailed parsing
@@ -126,8 +132,8 @@ export function detectSourceType(input: string): DetectedSourceType | null {
     return { type: 'git', url: input };
   }
 
-  // Archive files
-  if (/\.(tar\.gz|tgz|tar\.xz|tar\.bz2|zip)$/i.test(input)) {
+  // Archive files (HTTP URLs)
+  if (ARCHIVE_EXTENSIONS_REGEX.test(input)) {
     return { type: 'http', url: input };
   }
 
@@ -294,27 +300,303 @@ export async function updateSource(
   return syncSource(homeDir, name, source, updatedAt, options);
 }
 
+/**
+ * Check if a source can be updated (has remote URL to fetch from)
+ */
+export function isSourceUpdatable(source: SourceEntry): boolean {
+  // Local sources (directory or archive) cannot be updated
+  if (source.type === 'local') {
+    return false;
+  }
+  // Git and HTTP sources need a URL
+  return Boolean(source.url);
+}
+
+/**
+ * Get list of updatable sources
+ */
+export async function getUpdatableSources(homeDir = homedir()): Promise<SourceEntry[]> {
+  const sources = await listSources(homeDir);
+  return sources.filter(isSourceUpdatable);
+}
+
+type HttpConfirmResult = 'yes' | 'no' | 'all' | 'quit';
+
+/**
+ * Ask for confirmation before updating an HTTP source.
+ * Returns 'yes', 'no', 'all' (yes to all), or 'quit'.
+ */
+async function confirmHttpUpdate(sourceName: string, sourceUrl: string): Promise<HttpConfirmResult> {
+  const isTTY = process.stdin.isTTY && process.stdout.isTTY;
+  if (!isTTY) {
+    // Non-interactive: default to yes
+    return 'yes';
+  }
+
+  const choice = await select({
+    message: `Update HTTP source "${sourceName}"? (${sourceUrl})`,
+    choices: [
+      { name: '(Y) Yes — update this source', value: 'yes' as const },
+      { name: '(n) No — skip this source', value: 'no' as const },
+      { name: '(a) Yes to all — update this and all remaining HTTP sources', value: 'all' as const },
+      { name: '(q) Quit — stop update', value: 'quit' as const },
+    ],
+    default: 'yes',
+  });
+
+  return choice;
+}
+
+/**
+ * Handle skills that were removed from a source after update.
+ * Ask user if they want to keep each skill as a manual skill.
+ */
+async function handleRemovedSkills(
+  homeDir: string,
+  sourceName: string,
+  removedSkills: string[],
+  skillsDir: string,
+  ownershipState: SkillOwnershipState,
+  options: UpdateSourceOptions
+): Promise<void> {
+  const { syncDir, configFile } = getSyncPaths(homeDir);
+  const manualSkillsDir = join(syncDir, 'skills');
+  const isTTY = process.stdin.isTTY && process.stdout.isTTY;
+
+  // Try to load config, but don't fail if it doesn't exist
+  let config: SyncSkillConfig | null = null;
+  try {
+    config = await loadConfig(homeDir);
+  } catch {
+    // Config doesn't exist in test scenarios, that's OK
+  }
+
+  for (const skillName of removedSkills) {
+    const sourceSkillPath = join(skillsDir, skillName);
+
+    // Check if skill still exists on disk
+    if (!(await pathExists(sourceSkillPath))) {
+      delete ownershipState.owners[skillName];
+      continue;
+    }
+
+    // Default behavior with -y: keep as manual skill
+    let keepAsManual = options.yes ?? false;
+
+    if (!options.yes && isTTY) {
+      const answer = await select({
+        message: `Skill "${skillName}" was removed from source "${sourceName}". Keep it as a local skill?`,
+        choices: [
+          { name: '(Y) Yes — keep as local skill', value: true },
+          { name: '(n) No — remove skill', value: false },
+        ],
+        default: true,
+      });
+      keepAsManual = answer;
+    }
+
+    if (keepAsManual) {
+      // Move to manual skills directory
+      const manualPath = join(manualSkillsDir, skillName);
+      await mkdir(manualSkillsDir, { recursive: true });
+
+      // Copy if it's in a different location (source skills dir vs manual dir)
+      if (sourceSkillPath !== manualPath && !(await pathExists(manualPath))) {
+        await cp(sourceSkillPath, manualPath, { recursive: true });
+      }
+
+      // Update ownership to manual (remove from source ownership so removeStaleSkills skips it)
+      delete ownershipState.owners[skillName];
+
+      // Update registry to mark as manual
+      const registry = await loadSkillsRegistry(homeDir);
+      if (registry.skills[skillName]) {
+        registry.skills[skillName].origin = 'manual';
+        registry.skills[skillName].type = 'manual';
+        registry.skills[skillName].path = manualPath;
+        await saveSkillsRegistry(homeDir, registry);
+      }
+
+      console.log(`  ✓ Kept "${skillName}" as local skill`);
+    } else {
+      // Will be removed by removeStaleSkills
+      // Also remove from links if config exists
+      if (config) {
+        delete config.links[skillName];
+      }
+      console.log(`  ✓ Removed "${skillName}"`);
+    }
+  }
+
+  // Save config if it was loaded and potentially modified
+  if (config) {
+    await saveConfig(config, homeDir);
+  }
+}
+
+export interface UpdateResult {
+  sourceName: string;
+  status: 'success' | 'skipped' | 'failed';
+  reason?: string;
+  previousSkills: string[];
+  currentSkills: string[];
+  addedSkills: string[];
+  removedSkills: string[];
+}
+
 export async function updateAllSources(
   homeDir = homedir(),
   updatedAt = new Date().toISOString(),
   options: UpdateSourceOptions = {}
 ): Promise<SourceState[]> {
   const sources = await listSources(homeDir);
+  const updatableSources = sources.filter(isSourceUpdatable);
   const states: SourceState[] = [];
+  const results: UpdateResult[] = [];
 
-  for (const source of sources) {
+  if (updatableSources.length === 0) {
+    console.log('No updatable sources found.');
+    return states;
+  }
+
+  // Show list of sources to be updated
+  console.log('\nUpdatable sources:');
+  for (const source of updatableSources) {
+    const urlDisplay = source.url ? ` — ${source.url}` : '';
+    console.log(`  ${source.name} (${source.type})${urlDisplay}`);
+  }
+  console.log('');
+
+  // Track "Yes to all" state for HTTP sources
+  let httpYesToAll = false;
+
+  for (const source of updatableSources) {
+    // Get previous state for comparison
+    const previousState = await loadSourceState(homeDir, source.name);
+    const previousSkills = previousState?.materialized_skills ?? [];
+
     try {
-      states.push(await updateSource(homeDir, source.name, options, updatedAt));
+      // HTTP sources: ask for confirmation (unless -y or "Yes to all")
+      if (source.type === 'http' && !options.yes && !httpYesToAll) {
+        const confirm = await confirmHttpUpdate(source.name, source.url);
+
+        if (confirm === 'quit') {
+          console.log('\nUpdate cancelled by user.');
+          break;
+        }
+
+        if (confirm === 'no') {
+          results.push({
+            sourceName: source.name,
+            status: 'skipped',
+            reason: 'user skipped',
+            previousSkills,
+            currentSkills: previousSkills,
+            addedSkills: [],
+            removedSkills: [],
+          });
+          console.log(`Skipped: ${source.name}`);
+          continue;
+        }
+
+        if (confirm === 'all') {
+          httpYesToAll = true;
+        }
+        // 'yes' or 'all' - proceed with update
+      }
+
+      const newState = await updateSource(homeDir, source.name, options, updatedAt);
+      states.push(newState);
+
+      const currentSkills = newState.materialized_skills;
+      const addedSkills = currentSkills.filter(s => !previousSkills.includes(s));
+      const removedSkills = previousSkills.filter(s => !currentSkills.includes(s));
+
+      results.push({
+        sourceName: source.name,
+        status: 'success',
+        previousSkills,
+        currentSkills,
+        addedSkills,
+        removedSkills,
+      });
     } catch (error) {
       if (error instanceof DirtySourceQuitError) {
+        results.push({
+          sourceName: source.name,
+          status: 'skipped',
+          reason: 'dirty — local modifications',
+          previousSkills,
+          currentSkills: previousSkills,
+          addedSkills: [],
+          removedSkills: [],
+        });
         console.log('\nUpdate cancelled by user.');
         break;
       }
-      throw error;
+      // Record failure
+      results.push({
+        sourceName: source.name,
+        status: 'failed',
+        reason: error instanceof Error ? error.message : String(error),
+        previousSkills,
+        currentSkills: previousSkills,
+        addedSkills: [],
+        removedSkills: [],
+      });
     }
   }
 
+  // Print update summary
+  printUpdateSummary(results);
+
   return states;
+}
+
+function printUpdateSummary(results: UpdateResult[]): void {
+  if (results.length === 0) return;
+
+  const successful = results.filter(r => r.status === 'success');
+  const skipped = results.filter(r => r.status === 'skipped');
+  const failed = results.filter(r => r.status === 'failed');
+
+  console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('Update Summary');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+  for (const result of successful) {
+    const changes: string[] = [];
+    if (result.addedSkills.length > 0) {
+      changes.push(`+${result.addedSkills.length} new`);
+    }
+    if (result.removedSkills.length > 0) {
+      changes.push(`-${result.removedSkills.length} removed`);
+    }
+    const changeStr = changes.length > 0 ? ` (${changes.join(', ')})` : '';
+    console.log(`✓ ${result.sourceName}${changeStr}`);
+
+    if (result.addedSkills.length > 0) {
+      console.log(`    + ${result.addedSkills.join(', ')}`);
+    }
+    if (result.removedSkills.length > 0) {
+      console.log(`    - ${result.removedSkills.join(', ')}`);
+    }
+  }
+
+  for (const result of skipped) {
+    console.log(`⚠ ${result.sourceName}: skipped (${result.reason})`);
+  }
+
+  for (const result of failed) {
+    console.log(`✗ ${result.sourceName}: failed (${result.reason})`);
+  }
+
+  // Summary line
+  const parts: string[] = [];
+  if (successful.length > 0) parts.push(`${successful.length} updated`);
+  if (skipped.length > 0) parts.push(`${skipped.length} skipped`);
+  if (failed.length > 0) parts.push(`${failed.length} failed`);
+  console.log(`\n${parts.join(', ')}`);
 }
 
 export interface RemoveSourceOptions {
@@ -423,6 +705,7 @@ interface HandleDirtySourceOptions {
   hasNonSkillDirty: boolean;
   options: UpdateSourceOptions;
   backupsDir: string;
+  allSkills: string[];
 }
 
 /**
@@ -430,8 +713,9 @@ interface HandleDirtySourceOptions {
  * Returns 'update' to proceed, 'skip' to skip this source, 'quit' to stop all updates.
  */
 async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyDecision> {
-  const { sourceName, sourceType, dirtyResult, hasSkillDirty, hasNonSkillDirty, options, backupsDir } = opts;
-  const skillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
+  const { sourceName, sourceType, dirtyResult, hasSkillDirty, hasNonSkillDirty, options, backupsDir, allSkills } = opts;
+  const dirtySkillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
+  const allSkillNames = allSkills.join(', ');
 
   // --force: backup and update
   if (options.force) {
@@ -458,7 +742,11 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
     if (hasSkillDirty) {
       // Skill dirty with -y: skip (safe default)
       console.log(`⚠ Skipped: ${sourceName} (dirty — ${dirtyResult.dirtySkills.length} skills have local modifications)`);
-      console.log(`  Dirty skills: ${skillNames}`);
+      console.log(`  Dirty skills: ${dirtySkillNames}`);
+      if (sourceType === 'git' && allSkills.length > dirtyResult.dirtySkills.length) {
+        console.log(`  All skills in source: ${allSkillNames}`);
+        console.log(`  Skipping this source will skip ALL ${allSkills.length} skills, not just the dirty ones.`);
+      }
       console.log('  Use --force to overwrite local changes.');
       return 'skip';
     } else if (hasNonSkillDirty) {
@@ -473,7 +761,11 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
     // Non-interactive: skip with message
     if (hasSkillDirty) {
       console.log(`⚠ Skipped: ${sourceName} (dirty — ${dirtyResult.dirtySkills.length} skills have local modifications)`);
-      console.log(`  Dirty skills: ${skillNames}`);
+      console.log(`  Dirty skills: ${dirtySkillNames}`);
+      if (sourceType === 'git' && allSkills.length > dirtyResult.dirtySkills.length) {
+        console.log(`  All skills in source: ${allSkillNames}`);
+        console.log(`  Skipping this source will skip ALL ${allSkills.length} skills, not just the dirty ones.`);
+      }
     } else {
       console.log(`⚠ Skipped: ${sourceName} (uncommitted non-skill changes)`);
     }
@@ -484,9 +776,12 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
   // Interactive prompt
   if (hasSkillDirty) {
     console.log(`\n⚠ Source "${sourceName}" has local modifications:`);
-    console.log(`  Dirty skills: ${skillNames}`);
-    if (sourceType === 'git') {
-      console.log(`  All skills in this source will be affected by git reset.`);
+    console.log(`  Dirty skills: ${dirtySkillNames}`);
+    if (sourceType === 'git' && allSkills.length > 0) {
+      console.log(`  All skills in source: ${allSkillNames}`);
+      if (allSkills.length > dirtyResult.dirtySkills.length) {
+        console.log(`  ⚠ Updating or skipping will affect ALL ${allSkills.length} skills, not just the dirty ones.`);
+      }
     }
     console.log('');
 
@@ -676,7 +971,8 @@ async function syncSource(
           hasSkillDirty,
           hasNonSkillDirty,
           options,
-          backupsDir: join(syncDir, 'backups')
+          backupsDir: join(syncDir, 'backups'),
+          allSkills: previousSkills
         });
 
         if (decision === 'skip') {
@@ -702,7 +998,8 @@ async function syncSource(
         hasSkillDirty: dirtyResult.dirtySkills.length > 0,
         hasNonSkillDirty: false, // HTTP sources don't have non-skill files
         options,
-        backupsDir: join(syncDir, 'backups')
+        backupsDir: join(syncDir, 'backups'),
+        allSkills: previousSkills
       });
 
       if (decision === 'skip') {
@@ -723,6 +1020,16 @@ async function syncSource(
 
   await mkdir(skillsDir, { recursive: true });
   await assertMaterializationTargetsAvailable(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type, name, ownershipState);
+
+  // Identify removed skills and ask user what to do
+  const removedSkills = previousSkills.filter(
+    skill => !materializedSkills.includes(skill) && ownershipState.owners[skill] === name
+  );
+
+  if (removedSkills.length > 0) {
+    await handleRemovedSkills(homeDir, name, removedSkills, skillsDir, nextOwnership, options);
+  }
+
   await removeStaleSkills(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type, name, nextOwnership);
 
   for (const skill of materializedSkills) {
@@ -911,6 +1218,11 @@ function normalizeSkillOwnershipState(value: unknown): SkillOwnershipState {
 
 async function prepareMaterializedRoot(homeDir: string, name: string, source: SourceDefinition): Promise<string> {
   if (source.type === 'local') {
+    // Local archive: extract to ~/.syncskill/sources/<name>/checkout/
+    if (source.archive_path) {
+      return prepareLocalArchiveMaterializedRoot(homeDir, name, source);
+    }
+    // Local directory: use as-is
     return getLocalMaterializedRoot(source);
   }
 
@@ -978,6 +1290,49 @@ async function prepareHttpMaterializedRoot(homeDir: string, name: string, source
         await rm(join(runtimeDir, file), { force: true });
       }
     }
+    await rm(backupDir, { recursive: true, force: true });
+  }
+}
+
+async function prepareLocalArchiveMaterializedRoot(homeDir: string, name: string, source: SourceDefinition): Promise<string> {
+  const checkoutDir = join(getSyncPaths(homeDir).syncDir, '.sources', name, 'checkout');
+  const runtimeDir = dirname(checkoutDir);
+  const stagingDir = join(runtimeDir, 'checkout.next');
+  const backupDir = join(runtimeDir, 'checkout.prev');
+
+  // Resolve the archive path (handle ~ expansion)
+  const archivePath = source.archive_path ?? source.url;
+  const resolvedArchivePath = archivePath.startsWith('~')
+    ? join(homedir(), archivePath.slice(1))
+    : resolve(archivePath);
+
+  // Detect format from archive file name
+  const archiveFormat = detectArchiveFormat(resolvedArchivePath);
+
+  await rm(stagingDir, { recursive: true, force: true });
+  await rm(backupDir, { recursive: true, force: true });
+  await mkdir(stagingDir, { recursive: true });
+
+  try {
+    await extractArchive(resolvedArchivePath, stagingDir, archiveFormat.type);
+
+    if (isAbsolute(source.path)) {
+      throw new Error('Local archive source path must be a relative path');
+    }
+
+    const materializedRoot = resolve(stagingDir, source.path);
+    const relativePath = relative(stagingDir, materializedRoot);
+
+    if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+      throw new Error('Local archive source path must stay within the extracted root');
+    }
+
+    await replaceCheckoutDirectory(checkoutDir, stagingDir, backupDir);
+    return resolve(checkoutDir, source.path);
+  } catch (error) {
+    await rm(stagingDir, { recursive: true, force: true });
+    throw error;
+  } finally {
     await rm(backupDir, { recursive: true, force: true });
   }
 }
@@ -1405,6 +1760,33 @@ export async function addSourceFromUrl(
   options: AddSourceFromUrlOptions = {}
 ): Promise<AddSourceFromUrlResult> {
   const { syncDir } = getSyncPaths(homeDir);
+
+  // Check if input is a local archive file
+  const detected = detectSourceType(urlOrName);
+  if (detected?.type === 'local' && detected.isArchive) {
+    // Resolve archive path
+    const archivePath = urlOrName.startsWith('~')
+      ? join(homedir(), urlOrName.slice(1))
+      : resolve(urlOrName);
+
+    // Extract name from archive file name (remove extension)
+    const baseName = archivePath.split('/').pop() ?? 'archive';
+    const nameWithoutExt = baseName
+      .replace(/\.(tar\.gz|tgz|tar\.xz|tar\.bz2|zip)$/i, '');
+    const sourceName = options.name ?? nameWithoutExt;
+
+    // Set up source with archive_path
+    const source: SourceDefinition = {
+      type: 'local',
+      url: join(syncDir, '.sources', sourceName, 'checkout'),
+      path: options.skillSubdir ?? '.',
+      archive_path: archivePath,
+    };
+
+    await addSource(homeDir, sourceName, source);
+    return { name: sourceName, source };
+  }
+
   const parsed = parseGitHubUrl(urlOrName);
 
   if (parsed) {

@@ -331,6 +331,40 @@ sources:
     ).rejects.toThrow('Local source path must stay within the source root');
   });
 
+  it('materializeSource extracts a local archive and copies skill files into the sync store', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    // Create fixture directory with skills
+    const fixtureDir = join(homeDir, 'fixture');
+    await mkdir(join(fixtureDir, 'skills', 'alpha'), { recursive: true });
+    await mkdir(join(fixtureDir, 'skills', 'beta'), { recursive: true });
+    await writeFile(join(fixtureDir, 'skills', 'alpha', 'SKILL.md'), '# Local archive alpha\n', 'utf8');
+    await writeFile(join(fixtureDir, 'skills', 'beta', 'SKILL.md'), '# Local archive beta\n', 'utf8');
+
+    // Create archive
+    const archiveFile = join(homeDir, 'my-skills.tar.gz');
+    await createTarGzArchive(fixtureDir, archiveFile);
+
+    // Expected checkout directory
+    const checkoutDir = join(homeDir, '.syncskill', '.sources', 'my-skills', 'checkout');
+
+    const result = await materializeSource(
+      homeDir,
+      'my-skills',
+      { type: 'local', url: checkoutDir, path: 'skills', archive_path: archiveFile },
+      '2026-05-01T00:00:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['alpha', 'beta']);
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# Local archive alpha\n');
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'beta', 'SKILL.md'), 'utf8')).resolves.toBe('# Local archive beta\n');
+    await expect(loadSourceState(homeDir, 'my-skills')).resolves.toEqual({
+      materialized_skills: ['alpha', 'beta'],
+      updated_at: '2026-05-01T00:00:00.000Z'
+    });
+  });
+
   it('materializeSource clones a git source and copies skill files into the sync store', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
     tempDirs.push(homeDir);
@@ -1939,6 +1973,33 @@ describe('detectSourceType', () => {
     expect(result?.url).toBe('../shared-skills');
   });
 
+  it('detects local archive file (tar.gz)', () => {
+    const result = detectSourceType('/path/to/skills.tar.gz');
+    expect(result?.type).toBe('local');
+    expect(result?.url).toBe('/path/to/skills.tar.gz');
+    expect(result?.isArchive).toBe(true);
+  });
+
+  it('detects local archive file with ~ prefix (zip)', () => {
+    const result = detectSourceType('~/Downloads/my-skills.zip');
+    expect(result?.type).toBe('local');
+    expect(result?.url).toBe('~/Downloads/my-skills.zip');
+    expect(result?.isArchive).toBe(true);
+  });
+
+  it('detects local archive file with relative path (tgz)', () => {
+    const result = detectSourceType('./archives/skills.tgz');
+    expect(result?.type).toBe('local');
+    expect(result?.url).toBe('./archives/skills.tgz');
+    expect(result?.isArchive).toBe(true);
+  });
+
+  it('marks non-archive local paths as isArchive false', () => {
+    const result = detectSourceType('/path/to/skills-dir');
+    expect(result?.type).toBe('local');
+    expect(result?.isArchive).toBe(false);
+  });
+
   it('detects github URL as git type', () => {
     const result = detectSourceType('https://github.com/org/repo');
     expect(result?.type).toBe('git');
@@ -2305,5 +2366,49 @@ describe('addSourceFromUrl with skills-registry', () => {
     // Verify source was added
     const config = await loadConfig(homeDir);
     expect('new-skill' in config.sources).toBe(true);
+  });
+
+  it('adds local archive source with archive_path', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-local-archive-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+
+    // Setup: Create empty config
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(
+      join(syncDir, 'config.yaml'),
+      stringify({
+        version: 1,
+        agents: {},
+        links: {},
+        sources: {},
+        servers: {},
+        conflict_resolution: 'manual',
+      })
+    );
+
+    // Create a fixture directory with skills
+    const fixtureDir = join(homeDir, 'fixture');
+    await mkdir(join(fixtureDir, 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(fixtureDir, 'skills', 'alpha', 'SKILL.md'), '# Alpha skill\n', 'utf8');
+
+    // Create archive
+    const archiveFile = join(homeDir, 'my-skills-pack.tar.gz');
+    await createTarGzArchive(fixtureDir, archiveFile);
+
+    // Add local archive
+    const result = await addSourceFromUrl(homeDir, archiveFile);
+
+    // Should add new source with archive_path
+    expect(result.name).toBe('my-skills-pack');
+    expect(result.source.type).toBe('local');
+    expect(result.source.archive_path).toBe(archiveFile);
+
+    // Verify source was added to config
+    const config = await loadConfig(homeDir);
+    expect('my-skills-pack' in config.sources).toBe(true);
+    const sourceConfig = config.sources['my-skills-pack'] as { type: string; archive_path?: string };
+    expect(sourceConfig.type).toBe('local');
+    expect(sourceConfig.archive_path).toBe(archiveFile);
   });
 });

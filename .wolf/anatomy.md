@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T16:49:27.425Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-12T17:22:26.959Z
 > Files: 78 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
@@ -50,7 +50,7 @@
 - `linker.ts` — Soft link management with 3-level fallback (~2826 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
-- `source.ts` — Git only: Convert source from git to local, keep path directory (~16678 tok)
+- `source.ts` — Git only: Convert source from git to local, keep path directory (~20413 tok)
 
 ## src/config/
 
@@ -126,5 +126,5 @@
 - `server.test.ts` (~406 tok)
 - `skills-registry.test.ts` — Declares registry (~3690 tok)
 - `source-github-url.test.ts` — Declares result (~1291 tok)
-- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~24940 tok)
+- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~26159 tok)
 - `test-tiers.test.ts` — Declares rootDir (~368 tok)
