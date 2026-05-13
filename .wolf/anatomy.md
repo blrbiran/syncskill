@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-13T16:21:58.143Z
-> Files: 112 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-13T16:56:25.525Z
+> Files: 116 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -95,11 +95,21 @@
 
 ## tests/end2end/cases/install/
 
-- `install-local-archive.test.ts` — tests/end2end/cases/install/install-local-archive.test.ts (~1040 tok)
+- `install-local-archive.test.ts` — E2E tests for local archive install (skipped pending CLI implementation) (~1085 tok)
+
+## tests/end2end/cases/link/
+
+- `link-reconcile.test.ts` — E2E tests for link reconciliation (stale symlink removal, preserving real dirs and external symlinks) (~1716 tok)
 
 ## tests/end2end/cases/smoke/
 
 - `init.test.ts` — tests/end2end/cases/smoke/init.test.ts (~511 tok)
+
+## tests/end2end/cases/source/
+
+- `source-stale-checkout.test.ts` — E2E tests for stale checkout handling (URL mismatch, non-git dir) (~1568 tok)
+- `source-update-dirty.test.ts` — E2E tests for dirty state detection and backup creation during update (~2704 tok)
+- `source-update.test.ts` — tests/end2end/cases/source/source-update.test.ts (~1291 tok)
 
 ## tests/end2end/cases/sync/
 
