@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-13T11:52:58.287Z
-> Files: 80 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-13T16:14:07.651Z
+> Files: 111 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -15,7 +15,7 @@
 - `config.example.yaml` (~84 tok)
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
-- `package.json` — Node.js package manifest (~241 tok)
+- `package.json` — Node.js package manifest (~355 tok)
 - `README.md` — Project documentation (~1212 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
@@ -32,14 +32,20 @@
 
 - `config-guide.md` — Configuration Guide (~2161 tok)
 - `design-guide.md` — Design Guide (~2402 tok)
-- `e2e-test-guide.md` — E2E 测试编写指南 (~3540 tok)
-- `README.md` — Project documentation (~246 tok)
+- `e2e-test-guide.md` — E2E Test Writing Guide (~3922 tok)
+- `README.md` — Project documentation (~296 tok)
 - `usage-guide.md` — Usage Guide (~2700 tok)
+
+## docs/superpowers/plans/
+
+- `2026-05-13-e2e-test-cases.md` — E2E Test Cases Implementation Plan (~10618 tok)
+- `2026-05-13-e2e-test-framework.md` — E2E Test Framework Implementation Plan (~19068 tok)
 
 ## docs/superpowers/specs/
 
+- `2026-05-13-e2e-test-cases-design.md` — E2E 测试用例设计 (~1935 tok)
 - `e2e-test-design.md` — E2E 测试框架设计 (~4850 tok)
-- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~12239 tok)
+- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~12256 tok)
 
 ## skills/syncskill/
 
@@ -87,6 +93,35 @@
 - `README.md` — Project documentation (~42 tok)
 - `smoke.test.ts` — Declares execFileAsync (~319 tok)
 
+## tests/end2end/cases/install/
+
+- `install-local-archive.test.ts` — tests/end2end/cases/install/install-local-archive.test.ts (~1040 tok)
+
+## tests/end2end/cases/smoke/
+
+- `init.test.ts` — tests/end2end/cases/smoke/init.test.ts (~511 tok)
+
+## tests/end2end/framework/
+
+- `cleanup.ts` — Prefix for all E2E temp directories. (~387 tok)
+- `context.ts` — Agent name to skills directory path mapping. (~5752 tok)
+- `e2e-test.ts` — e2eTest() wrapper for vitest it() with E2E options (timeout, network, skip). (~372 tok)
+- `guard.ts` — Error thrown when E2E test attempts to access protected paths. (~593 tok)
+- `index.ts` — Barrel export for all public E2E framework APIs. (~162 tok)
+- `runner.ts` — Result of running a command. (~910 tok)
+- `scenario.ts` — E2EScenario builder for declarative test setup with fluent API. (~2146 tok)
+- `setup.ts` — Global beforeAll/afterEach hooks for E2E tests (cleanup, diagnostics). (~168 tok)
+
+## tests/end2end/framework/fixtures/
+
+- `archive.ts` — Create an archive file containing skills. (~515 tok)
+- `git.ts` — Create a bare git repository. (~876 tok)
+- `github.ts` — Official test repository configuration. (~364 tok)
+- `index.ts` — tests/end2end/framework/fixtures/index.ts (~62 tok)
+- `server.ts` — Create a mock server directory structure. (~599 tok)
+- `skill.ts` — Default SKILL.md content template. (~300 tok)
+- `stale.ts` — Create a stale git checkout with a mismatched remote URL. (~486 tok)
+
 ## tests/helpers/
 
 - `temp-dir.ts` — Create a managed temp directory tracker that auto-cleans after each test. (~138 tok)
@@ -118,15 +153,26 @@
 - `config.test.ts` — Declares tempDirs (~1628 tok)
 - `conflict.test.ts` — Declares ServerManifest (~2429 tok)
 - `docs.test.ts` — Declares rootDir (~1320 tok)
+- `e2e-cleanup.test.ts` — tests/unit/e2e-cleanup.test.ts (~495 tok)
+- `e2e-context.test.ts` — tests/unit/e2e-context.test.ts (~1744 tok)
+- `e2e-fixtures-archive.test.ts` — tests/unit/e2e-fixtures-archive.test.ts (~588 tok)
+- `e2e-fixtures-git.test.ts` — tests/unit/e2e-fixtures-git.test.ts (~765 tok)
+- `e2e-fixtures-github.test.ts` — tests/unit/e2e-fixtures-github.test.ts (~561 tok)
+- `e2e-fixtures-server.test.ts` — tests/unit/e2e-fixtures-server.test.ts (~806 tok)
+- `e2e-fixtures-skill.test.ts` — tests/unit/e2e-fixtures-skill.test.ts (~582 tok)
+- `e2e-fixtures-stale.test.ts` — Declares tempDirs (~535 tok)
+- `e2e-guard.test.ts` — tests/unit/e2e-guard.test.ts (~376 tok)
+- `e2e-runner.test.ts` — tests/unit/e2e-runner.test.ts (~540 tok)
+- `e2e-scenario.test.ts` — Unit tests for E2EScenario builder class. (~931 tok)
 - `install.test.ts` — Declares path (~1694 tok)
 - `linker.test.ts` — Declares SyncSkillConfig (~6552 tok)
 - `manifest.test.ts` — Declares tempDirs (~2630 tok)
 - `matrix-editor.test.ts` — Declares config (~2288 tok)
-- `package.test.ts` — Declares rootDir (~584 tok)
+- `package.test.ts` — Declares rootDir (~597 tok)
 - `README.md` — Project documentation (~35 tok)
 - `refresh.test.ts` — Declares tempDirs (~5658 tok)
 - `server.test.ts` (~406 tok)
 - `skills-registry.test.ts` — Declares registry (~3690 tok)
 - `source-github-url.test.ts` — Declares result (~1291 tok)
 - `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~26159 tok)
-- `test-tiers.test.ts` — Declares rootDir (~368 tok)
+- `test-tiers.test.ts` — Declares rootDir (~382 tok)
