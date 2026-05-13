@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-13T16:14:07.651Z
-> Files: 111 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-13T16:21:58.143Z
+> Files: 112 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -100,6 +100,10 @@
 ## tests/end2end/cases/smoke/
 
 - `init.test.ts` — tests/end2end/cases/smoke/init.test.ts (~511 tok)
+
+## tests/end2end/cases/sync/
+
+- `pull-target.test.ts` — Pull target path resolution tests. (~3316 tok)
 
 ## tests/end2end/framework/
 
