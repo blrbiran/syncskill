@@ -94,4 +94,68 @@ describe('E2EContext', () => {
 
     await expect(ctx.assertLinked('my-skill', ['claude'])).resolves.not.toThrow();
   });
+
+  describe('E2EContext new methods', () => {
+    it('writeRegistry writes skills-registry.json', async () => {
+      const { E2EContext } = await import('../end2end/framework/context.js');
+      const homeDir = join(tmpdir(), `e2e-ctx-test-${Date.now()}`);
+      tempDirs.push(homeDir);
+      await mkdir(join(homeDir, '.syncskill'), { recursive: true });
+
+      const ctx = new E2EContext(homeDir, '/fake/project');
+
+      const registry = {
+        version: 1,
+        skills: {
+          'test-skill': {
+            path: `${homeDir}/.syncskill/skills/test-skill`,
+            origin: 'manual',
+            type: 'manual',
+            status: 'active',
+          },
+        },
+      };
+
+      await ctx.writeRegistry(registry);
+
+      const content = await ctx.readFile('.syncskill/skills-registry.json');
+      expect(JSON.parse(content)).toEqual(registry);
+    });
+
+    it('assertBackupExists checks backup directory', async () => {
+      const { E2EContext } = await import('../end2end/framework/context.js');
+      const homeDir = join(tmpdir(), `e2e-ctx-test-${Date.now()}`);
+      tempDirs.push(homeDir);
+      const backupDir = join(homeDir, '.syncskill', 'backups', 'my-source', 'my-skill');
+      await mkdir(backupDir, { recursive: true });
+      await writeFile(join(backupDir, 'SKILL.md'), '# Backup\n', 'utf8');
+
+      const ctx = new E2EContext(homeDir, '/fake/project');
+
+      await expect(ctx.assertBackupExists('my-source', 'my-skill')).resolves.toBeUndefined();
+      await expect(ctx.assertBackupExists('my-source', 'no-skill')).rejects.toThrow();
+    });
+
+    it('assertSymlinkTarget verifies symlink points to expected target', async () => {
+      const { E2EContext } = await import('../end2end/framework/context.js');
+      const homeDir = join(tmpdir(), `e2e-ctx-test-${Date.now()}`);
+      tempDirs.push(homeDir);
+      const agentDir = join(homeDir, '.claude', 'skills');
+      const skillSource = join(homeDir, '.syncskill', 'skills', 'my-skill');
+      await mkdir(agentDir, { recursive: true });
+      await mkdir(skillSource, { recursive: true });
+      await writeFile(join(skillSource, 'SKILL.md'), '# Test\n', 'utf8');
+      await symlink(skillSource, join(agentDir, 'my-skill'));
+
+      const ctx = new E2EContext(homeDir, '/fake/project');
+
+      await expect(
+        ctx.assertSymlinkTarget('my-skill', 'claude', skillSource)
+      ).resolves.toBeUndefined();
+
+      await expect(
+        ctx.assertSymlinkTarget('my-skill', 'claude', '/wrong/path')
+      ).rejects.toThrow('Expected symlink');
+    });
+  });
 });

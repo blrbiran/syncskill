@@ -293,9 +293,62 @@ export class E2EContext {
     return JSON.parse(content);
   }
 
+  /**
+   * Write skills-registry.json.
+   */
+  async writeRegistry(registry: unknown): Promise<void> {
+    const registryPath = join(this.syncskillDir, 'skills-registry.json');
+    await mkdir(this.syncskillDir, { recursive: true });
+    await writeFile(registryPath, JSON.stringify(registry, null, 2), 'utf8');
+  }
+
   // ─────────────────────────────────────────────────────────────────────────────
   // Assertions
   // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Assert that a backup exists for a source/skill.
+   */
+  async assertBackupExists(sourceName: string, skillName: string): Promise<void> {
+    const backupPath = join(this.syncskillDir, 'backups', sourceName, skillName);
+    try {
+      await access(backupPath);
+    } catch {
+      throw new Error(
+        `Expected backup to exist for source "${sourceName}" skill "${skillName}" ` +
+          `at path: ${backupPath}`
+      );
+    }
+  }
+
+  /**
+   * Assert that a symlink points to the expected target.
+   */
+  async assertSymlinkTarget(
+    skill: string,
+    agent: string,
+    expectedTarget: string
+  ): Promise<void> {
+    const agentSkillsPath = this.getAgentSkillsPath(agent);
+    const skillLinkPath = join(agentSkillsPath, skill);
+
+    const stats = await lstat(skillLinkPath);
+    if (!stats.isSymbolicLink()) {
+      throw new Error(
+        `Expected "${skill}" in agent "${agent}" to be a symlink, but it is not`
+      );
+    }
+
+    const actualTarget = await readlink(skillLinkPath);
+    if (actualTarget !== expectedTarget) {
+      throw new Error(
+        `Expected symlink "${skill}" in agent "${agent}" to point to:\n` +
+          `  ${expectedTarget}\n` +
+          `But it points to:\n` +
+          `  ${actualTarget}`
+      );
+    }
+  }
 
   /**
    * Assert that a file exists.
@@ -545,6 +598,30 @@ export class E2EContext {
           `But found:\n${content}`
       );
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Stale directory helpers
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Create a stale git checkout in sources directory.
+   */
+  async createStaleGitDir(name: string, wrongUrl: string): Promise<string> {
+    const { createStaleGitCheckout } = await import('./fixtures/stale.js');
+    const sourcesDir = join(this.syncskillDir, 'sources');
+    await mkdir(sourcesDir, { recursive: true });
+    return createStaleGitCheckout(sourcesDir, name, wrongUrl);
+  }
+
+  /**
+   * Create a stale non-git directory in sources directory.
+   */
+  async createStaleNonGitDir(name: string): Promise<string> {
+    const { createStaleNonGitDir } = await import('./fixtures/stale.js');
+    const sourcesDir = join(this.syncskillDir, 'sources');
+    await mkdir(sourcesDir, { recursive: true });
+    return createStaleNonGitDir(sourcesDir, name);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
