@@ -22,10 +22,10 @@ describe('package metadata', () => {
     expect(packageJson.private).not.toBe(true);
     expect(packageJson.description).toBe('Multi-device AI Agent Skill sync tool');
     expect(packageJson.bin?.syncskill).toBe('dist/index.js');
-    expect(packageJson.scripts?.test).toBe('vitest run tests/unit');
+    expect(packageJson.scripts?.test).toBe('vitest run tests/unit tests/integration');
     expect(packageJson.scripts?.['test:unit']).toBe('vitest run tests/unit');
     expect(packageJson.scripts?.['test:integration']).toBe('vitest run tests/integration');
-    expect(packageJson.scripts?.['test:end2end']).toBe('vitest run tests/end2end');
+    expect(packageJson.scripts?.['test:e2e']).toBe("vitest run tests/end2end/cases --exclude '**/network/**'");
     expect(packageJson.scripts?.['test:watch']).toBe('vitest');
   });
 

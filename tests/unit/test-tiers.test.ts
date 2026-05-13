@@ -12,10 +12,10 @@ describe('test tier layout', () => {
       scripts: Record<string, string>;
     };
 
-    expect(packageJson.scripts.test).toBe('vitest run tests/unit');
+    expect(packageJson.scripts.test).toBe('vitest run tests/unit tests/integration');
     expect(packageJson.scripts['test:unit']).toBe('vitest run tests/unit');
     expect(packageJson.scripts['test:integration']).toBe('vitest run tests/integration');
-    expect(packageJson.scripts['test:end2end']).toBe('vitest run tests/end2end');
+    expect(packageJson.scripts['test:e2e']).toBe("vitest run tests/end2end/cases --exclude '**/network/**'");
 
     await expect(readFile(join(rootDir, 'tests', 'unit', 'README.md'), 'utf8')).resolves.toContain('default required pass gate');
     await expect(readFile(join(rootDir, 'tests', 'integration', 'README.md'), 'utf8')).resolves.toContain(
