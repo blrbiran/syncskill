@@ -9,7 +9,7 @@
 
 **设计约束**：
 - 兼容 Node 20+
-- 运行时依赖 `yaml` + `commander` + `@inquirer/prompts` + `@inquirer/core` + `compressing` 五个 npm 包，其余全部 Node 原生 API
+- 运行时依赖 `yaml` + `commander` + `@inquirer/prompts` + `compressing` 四个 npm 包（`@inquirer/core` 通过 `@inquirer/prompts` 间接引入），其余全部 Node 原生 API
 - ESM 优先，远程 receiver 脚本也用 `.mjs`（Node 20+ 原生运行）
 - Hash 算法与 Python 版本完全兼容（MD5 + sorted 文件遍历）
 - 跨平台：macOS / Linux / Windows
@@ -50,7 +50,7 @@ syncskill/
     │   └── matrix-editor.ts       # 二维矩阵编辑器组件 (@inquirer/core createPrompt)
     ├── core/
     │   ├── manifest.ts            # MD5 hash + manifest 读写/比较
-    │   ├── sync_engine.ts         # push/pull/relay 核心流程
+    │   ├── sync_engine.ts         # push/pull/sync 核心流程
     │   ├── transport.ts           # SSH/rsync 传输 + 降级
     │   ├── conflict.ts            # 三路冲突检测与解决
     │   ├── server.ts              # 服务器配置格式化输出
@@ -83,6 +83,7 @@ syncskill/
 
 **通用设计原则**：
 
+- **CLI 输出只显示变化**：命令执行后只输出实际发生变化的条目（新增、删除、错误等），不输出未变化的条目（如 already-linked）。如果完全没有变化，输出一条简短的汇总消息（如 `All links are up to date.`）。`--dry-run` 模式同样遵循此原则，显示"将要变化"的条目。
 - **别名命令复用核心逻辑**：当一个命令是另一个命令的别名或组合（如 `install` = `source add` + `auto-link`），禁止重新实现持久化逻辑，必须复用核心命令的写入路径。这确保核心逻辑发生变更时，所有入口点自动获得修复。
 - **Skill/Source 变更的不变量**：所有会改变 skill 或 source 状态的入口点（`install`、`source add`、`source update`、`scan`）都必须保证以下三个副作用完整执行：
   1. config.sources 持久化（新增/修改 source 条目）
@@ -112,12 +113,12 @@ syncskill/
 | 命令 | 说明 |
 |------|------|
 | `link` | 进入 skills × agents 矩阵编辑器 |
-| `link <skill>` | 链接指定 skill 到配置的 agents |
-| `link --all` | 链接所有已配置的 skills |
+| `link <skill>` | 链接指定 skill 到配置的 agents，并清理该 skill 在其他 agent 中的 stale 链接（reconcile） |
+| `link --all` | 链接所有已配置的 skills，并清理所有 stale 的 syncskill 管理的软链接（reconcile） |
 | `link list` / `link ls` / `link --list` | 显示链接状态矩阵 |
 | `link -v/--verbose` | 与 `list` 组合使用，显示文字状态而非符号 |
 | `link --dry-run` | 预览链接操作 |
-| `unlink <skill> [-y/--yes] [--dry-run]` | 删除 skill 的软链接 |
+| `unlink <skill> [-y/--yes] [--dry-run]` | 显式删除 skill 在所有 agent 中的软链接（与 reconcile 的区别：unlink 是用户主动删除，reconcile 是根据 config 状态自动同步） |
 
 注：当存在与 `list` 同名的 skill 时，优先匹配 skill，此时需使用 `link --list` 查看状态。
 
@@ -128,7 +129,7 @@ syncskill/
 | `source add <url-or-path>` | 添加外部来源（支持 GitHub URL、本地压缩包文件） |
 | `source list` / `source ls` | 列出来源 |
 | `source update [name] [--all] [--force]` | 更新指定来源（仅 git/http 有 URL 的），无参数交互式选择 |
-| `source remove <name> [--force]` | 移除外部来源（交互式选择处理方式） |
+| `source remove <name> [--force]` | 移除外部来源（交互式选择处理方式；`--force` 直接 Remove completely: config + files + links） |
 
 `source add` 完整参数：
 - `--name <name>`：指定 source 名称（默认从 URL 推断）
@@ -449,6 +450,81 @@ All skills from "examples/skill-a" are already included in source "my-skills".
 3. `fs.cp(source, target, { recursive: true })` — 拷贝（带警告）
 
 支持：创建链接、状态检查、删除、扫描（walk 目录发现新 skill）。
+
+**Stale Link Reconcile**：
+
+`link <skill>` 和 `link --all` 除了创建/确认 `config.links` 中声明的链接外，还必须清理 stale 的 syncskill 管理的软链接。当用户通过矩阵编辑器将某个 skill 从 `["*"]` 改为 `["claude"]` 后，其他 agent 目录中残留的旧链接应被自动清理。
+
+- `link <skill>`：reconcile 该 skill 在所有 agent 目录中的链接状态
+- `link --all`：reconcile 所有 skill 在所有 agent 目录中的链接状态
+
+清理规则：
+1. 遍历所有 `config.agents` 目录，检查指定 skill（或所有 skill）是否存在需要清理的 stale 链接
+2. **仅清理 syncskill 管理的软链接**：symlink target 能被 `resolveSkillPath()` 解析到（指向 `~/.syncskill/skills/` 或 `config.sources` 中的路径）
+3. **不清理实体目录**：非 symlink 的真实目录不动，可能是用户手动放置的
+4. **不清理非 syncskill 管理的链接**：symlink target 不在 syncskill 管理范围内的不动
+5. 一个 symlink 是 stale 的条件：skill 名在 `config.links` 中存在但该 agent 不在其展开后的目标列表中，或 skill 名不在 `config.links` 中（已完全移除）
+
+`reconcileStaleLinks()` 函数签名：
+
+```typescript
+interface ReconcileResult {
+  removed: string[];   // 被清理的路径
+  skipped: string[];   // 跳过的（非 syncskill 管理）
+  errors: string[];    // 清理失败的
+}
+
+function reconcileStaleLinks(
+  skillNames: string[],
+  config: SyncSkillConfig
+): ReconcileResult;
+```
+
+**Reconcile 交互行为**：
+
+当有需要清理的链接时，显示并等待用户确认：
+
+- **默认（交互模式）**：列出将要清理的链接，等待确认 `[Y/n]`
+- **`-y/--yes`**：显示摘要，自动确认
+- **`--dry-run`**：只显示，不执行也不询问
+
+**输出示例（单个 skill）**：
+
+```bash
+$ syncskill link my-skill
+
+✓ Linked my-skill to: claude
+
+Remove my-skill from hermes, qoder? (no longer in config) [Y/n] y
+✓ Removed
+```
+
+**输出示例（批量操作，按 source-skill 分组）**：
+
+```bash
+$ syncskill link --all
+
+✓ Linked 5 skills
+
+Links to remove (no longer in config):
+  my-repo:
+    skill-a: hermes, qoder
+    skill-b: qoder
+  manual:
+    local-tool: hermes
+
+Remove 4 links? [Y/n] y
+✓ Removed 4 links
+```
+
+**使用 `-y` 时**：
+
+```bash
+$ syncskill link --all -y
+
+✓ Linked 5 skills
+✓ Removed 4 links (skill-a, skill-b, local-tool)
+```
 
 ### 3.7 `manifest.ts` — Hash 计算与 Manifest
 
@@ -952,9 +1028,11 @@ Removing source "my-skill" (type: git)
 Choose action:
   1. Convert to local source (keep files, no more git)
   2. Remove config only (keep files, becomes manual)
-  3. Remove completely (config + files)
+  3. Remove completely (config + files + links)
   [disabled] 4. ... (only for HTTP type)
 ```
+
+选项 3 "Remove completely" 的链接清理复用 `reconcileStaleLinks()` 逻辑，确保行为一致。
 
 **Skills 注册表（`skills-registry.json`）**：
 
@@ -1299,14 +1377,13 @@ Phase 3: RECONCILE (远程 receiver)
   "scripts": {
     "build": "tsc && shx cp -r skills dist/",
     "dev": "tsx src/index.ts",
-    "test": "vitest",
+    "test": "vitest run",
     "bootstrap": "npm install && npm run build"
   },
   "dependencies": {
     "commander": "^12.x",
     "yaml": "^2.x",
     "@inquirer/prompts": "^8.x",
-    "@inquirer/core": "^10.x",
     "compressing": "^2.x"
   },
   "devDependencies": {
