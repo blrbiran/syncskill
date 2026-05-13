@@ -21,3 +21,8 @@ Documentation for the syncskill CLI tool.
 ## Specifications
 
 - [Design Spec](superpowers/specs/syncskill-design.md) - Full implementation specification (Chinese)
+- [E2E Test Design](superpowers/specs/e2e-test-design.md) - End-to-End test framework specification (Chinese)
+
+## Testing
+
+- [E2E Test Guide](e2e-test-guide.md) - How to write E2E tests for syncskill

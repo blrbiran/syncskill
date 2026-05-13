@@ -3,6 +3,9 @@
 > 更新日期：2026-05-11
 > 状态：草稿
 
+**相关文档**：
+- [E2E 测试框架设计](e2e-test-design.md) — End-to-End 测试框架规范
+
 ## 1. 概述
 
 `syncskill` AI Agent Skills 同步工具。核心用途：管理多 AI Agent（Claude/Hermes/Qoder 等）的 Skill 文件，在本地开发机和远程服务器之间双向同步。
