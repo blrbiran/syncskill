@@ -36,14 +36,8 @@
 - `README.md` — Project documentation (~296 tok)
 - `usage-guide.md` — Usage Guide (~2710 tok)
 
-## docs/superpowers/plans/
-
-- `2026-05-13-e2e-test-cases.md` — E2E Test Cases Implementation Plan (~10618 tok)
-- `2026-05-13-e2e-test-framework.md` — E2E Test Framework Implementation Plan (~19068 tok)
-
 ## docs/superpowers/specs/
 
-- `2026-05-13-e2e-test-cases-design.md` — E2E 测试用例设计 (~1935 tok)
 - `e2e-test-design.md` — E2E 测试框架设计 (~4850 tok)
 - `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~12957 tok)
 

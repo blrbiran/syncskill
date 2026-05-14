@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -209,12 +210,32 @@ export async function probeServerAccess(
   }
 }
 
-export async function deployReceiver(server: ConfiguredServer, runtime: TransportRuntime): Promise<void> {
-  const bootstrap = await readFile(new URL('../receiver/bootstrap_remote.sh', import.meta.url), 'utf8');
-  const receiver = await readFile(new URL('../receiver/sync_receiver.mjs', import.meta.url), 'utf8');
+export async function receiverNeedsUpdate(server: ConfiguredServer, runtime: TransportRuntime): Promise<boolean> {
+  const receiverContent = await readFile(new URL('../receiver/sync_receiver.mjs', import.meta.url), 'utf8');
+  const localHash = createHash('md5').update(receiverContent).digest('hex');
 
-  await runtime.exec('ssh', buildSshArgs(server, ['sh', '-s']), { stdin: bootstrap });
-  await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${REMOTE_RECEIVER}`]), { stdin: receiver });
+  try {
+    const result = await runtime.exec('ssh', buildSshArgs(server, ['md5sum', REMOTE_RECEIVER]));
+    const remoteHash = result.stdout.split(/\s+/)[0];
+    return localHash !== remoteHash;
+  } catch {
+    // Remote file doesn't exist or md5sum failed
+    return true;
+  }
+}
+
+export async function deployReceiver(server: ConfiguredServer, runtime: TransportRuntime): Promise<void> {
+  const needsUpdate = await receiverNeedsUpdate(server, runtime);
+
+  if (needsUpdate) {
+    const bootstrap = await readFile(new URL('../receiver/bootstrap_remote.sh', import.meta.url), 'utf8');
+    const receiver = await readFile(new URL('../receiver/sync_receiver.mjs', import.meta.url), 'utf8');
+
+    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-s']), { stdin: bootstrap });
+    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${REMOTE_RECEIVER}`]), { stdin: receiver });
+  }
+
+  // Always push config (remote_agents may change)
   await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${REMOTE_ROOT}/receiver_config.json`]), {
     stdin: `${JSON.stringify({ remote_agents: server.remote_agents }, null, 2)}\n`
   });

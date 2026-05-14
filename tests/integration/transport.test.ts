@@ -496,8 +496,9 @@ describe('transport', () => {
     const runtime = createRuntime();
     runtime.exec = vi
       .fn<TransportRuntime['exec']>()
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockRejectedValueOnce(new Error('receiver bootstrap failed'));
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // ssh true (transport)
+      .mockRejectedValueOnce(new Error('file not found')) // md5sum (receiverNeedsUpdate returns true)
+      .mockRejectedValueOnce(new Error('receiver bootstrap failed')); // bootstrap fails
 
     await expect(
       probeServerAccess(
@@ -520,11 +521,12 @@ describe('transport', () => {
     const runtime = createRuntime();
     runtime.exec = vi
       .fn<TransportRuntime['exec']>()
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-      .mockRejectedValueOnce(new Error('manifest unreadable'));
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // ssh true (transport)
+      .mockRejectedValueOnce(new Error('file not found')) // md5sum (receiverNeedsUpdate returns true)
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // bootstrap
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // receiver upload
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // config upload
+      .mockRejectedValueOnce(new Error('manifest unreadable')); // manifest read fails
 
     await expect(
       probeServerAccess(
