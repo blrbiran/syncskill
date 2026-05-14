@@ -218,6 +218,24 @@ Phase 3: RECONCILE (remote receiver)
   └─ Fetch final manifest for confirmation
 ```
 
+## Push Flow
+
+The push operation follows these steps:
+
+1. **Receiver deployment** (hash-based): Compare local `sync_receiver.mjs` MD5 hash with remote. Only redeploy if hash differs or file missing.
+2. **Push receiver config**: Always push `receiver_config.json` (remote_agents may change).
+3. **Compute local hashes**: Calculate MD5 for each skill directory.
+4. **Fetch remote manifest**: Get current remote state.
+5. **Compute delta**: Compare using 3-field model (local_hash, remote_hash, recorded_hash).
+6. **Detect conflicts**: Mark skills where both local and remote changed.
+7. **Warn about remote changes**: Print warning for skills with direction=pull. No implicit pull.
+8. **Safety net** (--no-refresh only): Verify remote skills directory. Force push for skills marked "skip" but missing remotely.
+9. **Push skills**: rsync each skill marked for push.
+10. **Remote cleanup**: Identify remote skills not in local config. Prompt for confirmation before deletion (unless -y/--yes).
+11. **Update manifest**: Set `remote_hash=local_hash, recorded_hash=local_hash` for pushed skills.
+12. **Push manifest**: Send updated manifest to remote.
+13. **Apply**: Execute `sync_receiver.mjs apply` to create/clean agent symlinks.
+
 ## Cross-Platform Strategy
 
 | Scenario | Strategy |
