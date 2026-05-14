@@ -293,6 +293,39 @@ The `skills-registry.json` file tracks the origin and status of all skills:
 }
 ```
 
+## Manifest Format (3-field model)
+
+Each server manifest (`~/.syncskill/manifests/<server>.json`) tracks sync state:
+
+```json
+{
+  "version": 1,
+  "server": "server-name",
+  "updated_at": "2026-05-15T00:00:00Z",
+  "skills": {
+    "skill-name": {
+      "local_hash": "abc123...",
+      "remote_hash": "def456...",
+      "recorded_hash": "abc123...",
+      "direction": "push",
+      "status": "in-sync"
+    }
+  }
+}
+```
+
+**3-field model explanation:**
+- `local_hash`: Current local file hash (recomputed on each refresh)
+- `remote_hash`: Last known remote hash (fetched from remote manifest)
+- `recorded_hash`: Baseline hash from last sync point (set after push/pull completes)
+
+The `recorded_hash` serves as a 3-way merge base:
+- `local_hash ≠ recorded_hash` → Local changed since last sync
+- `remote_hash ≠ recorded_hash` → Remote changed since last sync
+- Both differ → Conflict
+
+This design handles external operations (like `git checkout`) correctly: even if local files are reverted, `recorded_hash` remains unchanged, so the system detects the local change.
+
 ## Install from Source
 
 To install from source during local development:
