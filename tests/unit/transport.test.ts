@@ -139,4 +139,23 @@ describe('deleteRemoteSkills', () => {
     await deleteRemoteSkills(mockServer, [], runtime);
     expect(runtime.calls?.length).toBe(0);
   });
+
+  it('throws on invalid skill names', async () => {
+    const runtime: TransportRuntime = {
+      calls: [],
+      async exec(file, args) {
+        this.calls?.push({ file, args });
+        return { stdout: '', stderr: '' };
+      }
+    };
+
+    await expect(deleteRemoteSkills(mockServer, ['valid', '; rm -rf /'], runtime))
+      .rejects.toThrow('Invalid skill name');
+
+    await expect(deleteRemoteSkills(mockServer, ['$(whoami)'], runtime))
+      .rejects.toThrow('Invalid skill name');
+
+    // Verify no SSH calls were made
+    expect(runtime.calls?.length).toBe(0);
+  });
 });

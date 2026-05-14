@@ -18,6 +18,8 @@ const REMOTE_ROOT = '~/.syncskill';
 const REMOTE_RECEIVER = `${REMOTE_ROOT}/sync_receiver.mjs`;
 const REMOTE_SKILLS_DIR = `${REMOTE_ROOT}/skills`;
 
+const SAFE_SKILL_NAME = /^[a-zA-Z0-9_-]+$/;
+
 export interface TransportRuntime {
   calls?: Array<{ file: string; args: string[]; stdin?: string }>;
   exec(file: string, args: string[], options?: { stdin?: string }): Promise<{ stdout: string; stderr: string }>;
@@ -262,6 +264,12 @@ export async function deleteRemoteSkills(
 ): Promise<void> {
   if (skills.length === 0) {
     return;
+  }
+
+  for (const skill of skills) {
+    if (!SAFE_SKILL_NAME.test(skill)) {
+      throw new Error(`Invalid skill name: ${skill}`);
+    }
   }
 
   const paths = skills.map(skill => `${REMOTE_SKILLS_DIR}/${skill}`);
