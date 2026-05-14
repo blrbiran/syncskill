@@ -17,10 +17,13 @@ import {
   type ManifestHistoryEntry,
   type ServerManifest
 } from './manifest.js';
+import { confirm } from '@inquirer/prompts';
 import {
   createTransportRuntime,
+  deleteRemoteSkills,
   deployReceiver,
   fetchRemoteManifest,
+  listRemoteSkills,
   pullSkillDirectory,
   pushManifest,
   pushSkillDirectory,
@@ -31,6 +34,8 @@ export interface SyncEngineOptions {
   runtime?: TransportRuntime;
   now?: string;
   dryRun?: boolean;
+  noRefresh?: boolean;
+  yes?: boolean;
 }
 
 async function collectLocalFileList(dir: string): Promise<string[]> {
@@ -101,6 +106,42 @@ export async function pushToServers(homeDir: string, servers?: string[], options
     const manifest = applyConflictPolicy(updated.manifest, config.conflict_resolution, updated.updatedAt);
     const conflictedSkills = listSkillsByDirection(manifest, 'conflict');
     const pushedSkills = listSkillsByDirection(manifest, 'push');
+    const pullSkills = listSkillsByDirection(manifest, 'pull');
+
+    // Print warnings for skills that have remote changes
+    for (const skill of pullSkills) {
+      console.log(`  Skipping ${skill}: remote has changes. Use \`syncskill pull\` to update local.`);
+    }
+
+    // Safety net: verify remote skills exist when --no-refresh is used
+    let finalPushedSkills = pushedSkills;
+    let remoteSkillListForCleanup: string[] | null = null;
+    if (options.noRefresh) {
+      const remoteSkillList = await listRemoteSkills(server, runtime);
+      remoteSkillListForCleanup = remoteSkillList;
+      const remoteSkillSet = new Set(remoteSkillList);
+
+      // Find skills marked as skip but missing remotely
+      const skipSkills = listSkillsByDirection(manifest, 'skip');
+      const missingRemotely = skipSkills.filter(skill =>
+        manifest.skills[skill]?.local_hash !== null && !remoteSkillSet.has(skill)
+      );
+
+      if (missingRemotely.length > 0) {
+        console.log(`  Safety net: ${missingRemotely.length} skill(s) missing remotely, forcing push`);
+        // Force these to push by treating them as new local-only skills
+        for (const skill of missingRemotely) {
+          if (manifest.skills[skill]) {
+            // Set remote_hash and recorded_hash to null to force push direction on reconciliation
+            // This makes reconcileManifest see it as a new local-only skill (push, status: new)
+            manifest.skills[skill].remote_hash = null;
+            manifest.skills[skill].recorded_hash = null;
+          }
+        }
+        // Re-compute pushed skills list after safety net (reconcileManifest will now see local-only)
+        finalPushedSkills = listSkillsByDirection(manifest, 'push');
+      }
+    }
 
     // Dry-run mode: show what would happen without executing
     if (options.dryRun) {
@@ -110,7 +151,7 @@ export async function pushToServers(homeDir: string, servers?: string[], options
       let totalModified = 0;
       let totalDeleted = 0;
 
-      for (const skill of pushedSkills) {
+      for (const skill of finalPushedSkills) {
         const state = manifest.skills[skill];
         const isNew = state.local_hash && !state.remote_hash;
         const isDelete = !state.local_hash && state.remote_hash;
@@ -131,7 +172,7 @@ export async function pushToServers(homeDir: string, servers?: string[], options
         console.log(`  ! ${skill} (conflict)`);
       }
 
-      if (pushedSkills.length === 0 && conflictedSkills.length === 0) {
+      if (finalPushedSkills.length === 0 && conflictedSkills.length === 0) {
         console.log('  (no changes)');
       } else {
         // Summary line
@@ -141,7 +182,7 @@ export async function pushToServers(homeDir: string, servers?: string[], options
         if (totalDeleted > 0) parts.push(`${totalDeleted} deleted`);
         if (conflictedSkills.length > 0) parts.push(`${conflictedSkills.length} conflict(s)`);
 
-        const skillCount = pushedSkills.length + conflictedSkills.length;
+        const skillCount = finalPushedSkills.length + conflictedSkills.length;
         console.log(`\nSummary: ${skillCount} skill(s), ${parts.join(', ')}`);
       }
 
@@ -149,24 +190,69 @@ export async function pushToServers(homeDir: string, servers?: string[], options
       results.push({
         server: serverName,
         pushed_skills: [],
-        skipped_skills: [...pushedSkills, ...listSkillsByDirection(manifest, 'skip')],
+        skipped_skills: [...finalPushedSkills, ...listSkillsByDirection(manifest, 'skip')],
         conflicted_skills: conflictedSkills,
         manifest
       });
       continue;
     }
 
-    for (const skill of pushedSkills) {
+    for (const skill of finalPushedSkills) {
       await pushSkillDirectory(server, join(getSkillsDir(homeDir), skill), skill, runtime);
     }
 
-    const finalizedManifest = finalizeDeletedSkills(finalizePushedSkills(manifest, pushedSkills, updated.updatedAt), pushedSkills, updated.updatedAt);
+    // Cleanup: remove remote skills not in current local config
+    const remoteSkillsForCleanup = remoteSkillListForCleanup ?? await listRemoteSkills(server, runtime);
+
+    // Local skills that have content (not deleted)
+    const localSkillSet = new Set(
+      Object.keys(manifest.skills).filter(skill => manifest.skills[skill]?.local_hash !== null)
+    );
+
+    // Remote skills not in local config
+    const orphanSkills = remoteSkillsForCleanup.filter(skill => !localSkillSet.has(skill));
+
+    if (orphanSkills.length > 0 && !options.dryRun) {
+      console.log(`\nRemote skills to remove (no longer in local config):`);
+      for (const skill of orphanSkills) {
+        console.log(`  - ${skill}`);
+      }
+
+      let shouldDelete = false;
+      if (options.yes === true) {
+        // --yes flag: auto-confirm deletion
+        shouldDelete = true;
+      } else if (options.yes === false) {
+        // Explicit yes=false: skip without prompting (for tests/scripts)
+        shouldDelete = false;
+      } else {
+        // undefined: prompt interactively
+        try {
+          shouldDelete = await confirm({
+            message: `Remove ${orphanSkills.length} remote skill(s)?`,
+            default: false
+          });
+        } catch {
+          // User cancelled or non-interactive
+          shouldDelete = false;
+        }
+      }
+
+      if (shouldDelete) {
+        await deleteRemoteSkills(server, orphanSkills, runtime);
+        console.log(`  Removed ${orphanSkills.length} remote skill(s)`);
+      } else {
+        console.log(`  Skipped remote cleanup`);
+      }
+    }
+
+    const finalizedManifest = finalizeDeletedSkills(finalizePushedSkills(manifest, finalPushedSkills, updated.updatedAt), finalPushedSkills, updated.updatedAt);
     await pushManifest(server, finalizedManifest, runtime);
     await persistManifestState(homeDir, updated.previousManifest, finalizedManifest, updated.updatedAt);
 
     results.push({
       server: server.name,
-      pushed_skills: pushedSkills,
+      pushed_skills: finalPushedSkills,
       skipped_skills: listSkillsByDirection(finalizedManifest, 'skip'),
       conflicted_skills: conflictedSkills,
       manifest: finalizedManifest

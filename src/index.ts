@@ -1117,7 +1117,11 @@ export function createProgram(homeDir?: string): Command {
       const targetServers = await selectTargetServers(allServers, server, options, 'push');
       if (!targetServers) return;
 
-      const results = await pushToServers(resolvedHomeDir, targetServers, { dryRun: options.dryRun });
+      const results = await pushToServers(resolvedHomeDir, targetServers, {
+        dryRun: options.dryRun,
+        noRefresh: !program.opts<{ refresh: boolean }>().refresh,
+        yes: options.yes
+      });
 
       for (const result of results) {
         for (const line of formatSkillRows('push', result)) {

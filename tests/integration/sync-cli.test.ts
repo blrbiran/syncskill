@@ -59,7 +59,7 @@ describe('sync CLI', () => {
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', 'alpha'], { from: 'node' });
 
-    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], { dryRun: undefined });
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], { dryRun: undefined, noRefresh: true, yes: undefined });
     expect(consoleLog.mock.calls).toEqual([
       ['welcome\talpha\tpush\tin-sync'],
       ['docs\talpha\tpush\tin-sync']
@@ -346,7 +346,7 @@ describe('sync CLI', () => {
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', '-y'], { from: 'node' });
 
     // -y flag should push to all servers without prompting
-    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], { dryRun: undefined });
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], { dryRun: undefined, noRefresh: true, yes: true });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpush\tin-sync'],
       ['skill-b\tbeta\tpush\tin-sync']
@@ -393,7 +393,7 @@ describe('sync CLI', () => {
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', '-y', '--dry-run'], { from: 'node' });
 
     // --dry-run should call pushToServers with dryRun: true
-    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], { dryRun: true });
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], { dryRun: true, noRefresh: true, yes: true });
   });
 
   it('push with single server configured does not prompt', async () => {
@@ -428,7 +428,7 @@ describe('sync CLI', () => {
     // No -y flag, but only one server configured - should not prompt
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push'], { from: 'node' });
 
-    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], { dryRun: undefined });
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], { dryRun: undefined, noRefresh: true, yes: undefined });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpush\tin-sync']
     ]);

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config/config.js';
@@ -408,5 +408,457 @@ describe('sync engine orchestration', () => {
     expect(manifest.skills.welcome.direction).toBe('skip');
     expect(manifest.skills.welcome.status).toBe('in-sync');
     expect(manifest.skills.welcome.local_hash).toBe(manifest.skills.welcome.remote_hash);
+  });
+
+  it('pushToServers prints warning for skills with direction=pull', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    // Remote has a skill that local doesn't have (direction=pull scenario)
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        skills: {
+          'remote-only-skill': {
+            local_hash: null,
+            remote_hash: 'remote-hash-123',
+            recorded_hash: null,
+            direction: 'skip',
+            status: 'in-sync'
+          }
+        }
+      })
+    });
+
+    const consoleSpy = vi.spyOn(console, 'log');
+
+    const [result] = await pushToServers(homeDir, ['alpha'], {
+      runtime,
+      now: '2026-05-01T06:00:00.000Z'
+    });
+
+    // Verify warning was printed for the pull-direction skill
+    const calls = consoleSpy.mock.calls.map((c) => c[0]);
+    const hasWarning = calls.some(
+      (c) => typeof c === 'string' && c.includes('Skipping remote-only-skill') && c.includes('remote has changes')
+    );
+    expect(hasWarning).toBe(true);
+
+    consoleSpy.mockRestore();
+
+    // The skill should not be in pushed_skills (it has direction=pull)
+    expect(result.pushed_skills).toEqual([]);
+  });
+
+  describe('pushToServers --no-refresh safety net', () => {
+    it('forces push for skip skills missing remotely when noRefresh=true', async () => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+      tempDirs.push(homeDir);
+
+      await saveConfig(
+        {
+          version: 1,
+          conflict_resolution: 'manual',
+          agents: {},
+          links: {},
+          servers: {
+            alpha: {
+              host: 'alpha.example.com',
+              remote_agents: {}
+            }
+          },
+          sources: {}
+        },
+        homeDir
+      );
+
+      // Create a local skill with known content
+      const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+      // First do a normal push to establish a synced state
+      const initialRuntime = createRuntime({
+        remoteManifest: JSON.stringify({
+          version: 1,
+          server: 'alpha',
+          updated_at: '2026-05-01T00:00:00.000Z',
+          skills: {}
+        })
+      });
+
+      await pushToServers(homeDir, ['alpha'], {
+        runtime: initialRuntime,
+        now: '2026-05-01T06:00:00.000Z'
+      });
+
+      // Now the skill is synced. Simulate a scenario where:
+      // - Manifest says everything is in-sync
+      // - But remote directory doesn't have the skill (e.g., manual deletion)
+      const { loadServerManifest } = await import('../../src/core/manifest.js');
+      const syncedManifest = await loadServerManifest(homeDir, 'alpha');
+      const syncedHash = syncedManifest.skills.welcome.local_hash;
+
+      const safetyNetRuntime = createRuntime({
+        remoteManifest: JSON.stringify({
+          version: 1,
+          server: 'alpha',
+          updated_at: '2026-05-01T06:30:00.000Z',
+          skills: {
+            welcome: {
+              local_hash: null,
+              remote_hash: syncedHash,
+              recorded_hash: syncedHash,
+              direction: 'skip',
+              status: 'in-sync'
+            }
+          }
+        })
+      });
+
+      // Override the ls command to return empty (skill doesn't exist remotely)
+      const originalExec = safetyNetRuntime.exec.bind(safetyNetRuntime);
+      safetyNetRuntime.exec = async (file, args, options) => {
+        if (file === 'ssh' && args.includes('ls')) {
+          return { stdout: '', stderr: '' };
+        }
+        return originalExec(file, args, options);
+      };
+
+      const consoleSpy = vi.spyOn(console, 'log');
+
+      const [result] = await pushToServers(homeDir, ['alpha'], {
+        runtime: safetyNetRuntime,
+        now: '2026-05-01T07:00:00.000Z',
+        noRefresh: true
+      });
+
+      // Verify safety net message was logged
+      const calls = consoleSpy.mock.calls.map((c) => c[0]);
+      const hasSafetyNetMessage = calls.some(
+        (c) => typeof c === 'string' && c.includes('Safety net')
+      );
+      expect(hasSafetyNetMessage).toBe(true);
+
+      consoleSpy.mockRestore();
+
+      // The skill should have been force-pushed because it was missing remotely
+      expect(result.pushed_skills).toContain('welcome');
+    });
+
+    it('does not apply safety net when noRefresh=false (default)', async () => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+      tempDirs.push(homeDir);
+
+      await saveConfig(
+        {
+          version: 1,
+          conflict_resolution: 'manual',
+          agents: {},
+          links: {},
+          servers: {
+            alpha: {
+              host: 'alpha.example.com',
+              remote_agents: {}
+            }
+          },
+          sources: {}
+        },
+        homeDir
+      );
+
+      // Create a local skill
+      const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+      // First do a normal push to establish a synced state
+      const initialRuntime = createRuntime({
+        remoteManifest: JSON.stringify({
+          version: 1,
+          server: 'alpha',
+          updated_at: '2026-05-01T00:00:00.000Z',
+          skills: {}
+        })
+      });
+
+      await pushToServers(homeDir, ['alpha'], {
+        runtime: initialRuntime,
+        now: '2026-05-01T07:00:00.000Z'
+      });
+
+      // Now get the synced hash
+      const { loadServerManifest } = await import('../../src/core/manifest.js');
+      const syncedManifest = await loadServerManifest(homeDir, 'alpha');
+      const syncedHash = syncedManifest.skills.welcome.local_hash;
+
+      // Runtime returns manifest showing skill as in-sync
+      const runtime = createRuntime({
+        remoteManifest: JSON.stringify({
+          version: 1,
+          server: 'alpha',
+          updated_at: '2026-05-01T07:30:00.000Z',
+          skills: {
+            welcome: {
+              local_hash: null,
+              remote_hash: syncedHash,
+              recorded_hash: syncedHash,
+              direction: 'skip',
+              status: 'in-sync'
+            }
+          }
+        })
+      });
+
+      const consoleSpy = vi.spyOn(console, 'log');
+
+      const [result] = await pushToServers(homeDir, ['alpha'], {
+        runtime,
+        now: '2026-05-01T08:00:00.000Z'
+        // noRefresh is not set (defaults to false/undefined)
+      });
+
+      // Verify safety net message was NOT logged
+      const calls = consoleSpy.mock.calls.map((c) => c[0]);
+      const hasSafetyNetMessage = calls.some(
+        (c) => typeof c === 'string' && c.includes('Safety net')
+      );
+      expect(hasSafetyNetMessage).toBe(false);
+
+      consoleSpy.mockRestore();
+
+      // Without noRefresh, the skill stays as skip (in-sync)
+      expect(result.pushed_skills).not.toContain('welcome');
+    });
+  });
+
+  describe('pushToServers remote cleanup', () => {
+    it('identifies and lists orphan remote skills without deleting when yes=false', async () => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+      tempDirs.push(homeDir);
+
+      await saveConfig(
+        {
+          version: 1,
+          conflict_resolution: 'manual',
+          agents: {},
+          links: {},
+          servers: {
+            alpha: {
+              host: 'alpha.example.com',
+              remote_agents: {}
+            }
+          },
+          sources: {}
+        },
+        homeDir
+      );
+
+      // Create a local skill
+      const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+      // Remote has "welcome" plus an orphan skill "old-skill"
+      const runtime = createRuntime({
+        remoteManifest: JSON.stringify({
+          version: 1,
+          server: 'alpha',
+          updated_at: '2026-05-01T00:00:00.000Z',
+          skills: {}
+        })
+      });
+
+      // Override ls to return both welcome and old-skill (orphan)
+      const originalExec = runtime.exec.bind(runtime);
+      runtime.exec = async (file, args, options) => {
+        if (file === 'ssh' && args.includes('ls')) {
+          return { stdout: 'welcome\nold-skill\n', stderr: '' };
+        }
+        return originalExec(file, args, options);
+      };
+
+      const consoleSpy = vi.spyOn(console, 'log');
+
+      // Push with yes=false explicitly - should list orphans but not delete
+      // yes=false means skip confirmation (don't prompt), just skip cleanup
+      await pushToServers(homeDir, ['alpha'], {
+        runtime,
+        now: '2026-05-01T09:00:00.000Z',
+        noRefresh: true,
+        yes: false  // Explicit false skips cleanup without prompting
+      });
+
+      const calls = consoleSpy.mock.calls.map((c) => c[0]);
+
+      // Should list the orphan skill
+      const hasOrphanList = calls.some(
+        (c) => typeof c === 'string' && c.includes('old-skill')
+      );
+      expect(hasOrphanList).toBe(true);
+
+      // Should show "Skipped remote cleanup" since yes=false
+      const hasSkippedMessage = calls.some(
+        (c) => typeof c === 'string' && c.includes('Skipped remote cleanup')
+      );
+      expect(hasSkippedMessage).toBe(true);
+
+      // Should NOT have called rm
+      const hasRmCall = runtime.calls.some(
+        (call) => call.file === 'ssh' && call.args.includes('rm')
+      );
+      expect(hasRmCall).toBe(false);
+
+      consoleSpy.mockRestore();
+    });
+
+    it('deletes orphan skills when yes=true', async () => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+      tempDirs.push(homeDir);
+
+      await saveConfig(
+        {
+          version: 1,
+          conflict_resolution: 'manual',
+          agents: {},
+          links: {},
+          servers: {
+            alpha: {
+              host: 'alpha.example.com',
+              remote_agents: {}
+            }
+          },
+          sources: {}
+        },
+        homeDir
+      );
+
+      // Create a local skill
+      const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+      const runtime = createRuntime({
+        remoteManifest: JSON.stringify({
+          version: 1,
+          server: 'alpha',
+          updated_at: '2026-05-01T00:00:00.000Z',
+          skills: {}
+        })
+      });
+
+      // Override ls to return welcome plus orphan skill
+      const originalExec = runtime.exec.bind(runtime);
+      runtime.exec = async (file, args, options) => {
+        if (file === 'ssh' && args.includes('ls')) {
+          return { stdout: 'welcome\norphan-skill\n', stderr: '' };
+        }
+        return originalExec(file, args, options);
+      };
+
+      const consoleSpy = vi.spyOn(console, 'log');
+
+      // Push with yes=true - should delete orphan
+      await pushToServers(homeDir, ['alpha'], {
+        runtime,
+        now: '2026-05-01T10:00:00.000Z',
+        noRefresh: true,
+        yes: true
+      });
+
+      // Should have called rm with the orphan skill
+      const rmCall = runtime.calls.find(
+        (call) => call.file === 'ssh' && call.args.includes('rm')
+      );
+      expect(rmCall).toBeDefined();
+      expect(rmCall?.args).toContain('~/.syncskill/skills/orphan-skill');
+
+      const calls = consoleSpy.mock.calls.map((c) => c[0]);
+      const hasRemovedMessage = calls.some(
+        (c) => typeof c === 'string' && c.includes('Removed') && c.includes('remote skill')
+      );
+      expect(hasRemovedMessage).toBe(true);
+
+      consoleSpy.mockRestore();
+    });
+
+    it('skips cleanup in dry-run mode', async () => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+      tempDirs.push(homeDir);
+
+      await saveConfig(
+        {
+          version: 1,
+          conflict_resolution: 'manual',
+          agents: {},
+          links: {},
+          servers: {
+            alpha: {
+              host: 'alpha.example.com',
+              remote_agents: {}
+            }
+          },
+          sources: {}
+        },
+        homeDir
+      );
+
+      // Create a local skill
+      const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+      const runtime = createRuntime({
+        remoteManifest: JSON.stringify({
+          version: 1,
+          server: 'alpha',
+          updated_at: '2026-05-01T00:00:00.000Z',
+          skills: {}
+        })
+      });
+
+      // Override ls to return orphan skill
+      const originalExec = runtime.exec.bind(runtime);
+      runtime.exec = async (file, args, options) => {
+        if (file === 'ssh' && args.includes('ls')) {
+          return { stdout: 'welcome\norphan-skill\n', stderr: '' };
+        }
+        return originalExec(file, args, options);
+      };
+
+      // Push with dryRun=true and yes=true - should NOT delete
+      await pushToServers(homeDir, ['alpha'], {
+        runtime,
+        now: '2026-05-01T11:00:00.000Z',
+        noRefresh: true,
+        dryRun: true,
+        yes: true
+      });
+
+      // Should NOT have called rm even with yes=true
+      const hasRmCall = runtime.calls.some(
+        (call) => call.file === 'ssh' && call.args.includes('rm')
+      );
+      expect(hasRmCall).toBe(false);
+    });
   });
 });
