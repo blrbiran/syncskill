@@ -115,32 +115,20 @@ export async function pushToServers(homeDir: string, servers?: string[], options
         const isNew = state.local_hash && !state.remote_hash;
         const isDelete = !state.local_hash && state.remote_hash;
 
-        console.log(`  ${skill}:`);
-
         if (isNew) {
-          // New skill: list all local files
-          const skillDir = join(getSkillsDir(homeDir), skill);
-          const files = await collectLocalFileList(skillDir);
-          for (const file of files) {
-            console.log(`    + ${file} (new)`);
-            totalAdded++;
-          }
-          if (files.length === 0) {
-            console.log('    (empty skill)');
-          }
+          console.log(`  + ${skill} (new)`);
+          totalAdded++;
         } else if (isDelete) {
-          console.log('    (skill deleted)');
+          console.log(`  - ${skill} (deleted)`);
           totalDeleted++;
         } else {
-          // Modified skill - we don't have remote file list without fetching
-          console.log('    ~ (modified)');
+          console.log(`  ~ ${skill} (modified)`);
           totalModified++;
         }
       }
 
       for (const skill of conflictedSkills) {
-        console.log(`  ${skill}:`);
-        console.log('    ! (conflict)');
+        console.log(`  ! ${skill} (conflict)`);
       }
 
       if (pushedSkills.length === 0 && conflictedSkills.length === 0) {
@@ -210,33 +198,20 @@ export async function pullFromServer(homeDir: string, serverName: string, option
       const isNew = state.remote_hash && !state.local_hash;
       const isDelete = !state.remote_hash && state.local_hash;
 
-      console.log(`  ${skill}:`);
-
       if (isNew) {
-        // New skill from remote - we don't have remote file list
-        console.log('    + (new skill)');
+        console.log(`  + ${skill} (new)`);
         totalAdded++;
       } else if (isDelete) {
-        // Local skill will be deleted
-        const skillDir = join(getSkillsDir(homeDir), skill);
-        const files = await collectLocalFileList(skillDir);
-        for (const file of files) {
-          console.log(`    - ${file} (deleted)`);
-          totalDeleted++;
-        }
-        if (files.length === 0) {
-          console.log('    (skill deleted)');
-        }
+        console.log(`  - ${skill} (deleted)`);
+        totalDeleted++;
       } else {
-        // Modified skill - we don't have remote file list without fetching
-        console.log('    ~ (modified)');
+        console.log(`  ~ ${skill} (modified)`);
         totalModified++;
       }
     }
 
     for (const skill of conflictedSkills) {
-      console.log(`  ${skill}:`);
-      console.log('    ! (conflict)');
+      console.log(`  ! ${skill} (conflict)`);
     }
 
     if (pulledSkills.length === 0 && conflictedSkills.length === 0) {

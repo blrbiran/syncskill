@@ -1154,21 +1154,20 @@ resolveSkillPullTarget(skillName):
 5. **冲突处理**：遇到冲突的 skill 跳过，继续处理其他 skill
 6. 汇总输出每个 skill 的最终同步状态，冲突的 skill 单独列出并提示用户执行 `resolve` 命令
 
-**--dry-run 输出格式**：
+**--dry-run 输出格式**（skill 级别摘要）：
 
 ```
 [dry-run] push to dev-server:
 
-  skill-one:
-    + file1.md (new)
-    ~ file2.ts (modified)
-    - old-file.js (deleted)
+  + skill-one (new)
+  ~ skill-two (modified)
+  - skill-three (deleted)
+  ! skill-four (conflict)
 
-  skill-two:
-    (no changes)
-
-Summary: 1 skill changed, 2 files added, 1 file modified, 1 file deleted
+Summary: 4 skill(s), 1 added, 1 modified, 1 deleted, 1 conflict(s)
 ```
+
+注：dry-run 显示 skill 级别摘要而非文件级别，避免额外的网络请求开销。
 
 ### 3.10 `transport.ts` — SSH/rsync 传输
 
