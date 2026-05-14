@@ -255,6 +255,19 @@ export async function listRemoteSkills(server: ConfiguredServer, runtime: Transp
   }
 }
 
+export async function deleteRemoteSkills(
+  server: ConfiguredServer,
+  skills: string[],
+  runtime: TransportRuntime
+): Promise<void> {
+  if (skills.length === 0) {
+    return;
+  }
+
+  const paths = skills.map(skill => `${REMOTE_SKILLS_DIR}/${skill}`);
+  await runtime.exec('ssh', buildSshArgs(server, ['rm', '-rf', ...paths]));
+}
+
 export async function fetchRemoteManifest(server: ConfiguredServer, runtime: TransportRuntime): Promise<ServerManifest> {
   const result = await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'manifest']));
   const parsed = JSON.parse(result.stdout || '{}') as Partial<ServerManifest>;

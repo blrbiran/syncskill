@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
-import { listRemoteSkills, receiverNeedsUpdate, type TransportRuntime } from '../../src/core/transport.js';
+import { deleteRemoteSkills, listRemoteSkills, receiverNeedsUpdate, type TransportRuntime } from '../../src/core/transport.js';
 
 const receiverPath = new URL('../../src/receiver/sync_receiver.mjs', import.meta.url).pathname;
 
@@ -104,5 +104,39 @@ describe('listRemoteSkills', () => {
 
     const result = await listRemoteSkills(mockServer, runtime);
     expect(result).toEqual([]);
+  });
+});
+
+describe('deleteRemoteSkills', () => {
+  it('deletes specified skills from remote', async () => {
+    const runtime: TransportRuntime = {
+      calls: [],
+      async exec(file, args) {
+        this.calls?.push({ file, args });
+        return { stdout: '', stderr: '' };
+      }
+    };
+
+    await deleteRemoteSkills(mockServer, ['skill-a', 'skill-b'], runtime);
+
+    const rmCalls = runtime.calls?.filter(c =>
+      c.args.some(a => a === 'rm')
+    ) ?? [];
+    expect(rmCalls.length).toBe(1);
+    expect(rmCalls[0].args.join(' ')).toContain('skill-a');
+    expect(rmCalls[0].args.join(' ')).toContain('skill-b');
+  });
+
+  it('does nothing when skill list is empty', async () => {
+    const runtime: TransportRuntime = {
+      calls: [],
+      async exec(file, args) {
+        this.calls?.push({ file, args });
+        return { stdout: '', stderr: '' };
+      }
+    };
+
+    await deleteRemoteSkills(mockServer, [], runtime);
+    expect(runtime.calls?.length).toBe(0);
   });
 });
