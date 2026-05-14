@@ -228,11 +228,14 @@ Each source entry includes:
 |-------|----------|-------------|
 | `type` | Yes | Source type (`local`, `git`, `http`) |
 | `url` | Varies | Remote URL (required for git/http) |
-| `path` | Yes | Storage path (clone/download target, or local directory path) |
-| `skill_subdir` | No | Subdirectory within source containing skills |
+| `path` | Yes | Subdirectory within checkout containing skills (use `.` for repo root) |
 | `branch` | No | Git branch or tag (git sources only) |
 | `ignore` | No | List of skill names to ignore |
 | `archive_path` | No | Original archive file path (local archives only) |
+
+The `path` field specifies where skills are located within the source:
+- For git/http sources: subdirectory within the checkout (e.g., `skills`, `examples/skills`, or `.` for root)
+- For local sources: the absolute path to the skills directory
 
 Example:
 
@@ -241,9 +244,13 @@ sources:
   vendor-docs:
     type: git
     url: https://github.com/org/vendor-docs.git
-    path: ~/.syncskill/sources/vendor-docs
+    path: skills              # skills are in the 'skills/' subdirectory
     branch: stable
-    skill_subdir: skills
+  repo-root:
+    type: git
+    url: https://github.com/org/skill-repo.git
+    path: .                   # skills are at repo root
+    branch: main
   local-dev:
     type: local
     path: /Users/alice/dev/skills

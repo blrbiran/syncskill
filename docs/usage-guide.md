@@ -174,8 +174,8 @@ Source add options:
 |--------|-------------|
 | `--name <name>` | Source name (defaults to repo/directory name) |
 | `--type <type>` | Source type: `git`, `http`, or `local` |
-| `--path <path>` | Storage path for source files |
-| `--skill-subdir <dir>` | Subdirectory containing skills |
+| `--path <path>` | Subdirectory containing skills (use `.` for repo root) |
+| `--skill-subdir <dir>` | Alias for `--path` |
 | `--branch <branch>` | Git branch or tag |
 | `-y, --yes` | Skip confirmation, select all skills |
 
@@ -215,8 +215,8 @@ Install options:
 | Option | Description |
 |--------|-------------|
 | `--name <name>` | Source name |
-| `--path <path>` | Storage path |
-| `--skill-subdir <dir>` | Subdirectory containing skills |
+| `--path <path>` | Subdirectory containing skills (use `.` for repo root) |
+| `--skill-subdir <dir>` | Alias for `--path` |
 | `--branch <branch>` | Git branch or tag |
 | `-y, --yes` | Skip confirmation prompts |
 

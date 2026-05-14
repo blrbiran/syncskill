@@ -23,7 +23,7 @@ Use this skill when:
 | `install` / `i` | Install syncskill skill itself |
 | `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path (= source add + auto-link) |
 
-Install options: `--name`, `--path`, `--skill-subdir`, `--branch`, `-y`
+Install options: `--name`, `--path` (skill subdirectory), `--skill-subdir` (alias), `--branch`, `-y`
 
 ### Link Management
 
@@ -49,7 +49,7 @@ Install options: `--name`, `--path`, `--skill-subdir`, `--branch`, `-y`
 | `source remove <name> [--force]` | Remove source (interactive or force-remove all) |
 | `update [name] [--all] [--force] [-y]` | Top-level alias for `source update` |
 
-Source add options: `--name`, `--type git|http|local`, `--path`, `--skill-subdir`, `--branch`, `-y`
+Source add options: `--name`, `--type git|http|local`, `--path` (skill subdirectory), `--skill-subdir` (alias), `--branch`, `-y`
 
 ### Scanning
 
