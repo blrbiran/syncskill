@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
-import { receiverNeedsUpdate, type TransportRuntime } from '../../src/core/transport.js';
+import { listRemoteSkills, receiverNeedsUpdate, type TransportRuntime } from '../../src/core/transport.js';
 
 const receiverPath = new URL('../../src/receiver/sync_receiver.mjs', import.meta.url).pathname;
 
@@ -64,5 +64,45 @@ describe('receiverNeedsUpdate', () => {
     const result = await receiverNeedsUpdate(testServer, runtime);
 
     expect(result).toBe(false);
+  });
+});
+
+const mockServer = {
+  name: 'mock-server',
+  host: 'mock.example.com',
+  user: 'mockuser'
+};
+
+describe('listRemoteSkills', () => {
+  it('returns skill names from remote skills directory', async () => {
+    const runtime: TransportRuntime = {
+      calls: [],
+      async exec(file, args) {
+        this.calls?.push({ file, args });
+        if (args.some(a => a === 'ls')) {
+          return { stdout: 'skill-a\nskill-b\nskill-c\n', stderr: '' };
+        }
+        return { stdout: '', stderr: '' };
+      }
+    };
+
+    const result = await listRemoteSkills(mockServer, runtime);
+    expect(result).toEqual(['skill-a', 'skill-b', 'skill-c']);
+  });
+
+  it('returns empty array when directory is empty or missing', async () => {
+    const runtime: TransportRuntime = {
+      calls: [],
+      async exec(file, args) {
+        this.calls?.push({ file, args });
+        if (args.some(a => a === 'ls')) {
+          throw new Error('No such file or directory');
+        }
+        return { stdout: '', stderr: '' };
+      }
+    };
+
+    const result = await listRemoteSkills(mockServer, runtime);
+    expect(result).toEqual([]);
   });
 });

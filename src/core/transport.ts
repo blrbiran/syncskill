@@ -241,6 +241,20 @@ export async function deployReceiver(server: ConfiguredServer, runtime: Transpor
   });
 }
 
+export async function listRemoteSkills(server: ConfiguredServer, runtime: TransportRuntime): Promise<string[]> {
+  try {
+    const result = await runtime.exec('ssh', buildSshArgs(server, ['ls', REMOTE_SKILLS_DIR]));
+    return result.stdout
+      .trim()
+      .split('\n')
+      .filter(name => name.length > 0)
+      .sort();
+  } catch {
+    // Directory doesn't exist or is empty
+    return [];
+  }
+}
+
 export async function fetchRemoteManifest(server: ConfiguredServer, runtime: TransportRuntime): Promise<ServerManifest> {
   const result = await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'manifest']));
   const parsed = JSON.parse(result.stdout || '{}') as Partial<ServerManifest>;
