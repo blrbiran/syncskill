@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-14T00:53:52.159Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-14T17:03:37.318Z
 > Files: 116 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
@@ -45,7 +45,7 @@
 
 - `2026-05-13-e2e-test-cases-design.md` — E2E 测试用例设计 (~1935 tok)
 - `e2e-test-design.md` — E2E 测试框架设计 (~4850 tok)
-- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~12263 tok)
+- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~12957 tok)
 
 ## skills/syncskill/
 

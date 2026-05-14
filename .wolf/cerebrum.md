@@ -33,3 +33,4 @@
 - **[2026-05-12]** `antigravity` 作为独立 agent 列出，不作为 gemini 变体处理
 - **[2026-05-12]** 多 skills 安装需用户确认，单个 skill 直接安装（避免意外安装大量 skills）
 - **[2026-05-12]** `compressing` 依赖是必要的，CLI 在 Windows 支持不好，需要跨平台纯 JS 方案
+- **[2026-05-14]** Manifest 使用 3-field 模型 (`local_hash`, `remote_hash`, `recorded_hash`) 而非 2-field。`recorded_hash` 作为 3-way merge 基准点，天然解决"syncskill 外部操作"（如 git checkout）场景，无需额外的 in-sync 保护逻辑

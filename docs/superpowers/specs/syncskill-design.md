@@ -543,7 +543,7 @@ $ syncskill link --all -y
 - **Skill 目录本身是软链接**：跟随 symlink，对实际目录内容计算 hash（由调用方解析路径）
 - **Skill 目录内部的软链接**：忽略，不参与 hash 计算（使用 `lstatSync` 检测）
 
-**Manifest 格式**：
+**Manifest 格式**（3-field 模型）：
 ```json
 {
   "version": 1,
@@ -551,8 +551,9 @@ $ syncskill link --all -y
   "updated_at": "2026-04-30T00:00:00Z",
   "skills": {
     "skill-name": {
-      "hash": "abc123...",
-      "remote_hash": "abc123...",
+      "local_hash": "abc123...",
+      "remote_hash": "def456...",
+      "recorded_hash": "abc123...",
       "direction": "push",
       "status": "in-sync"
     }
@@ -560,14 +561,28 @@ $ syncskill link --all -y
 }
 ```
 
+**3-field 模型说明**：
+- `local_hash`：当前本地文件的实际 hash（每次刷新时重新计算）
+- `remote_hash`：最后已知的远程 hash（从远程 manifest 拉取）
+- `recorded_hash`：上次同步点的基准 hash（push/pull 完成时设置为同步后的 hash）
+
+`recorded_hash` 作为 3-way merge 的基准点，用于判断"谁改了"：
+- `local_hash ≠ recorded_hash` → 本地相对基准有变化
+- `remote_hash ≠ recorded_hash` → 远程相对基准有变化
+
+这种设计天然解决了"syncskill 外部操作"（如 `git checkout`）的场景：即使本地文件被外部工具还原，`recorded_hash` 保持不变，系统仍能正确检测到本地变化并触发 push。
+
 **Manifest 变更历史** (`manifest_history.json`)：用于追踪 hash 变更事件，仅在 hash 实际变更时追加记录。
 
-**Delta 比较逻辑**：
-- 本地 = recorded, 远程 = recorded → skip
-- 本地 ≠ recorded, 远程 = recorded → push
-- 本地 = recorded, 远程 ≠ recorded → pull
-- 本地 ≠ recorded, 远程 ≠ recorded → conflict
-- 新增 skill → new/push
+**Delta 比较逻辑**（`classifySkillDelta`）：
+```
+if (local_hash === remote_hash) → skip, in-sync
+if (local_hash ≠ recorded_hash && remote_hash === recorded_hash) → push, local-changed
+if (remote_hash ≠ recorded_hash && local_hash === recorded_hash) → pull, remote-changed
+if (local_hash ≠ remote_hash && 以上都不满足) → conflict
+if (recorded_hash === null && local_hash && !remote_hash) → push, new
+if (recorded_hash === null && remote_hash && !local_hash) → pull, new
+```
 
 ### 3.8 `source.ts` — 外部来源管理
 
@@ -610,7 +625,7 @@ interface SourceConfig {
   url?: string;                // Git/HTTP: 远程 URL
   path: string;                // 本地存储路径（clone/解压目标，或 local 目录路径）
   branch?: string;             // Git: 分支名
-  skill_subdir?: string;       // skill 所在子目录（"." = 自身是 skill）
+  skill_subdir?: string;       // skill 搜索起始目录（默认 "." = 递归搜索整个 path）
   ignore?: string[];           // 忽略的 skill 名列表
   archive_path?: string;       // Local 压缩包模式：原始压缩包文件的绝对路径
 }
@@ -709,10 +724,11 @@ Step 7: -y/--yes 行为
 Skill 发现统一基于**递归搜索 SKILL.md 文件**。给定一个 subdir，在该目录下递归搜索所有含 SKILL.md 的目录，每个这样的目录是一个独立的 skill（名称 = 该目录名）。
 
 `skill_subdir` 取值语义：
-- `"."` → 仓库根目录（递归搜索整个仓库）
+- `"."` → 仓库根目录（递归搜索整个仓库）— **默认值**
 - `"examples/demo-skill"` → 指定子目录（递归搜索该目录）
 - `"examples"` → 指定子目录（递归搜索该目录下所有 SKILL.md）
-- `undefined` → 隐式 `<path>/skills/`（若存在），否则 `<path>/`
+
+注：`skill_subdir` 默认为 `"."`（递归搜索整个 source 目录）。所有入口（GitHub URL、本地目录、压缩包）统一使用此默认值。
 
 **GitHub URL → `skill_subdir` 推断规则**：
 - `https://github.com/user/repo` → `skill_subdir="."` （裸仓库 URL = 整个仓库）
@@ -1089,16 +1105,19 @@ Choose action:
 ### 3.9 `sync_engine.ts` — 核心同步流程
 
 **Push 流程**：
-1. 检查远程 receiver → 不存在则部署 `bootstrap_remote.sh` + `sync_receiver.mjs`
+1. 按需部署 receiver：计算本地 `sync_receiver.mjs` 的 MD5 hash，通过 SSH `md5sum` 获取远程文件 hash，仅在 hash 不同或远程文件不存在时重新部署 `sync_receiver.mjs` + `bootstrap_remote.sh`
 2. 推送 receiver config（remote_agents 映射）
 3. 计算本地 hash
 4. 拉取远程 manifest
-5. 对比 → delta
+5. 对比 → delta（注：`compareManifests` 对不在远程 manifest 中的 skill **无论本地 hash 是否变化**都标记为 `"new"`，确保新增到 include 列表的 skill 一定会被 push）
 6. 检测冲突
-7. rsync 将具体 skill 目录推送到远程
-8. 更新本地 manifest + 追加变更历史
-9. 推送 manifest
-10. SSH exec `sync_receiver.mjs apply`
+7. **验证远程 skills 目录存在性**（安全网，仅 `--no-refresh` 时执行）：当使用 `--no-refresh` 跳过 manifest 刷新时，通过 SSH `ls` 远程 `skills/` 目录，获取实际存在的 skill 列表。对 delta 中被标记为 "skip"（manifest 认为已同步）但远程实际缺失的 skill，强制改为 "push"。正常流程已有 `refreshRemoteManifest()` 保护，此步骤仅作为 `--no-refresh` 场景的安全网。
+8. **清理远程不再需要的 skill**：对比远程 `skills/` 目录中的实际条目与当前 include 列表，删除远程存在但不再在 include 中的 skill 目录。删除前列出将被删除的 skill 列表并要求用户确认（除非指定 `-y/--yes`）。
+9. rsync 将具体 skill 目录推送到远程
+10. **对远程有变更但本地不需要 push 的 skill**：仅打印警告（`Skipping <skill>: remote has changes. Use syncskill pull to update local.`），**不执行隐式 pull**。push 命令只推送，不拉取。用户需要单独执行 `syncskill pull` 来获取远程变更。
+11. **更新本地 manifest**（3-field 模型）：区分实际推送的 skill 和未推送的 skill。实际 pushed 的 skill 设置 `remote_hash=local_hash, recorded_hash=local_hash, status="in-sync"`（三个 hash 同步）；未 pushed 的 skill（skip/pull/conflict）保留旧的 `remote_hash` 和 `recorded_hash`，正确反映同步状态。
+12. 推送 manifest
+13. SSH exec `sync_receiver.mjs apply`（receiver 会创建当前 skill 的 agent symlink，并清理指向已删除 skill 目录的 stale symlink）
 
 **Push 命令交互**：
 
@@ -1175,8 +1194,8 @@ Summary: 4 skill(s), 1 added, 1 modified, 1 deleted, 1 conflict(s)
 - `rsyncPush()` — rsync -avz --delete（`--delete` 确保远程与本地完全一致，删除远程多余文件）
 - `rsyncPull()` — rsync -avz 反方向（**有意不使用 `--delete`**，保护本地可能存在的未纳管文件；pull 只添加/覆盖，不删除本地多余文件）
 - `pushManifest()` — 推送 manifest
-- `deployReceiver()` — 首次推送时部署 receiver
-- `checkRemoteReceiver()` — 检查 receiver 是否存在
+- `receiverNeedsUpdate()` — 比较本地与远程 receiver 文件的 MD5 hash，判断是否需要重新部署
+- `deployReceiver()` — 部署 receiver 文件到远程（仅在 `receiverNeedsUpdate()` 返回 true 时调用）
 - `sshExec()` — 执行 SSH 命令
 
 **SSH 命令构建**：所有 rsync/scp 的 `-e` 选项需根据服务器配置动态构建 SSH 命令。如果配置了 `identity_file`（服务器级或全局 `ssh_defaults`），必须通过 `-i` 参数传递给 SSH：
@@ -1196,9 +1215,11 @@ scp -P <port> -i <identity_file> ...
 
 ### 3.11 `conflict.ts` — 冲突检测与解决
 
-三路比较：
-- `local_hash` vs `recorded_local` → 本地是否变更
-- `remote_hash` vs `recorded_remote` → 远程是否变更
+**3-field 模型的三路比较**：
+- `local_hash` vs `recorded_hash` → 本地是否相对基准有变更
+- `remote_hash` vs `recorded_hash` → 远程是否相对基准有变更
+
+冲突发生条件：两边都相对基准有变更（`local_hash ≠ recorded_hash` 且 `remote_hash ≠ recorded_hash`），且变更内容不同（`local_hash ≠ remote_hash`）。
 
 策略：
 - `manual`（默认）：跳过冲突 skill，在 manifest 中标记 `direction: conflict`，用户通过 `syncskill status` 查看、`syncskill resolve` 解决
@@ -1225,7 +1246,31 @@ syncskill resolve <skill> --remote --diff   # 先显示差异，再用远程覆�
   try-catch：刷新失败只打印 WARNING，不阻断主流程
 ```
 
+**3-field 模型与外部操作**：
+
+`refreshLocalManifest()` 总是将 `local_hash` 更新为当前实际 hash，但**不修改 `recorded_hash`**。这是 3-field 模型的关键：
+
+```
+场景：用户在 syncskill 之外执行 git checkout 还原文件
+
+Pull 后状态:
+  local_hash=B, remote_hash=B, recorded_hash=B (in-sync)
+
+Git checkout 后:
+  实际文件 hash=A，manifest 未变
+
+下次 push 时 refreshLocalManifest 更新:
+  local_hash=A, remote_hash=B, recorded_hash=B
+
+classifySkillDelta(A, B, B):
+  A ≠ B (本地相对 recorded 变了) → push ✓
+```
+
+`recorded_hash` 保持为上次同步点的值（B），系统正确检测到本地变化（A ≠ B）并触发 push。无需任何特殊的 "in-sync 保护" 逻辑。
+
 **远程 hash 一致性要求**：`refreshRemoteManifest()` 在远程执行的 Node 脚本必须使用 `lstatSync`（而非 `statSync`）来检测文件类型，以确保与本地 `computeHash()`（§3.7）的 symlink 跳过行为一致。使用 `statSync` 会导致 `isSymbolicLink()` 永远返回 false，从而将 symlink 文件内容错误地纳入 hash 计算。
+
+**远程 skill 缺失处理**：当远程 skill 目录不存在时（如被意外删除），`refreshRemoteManifest()` 必须从远程 manifest 中**删除该 skill 条目**（而非保留旧 hash）。这确保后续 `fetchRemoteManifest` → `compareManifests` 能正确识别出远程缺失的 skill（`!rm` → `action: "new"`），触发重新 push。
 
 **refresh 命令**：
 ```bash
@@ -1350,7 +1395,7 @@ Phase 1: PREPARE & COMPARE
   └─ 检测冲突
 
 Phase 2: TRANSPORT (rsync)
-  ├─ 检查远程 receiver → 不存在则部署
+  ├─ 按需部署 receiver（比较 hash，有变化才重传）
   ├─ rsync -avz 推送变更 → remote ~/.syncskill/skills/
   └─ 无 rsync 时 Node 逐文件传输
 
@@ -1468,7 +1513,7 @@ node_modules/
 
 ### 10.2 模块接口
 
-**新增文件**：`src/config-doctor.ts`
+**文件**：`src/config/config-doctor.ts`
 
 ```typescript
 // 诊断结果项
