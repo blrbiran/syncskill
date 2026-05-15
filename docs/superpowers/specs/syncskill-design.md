@@ -133,6 +133,7 @@ syncskill/
 | `source list` / `source ls` | 列出来源 |
 | `source update [name] [--all] [--force]` | 更新指定来源（仅 git/http 有 URL 的），无参数交互式选择 |
 | `source remove <name> [--force]` | 移除外部来源（交互式选择处理方式；`--force` 直接 Remove completely: config + files + links） |
+| `source restore <source-name>` | 恢复被 `--force` 覆盖的 dirty source（交互式选择恢复方式） |
 
 `source add` 完整参数：
 - `--name <name>`：指定 source 名称（默认从 URL 推断）
@@ -143,10 +144,11 @@ syncskill/
 - `-y/--yes`：跳过确认，自动选中所有 skills
 
 `source update` 完整参数：
-- `[name]`：指定要更新的 source 名称
-- `--all`：更新所有可更新的 source
-- `-y/--yes`：跳过逐个确认（HTTP source 默认逐个确认）；dirty source 时自动 skip（安全优先）
-- `--force`：强制更新，即使 source 处于 dirty 状态也直接覆盖
+- `[name]`：指定要更新的 source 名称（不带参数 = `--all`）
+- `--all`：更新所有可更新的 source（显式写法，与不带参数等效）
+- `-y/--yes`：跳过逐个确认（HTTP source 默认逐个确认）；dirty source 自动 skip（安全优先）
+- `--force`：强制更新 dirty source（git source 先 stash，http source 先备份到 `backups/`；记录恢复信息到 `update-history.json`，可通过 `source restore` 恢复）
+- `--dry-run`：预览更新操作但不执行（dirty 检测仍会执行，只打印 dirty source）
 
 **Update 快捷命令**
 
@@ -181,9 +183,9 @@ syncskill/
 
 | 命令 | 说明 |
 |------|------|
-| `push [server] [--all] [-y/--yes] [--dry-run]` | 推送到远程；无参数时交互式选择服务器 |
-| `pull [server] [--all] [-y/--yes] [--dry-run]` | 从远程拉取；无参数时交互式选择服务器 |
-| `sync [server] [--all] [--dry-run]` | 一键全量同步：先 pull 再 push |
+| `push [server] [--all] [-y/--yes] [--dry-run] [--timeout <s>]` | 推送到远程；无参数时交互式选择服务器 |
+| `pull [server] [--all] [-y/--yes] [--dry-run] [--timeout <s>]` | 从远程拉取；无参数时交互式选择服务器 |
+| `sync [server] [--all] [--dry-run] [--timeout <s>]` | 一键全量同步：先 pull 再 push |
 | `status` | 显示所有 tracked manifests 的同步状态 |
 | `diff <server>` | 显示指定服务器的待同步变更 |
 | `resolve <skill>` | 交互式解决冲突 |
@@ -245,6 +247,31 @@ Use --no-refresh to skip, then run `syncskill refresh` manually.
   - `hermes` → `~/.hermes/skills`
   - `qoder` → `~/.qoder/skills`
   - `aone_copilot` → `~/.aone_copilot/skills`
+- **智能默认 link target（`computeDefaultLinkTargets()`）**：`install`、`source add`、`init` 迁移等场景自动为新 skill 计算默认 link target，避免在支持 `~/.agents/skills/` 标准目录的 agent 中产生重复 skill。规则：
+  1. 默认 target 为 `["agents"]`（即 `~/.agents/skills/`，跨客户端标准目录）
+  2. 若 `~/.agents/skills/` 目录不存在，自动创建并输出提示：
+     ```
+     Created ~/.agents/skills/
+       This is the standard shared skills directory for agents that support it.
+       Skills linked here are available to: claude, windsurf, codex, ...
+     ```
+     （仅首次创建时打印此提示）
+  3. 遍历已检测到的 agent，若该 agent 属于 `private_agents`（不读取共享目录），则追加到 target 列表
+  4. 返回最终 target 数组，如 `["agents", "cursor", "kiro"]`
+- **`private_agents` 配置**：不读取 `~/.agents/skills/` 共享目录的 agent 列表，需要单独 link 到其专有目录。这些 agent 只读取自己的 `~/.<agent>/skills/` 目录。
+  - **默认值**（硬编码）：`["cursor", "kiro", "augment", "cline", "hermes"]`
+  - **用户覆盖**：可在 `config.yaml` 中配置 `private_agents` 字段完全覆盖默认值（非 merge）：
+    ```yaml
+    # config.yaml
+    private_agents:
+      - cursor
+      - kiro
+      - augment
+      - cline
+      - hermes
+      - my-custom-agent  # 用户新增的不支持共享目录的 agent
+    ```
+  - **合并逻辑**：`finalList = config.private_agents ?? DEFAULT_PRIVATE_AGENTS`
 - 验证必填字段：`version`, `agents`, `links`
 - 解析通配符 `*` → 展开为所有 agent
 - `getSyncDir()` 返回 `~/.syncskill/` 路径，所有其他路径（config、skills、manifests、history）均基于此计算
@@ -316,7 +343,9 @@ Configuration Menu
 
 **config link 保存时的通配符优化**：如果某个 skill 选中了所有已配置的 agents，保存时写入 `["*"]` 而不是逐个列出所有 agent 名称。
 
-**`link`**（无参数）：直接调用矩阵编辑器。
+**`link`**（无参数）：直接调用矩阵编辑器。退出矩阵编辑器后，若 links 配置发生了变更，交互式询问用户是否立即 apply（等效于 `link --all`，创建/清理 symlink 使实际状态与配置一致）。用户确认则执行 reconcile，拒绝则仅保存配置不操作 symlink。
+
+**`config link`**（已废弃，行为与 `link` 一致）：退出矩阵编辑器后同样触发 apply 询问。
 
 **`link list`** / **`link ls`** / **`link --list`**：显示链接状态。
 
@@ -382,7 +411,7 @@ xlsx                     broken      missing
 - 生成 `~/.syncskill/config.yaml`（含自动检测的 agent）
 - 复制 `config.example.yaml` 作为参考
 - **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-scan` 参数跳过此步骤。
-- **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.yaml` 的 `links` 字段（设为 `["*"]` 即所有 agent）。
+- **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.yaml` 的 `links` 字段（使用 `computeDefaultLinkTargets()` 计算默认目标，即 `["agents"]` + 已检测到的不支持 `~/.agents/skills/` 的 agent）。
 - **交互式安装 syncskill skill**：流程末尾询问是否安装 syncskill skill（默认 Y）。`--skip-skill` 参数跳过此询问，`-y`/`--yes` 参数自动选择 yes。
 
 ### 3.5 `install.ts` — Skill 安装
@@ -397,7 +426,7 @@ syncskill install
 │   └─ 不存在 → 继续
 ├─ 定位 dist/skills/syncskill/ 目录（通过 import.meta.url）
 ├─ 复制到 ~/.syncskill/skills/syncskill/
-├─ 自动执行 link syncskill（链接到所有 agents）
+├─ 自动执行 link syncskill（使用 computeDefaultLinkTargets() 计算目标 agent）
 └─ 输出 "✓ Installed syncskill skill"
 ```
 
@@ -708,7 +737,7 @@ Step 5b: 与外部 source 冲突时
 
 Step 6: 写入配置
 ├─ source entry 写入 config.yaml
-├─ 选中的 skills 加入 links（默认 ["*"]）
+├─ 选中的 skills 加入 links（默认使用 computeDefaultLinkTargets()，即 ["agents"] + 已检测到的不支持共享目录的 agent）
 ├─ 未选中的 skills 在 skills-registry.json 中标记为 ignored
 ├─ 重名冲突的 skills 在 skills-registry.json 中标记为 ignored 并记录原因
 └─ 更新 skills-registry.json
@@ -831,23 +860,20 @@ Step 2: 逐个执行更新
   Step 2.1: Dirty 检测（以 repo 为单位）
   ├─ 在 source.path 执行 `git status --porcelain`
   ├─ 如果输出为空 → clean，正常更新
-  ├─ 如果有输出 → 解析修改文件映射到 skills
+  ├─ 如果有输出 → dirty，**默认行为是 skip（安全优先）**
   │   ├─ 遍历 dirty files，根据路径确定归属的 skill 名
   │   ├─ dirty_skills = [...], 所有在此 repo 中的 skills 都会被影响
   │   └─ 如果所有修改文件都不归属任何 skill（如 repo 根目录 README）
   │       → "non-skill dirty"：不影响 skill 内容，但 reset --hard 仍会丢弃
-  │       → --force / -y → 直接清理并更新（不 skip）
-  │       → 交互模式 → 提示用户，但默认选项是 Update（与 skill dirty 默认 skip 不同）
   │
-  ├─ --force → 跳过 dirty 检测，备份后覆盖（见下方备份机制）
-  ├─ -y/--yes（无 --force）→ skill dirty 时 skip；non-skill dirty 时直接更新
-  │   skill dirty 输出：
-  │   "⚠ Skipped: <source> (dirty — <N> skills have local modifications)"
+  ├─ --force → dirty 时先 stash 保存本地修改，再强制更新（记录恢复信息，见下方 update-history.json）
+  ├─ -y/--yes（无 --force）→ dirty 时自动 skip（安全优先，等同于交互模式的默认选项）
+  │   输出：
+  │   "⚠ Skipped: <source> (dirty — <N> skill(s) have local modifications)"
   │   "  Dirty skills: skill-a, skill-c"
-  │   "  Skipped skills: skill-a, skill-b, skill-c (all skills in this source)"
-  │   "  Use --force to overwrite local changes."
+  │   "  Use --force to stash local changes and update."
   │
-  └─ 交互模式 → 提示用户选择：
+  └─ 交互模式 → 提示用户选择（**默认选项是 Skip**）：
 
   ── skill dirty 时 ──
   ┌─────────────────────────────────────────────────────────────┐
@@ -859,12 +885,12 @@ Step 2: 逐个执行更新
   │ Git update is repo-level — ALL skills will be affected.     │
   │                                                             │
   │ Choose action:                                              │
-  │   (u) Update — discard local changes, use remote latest     │
-  │   (s) Skip — keep local modifications, skip this source     │
+  │ > (S) Skip — keep local modifications, skip this source     │
+  │   (o) Overwrite — stash local changes and update to latest  │
   │   (q) Quit — stop update                                    │
   └─────────────────────────────────────────────────────────────┘
 
-  ── non-skill dirty 时（修改不影响 skill，但 reset --hard 会清理）──
+  ── non-skill dirty 时（修改不影响 skill，但 reset --hard 仍会丢弃）──
   ┌─────────────────────────────────────────────────────────────┐
   │ ⚠ Source "my-repo" has uncommitted changes (not in skills): │
   │   Modified: README.md, notes.txt                            │
@@ -873,17 +899,32 @@ Step 2: 逐个执行更新
   │ discard them.                                               │
   │                                                             │
   │ Choose action:                                              │
-  │ > (u) Update — discard non-skill changes and update         │
-  │   (s) Skip — keep changes, skip this source                 │
+  │ > (S) Skip — keep changes, skip this source                 │
+  │   (o) Overwrite — stash changes and update                  │
   │   (q) Quit — stop update                                    │
   └─────────────────────────────────────────────────────────────┘
 
-  Step 2.2: 执行更新（clean 或用户选择 update）
-  ├─ 如果 --force 且有 dirty skills → 先执行备份（见下方备份机制）
-  ├─ git fetch --depth=1 origin <branch>
-  ├─ git reset --hard origin/<branch>
+  注：non-skill dirty 时 `-y/--yes` 也自动 skip（与 skill dirty 行为一致）。
+
+  Step 2.2: 执行更新（clean 或用户/--force 选择 overwrite）
+  ├─ 如果 dirty overwrite（用户交互选择或 --force）：
+  │   ├─ 记录 before_commit = `git rev-parse HEAD`
+  │   ├─ git stash push -m "syncskill: auto-stash before update (<timestamp>)"
+  │   ├─ 记录 stash_commit = `git rev-parse stash@{0}`（stash 的 SHA，不随序号漂移）
+  │   ├─ git fetch --depth=1 origin <branch>
+  │   ├─ git reset --hard origin/<branch>
+  │   ├─ 记录 after_commit = `git rev-parse HEAD`
+  │   └─ 写入 `~/.syncskill/update-history.json`（见下方 schema）
+  ├─ 如果 clean：
+  │   ├─ 记录 before_commit = `git rev-parse HEAD`
+  │   ├─ git fetch --depth=1 origin <branch>
+  │   ├─ git reset --hard origin/<branch>
+  │   ├─ 记录 after_commit = `git rev-parse HEAD`
+  │   └─ 如果 before_commit ≠ after_commit 且该 source 存在 dirty 记录 → 删除记录
   ├─ 扫描更新后的 skill 列表，对比变化
-  └─ 输出更新结果
+  └─ 输出更新结果（dirty overwrite 时额外输出）：
+     "  ✓ Stashed changes (456789a)"
+     "  To restore: syncskill source restore company-skills"
 
   ── HTTP source ──
 
@@ -892,19 +933,42 @@ Step 2: 逐个执行更新
   ├─ 与 skills-registry.json 中记录的 last_update_hash 对比
   ├─ 如果有 skill 的 hash 与 last_update_hash 不一致 → dirty
   │
-  ├─ --force → 跳过 dirty 检测，直接覆盖
-  ├─ -y/--yes（无 --force）→ skip + 打印 warning（同 git source 格式）
-  └─ 交互模式 → 同 git source 的提示格式（以 source 为单位决策）
+  ├─ --force → dirty 时先备份到 `~/.syncskill/backups/<source>/`，再强制覆盖更新，记录到 update-history.json
+  ├─ -y/--yes（无 --force）→ dirty 时自动 skip（同 git source，安全优先）
+  │   输出：
+  │   "⚠ Skipped: <source> (dirty — <N> skill(s) have local modifications)"
+  │   "  Dirty skills: skill-a, skill-c"
+  │   "  Use --force to backup and update."
+  │
+  └─ 交互模式 → 提示格式（默认选项 = Skip）：
+  ┌─────────────────────────────────────────────────────────────┐
+  │ ⚠ Source "skill-pack" has local modifications:              │
+  │                                                             │
+  │   Dirty skills: skill-a (3 files), skill-c (1 file)        │
+  │                                                             │
+  │ Choose action:                                              │
+  │ > (S) Skip — keep local modifications, skip this source     │
+  │   (o) Overwrite — backup dirty skills and update to latest  │
+  │   (q) Quit — stop update                                    │
+  └─────────────────────────────────────────────────────────────┘
 
-  Step 2.2: 确认更新（仅 clean source 或用户已选择 update）
-  ├─ 询问用户是否更新此 source（除非 -y）
+  Step 2.2: 执行更新（clean source 或用户/--force 选择 overwrite）
+  ├─ 如果 dirty overwrite（用户交互选择或 --force）：
+  │   ├─ 将 dirty skills 复制到 `~/.syncskill/backups/<source>/<skill>/`
+  │   ├─ 更新 `backups/<source>/_meta.json`
+  │   ├─ 写入 `update-history.json`（type: "http", backup_path, dirty_skills）
+  │   └─ 输出提示：
+  │      "⚠ Backing up dirty skills before force-update..."
+  │      "  ✓ Backed up skill-a to ~/.syncskill/backups/skill-pack/skill-a/"
+  │      "  To restore: syncskill source restore skill-pack"
+  │
+  ├─ 如果 clean：询问用户是否更新此 source（除非 -y）
   │   选项：
   │   (Y) Yes — 更新这个 source
   │   (n) No — 跳过这个 source
   │   (a) Yes to all — 更新这个及后续所有 HTTP source
   │   (q) Quit — 停止更新
   │
-  ├─ 备份当前 skill 列表（从 skills-registry.json 读取 + 各自 hash）
   ├─ 下载到 tmp 目录（~/.syncskill/.tmp/update-<name>/）
   ├─ 解压到 tmp 目录
   ├─ 验证：解压后 skill 目录结构完整
@@ -912,6 +976,7 @@ Step 2: 逐个执行更新
   │   └─ 验证失败 → 保留原目录，报错，清理 tmp
   ├─ 扫描更新后的 skill 列表，对比变化
   ├─ 更新 skills-registry.json 中的 last_update_hash
+  ├─ 如果 clean update 成功且该 source 存在 dirty history 记录 → 删除记录
   └─ 注意：HTTP URL 可能有时效性，先下载到 tmp 确认完整后才替换
 
 Step 3: 处理被删除的 skill
@@ -921,7 +986,7 @@ Step 3: 处理被删除的 skill
 │   ├─ Yes → 复制 skill 到 ~/.syncskill/skills/<name>，registry 更新为 manual
 │   └─ No → 从 links 中移除，清理软链接，registry 标记删除
 │
-└─ 新增的 skill → 提示用户是否要 link（除非 -y 则自动 link all）
+└─ 新增的 skill → 提示用户是否要 link（除非 -y 则自动使用 computeDefaultLinkTargets() link）
 
 Step 4: 输出更新报告（始终显示，包括 -y 模式）
 ├─ ✓ 更新成功的 source + 变更 skill 列表
@@ -930,12 +995,173 @@ Step 4: 输出更新报告（始终显示，包括 -y 模式）
 └─ + 新增的 skill
 ```
 
-**`--force` 备份机制**：
+**`--dry-run` 行为**：
 
-当使用 `--force` 覆盖 dirty skills 时，自动备份到 `~/.syncskill/backups/`：
+`source update --dry-run` 预览更新操作但不执行。dirty 检测仍会执行（只读操作），但不执行 stash、fetch、下载等网络/写操作。只打印 dirty source，clean source 不打印 dirty 信息。
 
 ```
-备份目录结构：
+$ syncskill update --dry-run
+
+Updatable sources:
+  company-skills (git) — https://github.com/company/skills
+  skill-pack (http) — https://cdn.example.com/skills-v2.tar.gz
+
+[dry-run] Dirty sources:
+  ⚠ company-skills: 2 skill(s) with local modifications — skill-a, skill-c
+
+[dry-run] Would update the above sources.
+  Note: company-skills is dirty — without --force, it will be skipped.
+```
+
+加 `--force` 时：
+
+```
+$ syncskill update --dry-run --force
+
+Updatable sources:
+  company-skills (git) — https://github.com/company/skills
+  skill-pack (http) — https://cdn.example.com/skills-v2.tar.gz
+
+[dry-run] Dirty sources:
+  ⚠ company-skills: 2 skill(s) with local modifications — skill-a, skill-c
+
+[dry-run] Would force-update all sources (git: stash + overwrite, http: backup + overwrite).
+```
+
+没有 dirty source 时：
+
+```
+$ syncskill update --dry-run
+
+Updatable sources:
+  company-skills (git) — https://github.com/company/skills
+  skill-pack (http) — https://cdn.example.com/skills-v2.tar.gz
+
+[dry-run] No dirty sources detected.
+[dry-run] Would update the above sources.
+```
+
+规则：
+- **Dirty 检测**：执行 `git status --porcelain`（只读）和 hash 比较（只读），正常报告 dirty 状态
+- **Clean source**：不打印 dirty 信息（只在 dirty 列表中列出 dirty 的）
+- **网络请求**：不执行 `git fetch`、HTTP 下载等网络操作
+- **写操作**：不执行 `git stash`、`git reset`、文件覆盖、registry 更新等
+- **提示信息**：dirty source 提示"without --force, it will be skipped"；`--force` 时提示"git: stash + overwrite, http: backup + overwrite"
+
+**`update-history.json` — Dirty overwrite 恢复信息**：
+
+当 dirty source 被 overwrite（`--force` 或交互选择 Overwrite）时，记录恢复信息到 `~/.syncskill/update-history.json`。Git source 和 HTTP source 使用不同的恢复机制：
+
+```json
+{
+  "company-skills": {
+    "type": "git",
+    "before_commit": "abc1234def5678...",
+    "after_commit": "789abcdef0123...",
+    "stash_commit": "456789abcdef0...",
+    "timestamp": "2026-05-15T16:00:00Z"
+  },
+  "skill-pack": {
+    "type": "http",
+    "backup_path": "~/.syncskill/backups/skill-pack/",
+    "dirty_skills": ["skill-a", "skill-c"],
+    "timestamp": "2026-05-15T16:00:00Z"
+  }
+}
+```
+
+字段说明：
+
+**Git source（`type: "git"`）**：
+- **`before_commit`**：update 前的 HEAD SHA（`git rev-parse HEAD`）
+- **`after_commit`**：`git reset --hard` 后的 HEAD SHA
+- **`stash_commit`**：`git stash` 产生的 commit SHA（`git rev-parse stash@{0}`，用 SHA 记录避免 `stash@{N}` 序号漂移）
+- **`timestamp`**：操作时间
+
+**HTTP source（`type: "http"`）**：
+- **`backup_path`**：备份目录路径
+- **`dirty_skills`**：被备份的 dirty skill 名称列表
+- **`timestamp`**：操作时间
+
+记录规则：
+- **Dirty overwrite**：写入该 source 的恢复记录（覆盖上一次记录，只保留最近一次）
+- **Clean update 且有新 commit/hash**：**删除**该 source 的记录（用户已在 clean 状态下接受新版本，之前的 dirty 恢复信息不再有意义）
+- **Clean update 无变更**：无操作
+- **非 dirty source**：不记录
+
+**`source restore <source-name>` — 恢复命令**：
+
+提供交互式恢复，避免用户手动执行复杂的 git 命令。
+
+Git source 恢复：
+```
+$ syncskill source restore company-skills
+
+Last overwrite: 2026-05-15 16:00:00
+  Type: git
+  Before: abc1234 → After: 789abcd
+  Stash: 456789a
+
+Choose restore action:
+> (R) Restore to dirty state — checkout before + apply stash
+  (c) Checkout only — go back to before commit (no stash apply)
+  (a) Apply stash only — apply stash on current version
+  (q) Cancel
+
+> R
+
+✓ Restored company-skills to dirty state
+  Checked out abc1234, applied stash 456789a
+  Note: You are now in detached HEAD state.
+  To return to latest: syncskill source update company-skills
+```
+
+HTTP source 恢复：
+```
+$ syncskill source restore skill-pack
+
+Last overwrite: 2026-05-15 16:00:00
+  Type: http
+  Backup: ~/.syncskill/backups/skill-pack/
+  Dirty skills: skill-a, skill-c
+
+Choose restore action:
+> (R) Restore backup — copy files back
+  (q) Cancel
+
+> R
+
+✓ Restored 2 skills from backup
+  skill-a, skill-c
+```
+
+无 history 记录时：
+```
+$ syncskill source restore unknown-source
+No restore history for "unknown-source".
+```
+
+行为说明：
+- **默认选项**：Git source 为 "Restore to dirty state"（checkout + stash apply），完全恢复到 overwrite 前的状态
+- **恢复后不删除 history 记录**：用户可能想再次恢复或查看
+- **下次 clean update 成功后**：自动清除该 source 的 history 记录
+
+**`--force` 备份/恢复机制**：
+
+Git source 和 HTTP source 使用不同的机制保存本地修改：
+
+```
+Git source（使用 git stash）：
+├─ git stash push -m "syncskill: auto-stash before update (<timestamp>)"
+├─ 记录 stash_commit SHA 到 update-history.json
+└─ 恢复：syncskill source restore <source-name>（或手动 git stash apply）
+
+HTTP source（使用文件备份）：
+├─ 将 dirty skills 复制到 ~/.syncskill/backups/<source>/<skill>/
+├─ 记录 backup_path 和 dirty_skills 到 update-history.json
+└─ 恢复：syncskill source restore <source-name>（或手动 cp 文件）
+
+备份目录结构（仅 HTTP source 使用）：
 ~/.syncskill/backups/
 ├── <source-name>/
 │   ├── <skill-name>/           # 每个 skill 只保留最新一份备份
@@ -953,15 +1179,16 @@ _meta.json 格式：
   }
 }
 
-备份流程：
-├─ Git source: 将 dirty skills 复制到 backups/<source>/<skill>/
-├─ HTTP source: 将 dirty skills 复制到 backups/<source>/<skill>/
-└─ 输出提示：
+输出提示：
+├─ Git source:
+│   "⚠ Stashing local changes before force-update..."
+│   "  ✓ Stashed changes (456789a)"
+│   "  To restore: syncskill source restore company-skills"
+│
+└─ HTTP source:
    "⚠ Backing up dirty skills before force-update..."
-   "  ✓ Backed up skill-a to ~/.syncskill/backups/company-skills/skill-a/"
-
-恢复方式（手动）：
-cp -r ~/.syncskill/backups/<source>/<skill>/* <original-skill-path>/
+   "  ✓ Backed up skill-a to ~/.syncskill/backups/skill-pack/skill-a/"
+   "  To restore: syncskill source restore skill-pack"
 ```
 
 **输出示例**：
@@ -1165,13 +1392,57 @@ resolveSkillPullTarget(skillName):
 
 所有来源类型（manual / git / http / local）均允许被 pull 覆盖。用户配置了 `direction: pull` 即表示希望从远程覆盖本地。
 
-**Sync 流程**：
-1. 遍历所有配置的服务器
-2. 对每个服务器执行 pull
-3. 刷新所有 manifest
-4. 再次遍历所有服务器，对有本地变更的 skill 执行 push
-5. **冲突处理**：遇到冲突的 skill 跳过，继续处理其他 skill
-6. 汇总输出每个 skill 的最终同步状态，冲突的 skill 单独列出并提示用户执行 `resolve` 命令
+**Sync 流程**（串行策略，防止竞态）：
+
+Sync 采用**两阶段串行策略**：先完成所有服务器的 pull，再统一 push。这避免了并行操作导致的竞态问题（例如：从 server-A pull 的内容尚未落盘，同时 push 到 server-B 就会推送旧数据）。
+
+```
+Phase 1: PULL ALL（串行遍历所有服务器）
+  for each server:
+    ├─ 拉取远程 manifest
+    ├─ 对比 delta → 确定需要 pull 的 skill
+    ├─ rsync/scp pull 变更到本地
+    └─ 更新本地 manifest
+
+Phase 2: REFRESH
+  └─ 刷新所有 manifest（确保 Phase 1 的变更反映在 hash 中）
+
+Phase 3: PUSH ALL（串行遍历所有服务器）
+  for each server:
+    ├─ 重新对比 delta（基于刷新后的 manifest）
+    ├─ rsync/scp push 本地变更到远程
+    └─ 更新 manifest + 执行远程 receiver apply
+```
+
+详细步骤：
+1. **Pull 阶段**：串行遍历所有配置的服务器，对每个服务器执行 pull
+2. 刷新所有 manifest
+3. **Push 阶段**：再次串行遍历所有服务器，对有本地变更的 skill 执行 push
+4. **冲突处理**：遇到冲突的 skill 跳过，继续处理其他 skill
+5. 汇总输出每个 skill 的最终同步状态，冲突的 skill 单独列出并提示用户执行 `resolve` 命令
+
+**超时机制**：默认依赖操作系统的 SSH 超时配置（`ConnectTimeout`、`ServerAliveInterval`）。可通过 `--timeout` 参数显式设置超时：
+
+```bash
+# 设置 60 秒超时
+syncskill sync --timeout 60
+syncskill push --timeout 60
+syncskill pull --timeout 60
+```
+
+推荐的 SSH 配置（`~/.ssh/config`）：
+```
+Host *
+  ConnectTimeout 10
+  ServerAliveInterval 15
+  ServerAliveCountMax 3
+```
+
+当 `--timeout` 指定时，rsync/scp 命令会被包装为带超时的子进程。超时后输出：
+```
+✗ Timeout: push to dev-server exceeded 60s
+  Check network connectivity or increase --timeout value.
+```
 
 **--dry-run 输出格式**（skill 级别摘要）：
 
@@ -1287,8 +1558,50 @@ syncskill refresh --status # 仅显示状态，不刷新
 - `apply` 命令：遍历 `~/.syncskill/skills/` 下 skill
 - 根据 `receiver_config.json` 中的 remote_agents 映射创建软链接
 - 更新 `manifest.json`
+- `export-symlinks <dir>` 命令：导出目录中的 symlink 为 JSON（供 scp fallback pull 使用）
 
 **hash 一致性要求**：receiver 内部的 `computeHash()` 必须使用 `lstatSync`（而非 `statSync`）来检测文件类型，与本地 `computeHash()`（§3.7）及 `refreshRemoteManifest()`（§3.12）保持一致。使用 `statSync` 会导致 `isSymbolicLink()` 永远返回 false，将 symlink 文件内容错误地纳入 hash 计算。
+
+**远程 `receiver_config.json` schema**：
+
+由 `buildReceiverConfig()` 生成，push 时通过 scp 推送到远程 `~/.syncskill/receiver_config.json`：
+
+```json
+{
+  "remote_agents": {
+    "claude": "~/.claude/skills",
+    "cursor": "~/.cursor/skills"
+  }
+}
+```
+
+- `remote_agents`：agent 名称 → 远程 skill 目录路径的映射。服务器级 `agents` 配置优先于全局 `agents`（§3.3）。
+
+**远程 `manifest.json` schema**：
+
+远程 manifest 与本地 manifest 使用相同的 3-field 模型（§3.7），由 push 流程推送、receiver `apply` 命令更新：
+
+```json
+{
+  "version": 1,
+  "server": "server-name",
+  "updated_at": "2026-04-30T00:00:00Z",
+  "skills": {
+    "skill-name": {
+      "local_hash": "abc123...",
+      "remote_hash": "def456...",
+      "recorded_hash": "abc123...",
+      "direction": "push",
+      "status": "in-sync"
+    }
+  }
+}
+```
+
+receiver `apply` 执行后，对远程 `skills/` 目录中每个 skill 重新计算 hash，并将三个 hash 字段统一设置为计算结果（表示远程已同步）：
+```
+local_hash = remote_hash = recorded_hash = computeHash(skillDir)
+```
 
 ### 3.14 `receiver/bootstrap_remote.sh` — 远程部署脚本
 
