@@ -21,6 +21,7 @@ import {
   activateSkill,
 } from './core/skills-registry.js';
 import { hashSkillDirectory } from './core/manifest.js';
+import { recordGitOverwrite, clearSourceHistory, type GitUpdateRecord } from './core/update-history.js';
 import { backupDirtySkills } from './utils/backup.js';
 import { isNotFoundError, pathExists } from './utils/utils.js';
 import {
@@ -33,6 +34,21 @@ import {
 } from './utils/archive.js';
 
 const execFileAsync = promisify(execFile);
+
+async function gitStashAndRecord(
+  checkoutDir: string,
+  timestamp: string
+): Promise<{ stashCommit: string; beforeCommit: string }> {
+  const { stdout: beforeCommit } = await execFileAsync('git', ['-C', checkoutDir, 'rev-parse', 'HEAD']);
+  const stashMessage = `syncskill: auto-stash before update (${timestamp})`;
+  await execFileAsync('git', ['-C', checkoutDir, 'stash', 'push', '-m', stashMessage]);
+  const { stdout: stashCommit } = await execFileAsync('git', ['-C', checkoutDir, 'rev-parse', 'stash@{0}']);
+
+  return {
+    stashCommit: stashCommit.trim(),
+    beforeCommit: beforeCommit.trim(),
+  };
+}
 
 export type { ArchiveType, ArchiveFormat };
 export { detectArchiveFormat, parseContentDisposition, detectArchiveFormatFromFilename };
@@ -282,6 +298,7 @@ export async function materializeSource(
 export interface UpdateSourceOptions {
   yes?: boolean;
   force?: boolean;
+  gitOverwriteRecord?: Pick<GitUpdateRecord, 'before_commit' | 'stash_commit'>;
 }
 
 export async function updateSource(
@@ -698,6 +715,7 @@ export class DirtySourceQuitError extends Error {
 type DirtyDecision = 'update' | 'skip' | 'quit';
 
 interface HandleDirtySourceOptions {
+  homeDir: string;
   sourceName: string;
   sourceType: 'git' | 'http';
   dirtyResult: DirtyDetectionResult;
@@ -706,6 +724,8 @@ interface HandleDirtySourceOptions {
   options: UpdateSourceOptions;
   backupsDir: string;
   allSkills: string[];
+  checkoutDir?: string;
+  updatedAt: string;
 }
 
 /**
@@ -713,13 +733,34 @@ interface HandleDirtySourceOptions {
  * Returns 'update' to proceed, 'skip' to skip this source, 'quit' to stop all updates.
  */
 async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyDecision> {
-  const { sourceName, sourceType, dirtyResult, hasSkillDirty, hasNonSkillDirty, options, backupsDir, allSkills } = opts;
+  const {
+    homeDir,
+    sourceName,
+    sourceType,
+    dirtyResult,
+    hasSkillDirty,
+    hasNonSkillDirty,
+    options,
+    backupsDir,
+    allSkills,
+    checkoutDir,
+    updatedAt
+  } = opts;
   const dirtySkillNames = dirtyResult.dirtySkills.map(s => s.name).join(', ');
   const allSkillNames = allSkills.join(', ');
 
-  // --force: backup and update
+  // --force: stash/backup and update
   if (options.force) {
-    if (hasSkillDirty) {
+    if (sourceType === 'git' && checkoutDir && (hasSkillDirty || hasNonSkillDirty)) {
+      console.log('⚠ Stashing local changes before update...');
+      const { stashCommit, beforeCommit } = await gitStashAndRecord(checkoutDir, updatedAt);
+      options.gitOverwriteRecord = {
+        before_commit: beforeCommit,
+        stash_commit: stashCommit,
+      };
+      console.log(`  ✓ Stashed changes (${stashCommit.slice(0, 7)})`);
+      console.log(`  To restore: syncskill source restore ${sourceName}`);
+    } else if (hasSkillDirty) {
       console.log('⚠ Backing up dirty skills before force-update...');
       const backupResult = await backupDirtySkills({
         backupsDir,
@@ -795,20 +836,30 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
       default: 'skip' // Default to skip for skill dirty (safe)
     });
 
-    if (choice === 'update' && dirtyResult.dirtySkills.length > 0) {
-      // Backup before updating
-      console.log('⚠ Backing up dirty skills before update...');
-      const backupResult = await backupDirtySkills({
-        backupsDir,
-        sourceName,
-        dirtySkills: dirtyResult.dirtySkills.map(s => ({
-          name: s.name,
-          path: s.path,
-          hash: s.hash || 'unknown'
-        }))
-      });
-      for (const backed of backupResult.backedUp) {
-        console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
+    if (choice === 'update') {
+      if (sourceType === 'git' && checkoutDir) {
+        console.log('⚠ Stashing local changes before update...');
+        const { stashCommit, beforeCommit } = await gitStashAndRecord(checkoutDir, updatedAt);
+        options.gitOverwriteRecord = {
+          before_commit: beforeCommit,
+          stash_commit: stashCommit,
+        };
+        console.log(`  ✓ Stashed changes (${stashCommit.slice(0, 7)})`);
+        console.log(`  To restore: syncskill source restore ${sourceName}`);
+      } else if (dirtyResult.dirtySkills.length > 0) {
+        console.log('⚠ Backing up dirty skills before update...');
+        const backupResult = await backupDirtySkills({
+          backupsDir,
+          sourceName,
+          dirtySkills: dirtyResult.dirtySkills.map(s => ({
+            name: s.name,
+            path: s.path,
+            hash: s.hash || 'unknown'
+          }))
+        });
+        for (const backed of backupResult.backedUp) {
+          console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
+        }
       }
     }
 
@@ -965,6 +1016,7 @@ async function syncSource(
 
       if (dirtyResult.isDirty && (hasSkillDirty || hasNonSkillDirty)) {
         const decision = await handleDirtySource({
+          homeDir,
           sourceName: name,
           sourceType: 'git',
           dirtyResult,
@@ -972,10 +1024,12 @@ async function syncSource(
           hasNonSkillDirty,
           options,
           backupsDir: join(syncDir, 'backups'),
-          allSkills: previousSkills
+          allSkills: previousSkills,
+          checkoutDir,
+          updatedAt
         });
 
-        if (decision === 'skip') {
+          if (decision === 'skip') {
           return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt };
         }
         if (decision === 'quit') {
@@ -992,6 +1046,7 @@ async function syncSource(
 
     if (dirtyResult.isDirty) {
       const decision = await handleDirtySource({
+        homeDir,
         sourceName: name,
         sourceType: 'http',
         dirtyResult,
@@ -999,7 +1054,8 @@ async function syncSource(
         hasNonSkillDirty: false, // HTTP sources don't have non-skill files
         options,
         backupsDir: join(syncDir, 'backups'),
-        allSkills: previousSkills
+        allSkills: previousSkills,
+        updatedAt
       });
 
       if (decision === 'skip') {
@@ -1012,7 +1068,7 @@ async function syncSource(
     }
   }
 
-  const materializedRoot = await prepareMaterializedRoot(homeDir, name, source);
+  const materializedRoot = await prepareMaterializedRoot(homeDir, name, source, options.gitOverwriteRecord);
   const ownershipState = await loadSkillOwnershipState(homeDir);
   const materializedSkills = await listSkillDirectories(materializedRoot);
 
@@ -1216,7 +1272,12 @@ function normalizeSkillOwnershipState(value: unknown): SkillOwnershipState {
   return { owners };
 }
 
-async function prepareMaterializedRoot(homeDir: string, name: string, source: SourceDefinition): Promise<string> {
+async function prepareMaterializedRoot(
+  homeDir: string,
+  name: string,
+  source: SourceDefinition,
+  gitOverwriteRecord?: Pick<GitUpdateRecord, 'before_commit' | 'stash_commit'>
+): Promise<string> {
   if (source.type === 'local') {
     // Local archive: extract to ~/.syncskill/sources/<name>/checkout/
     if (source.archive_path) {
@@ -1227,7 +1288,7 @@ async function prepareMaterializedRoot(homeDir: string, name: string, source: So
   }
 
   if (source.type === 'git') {
-    return prepareGitMaterializedRoot(homeDir, name, source);
+    return prepareGitMaterializedRoot(homeDir, name, source, gitOverwriteRecord);
   }
 
   if (source.type === 'http') {
@@ -1337,7 +1398,12 @@ async function prepareLocalArchiveMaterializedRoot(homeDir: string, name: string
   }
 }
 
-async function prepareGitMaterializedRoot(homeDir: string, name: string, source: SourceDefinition): Promise<string> {
+async function prepareGitMaterializedRoot(
+  homeDir: string,
+  name: string,
+  source: SourceDefinition,
+  gitOverwriteRecord?: Pick<GitUpdateRecord, 'before_commit' | 'stash_commit'>
+): Promise<string> {
   const checkoutDir = getGitCheckoutDir(homeDir, name);
   const branch = source.branch ?? (await detectGitDefaultBranch(source.url));
 
@@ -1357,6 +1423,19 @@ async function prepareGitMaterializedRoot(homeDir: string, name: string, source:
 
   await runGit(['-C', checkoutDir, 'fetch', '--depth=1', 'origin', branch]);
   await runGit(['-C', checkoutDir, 'reset', '--hard', 'FETCH_HEAD']);
+
+  if (gitOverwriteRecord) {
+    const { stdout: afterCommit } = await execFileAsync('git', ['-C', checkoutDir, 'rev-parse', 'HEAD']);
+    await recordGitOverwrite(homeDir, name, {
+      type: 'git',
+      before_commit: gitOverwriteRecord.before_commit,
+      after_commit: afterCommit.trim(),
+      stash_commit: gitOverwriteRecord.stash_commit,
+      timestamp: new Date().toISOString(),
+    });
+  } else {
+    await clearSourceHistory(homeDir, name);
+  }
 
   if (isAbsolute(source.path)) {
     throw new Error('Git source path must be a relative path');

@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import { saveConfig, loadConfig, getSyncPaths, createDefaultConfig } from '../../src/config/config.js';
 import { updateSource, materializeSource } from '../../src/source.js';
 import { loadSkillsRegistry, saveSkillsRegistry } from '../../src/core/skills-registry.js';
-import { loadBackupMeta } from '../../src/utils/backup.js';
+import { getSourceHistory } from '../../src/core/update-history.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -98,7 +98,7 @@ describe('source update --force', () => {
       expect(localContent).toContain('MODIFIED LOCALLY');
     });
 
-    it('backs up dirty skills before force update', async () => {
+    it('stashes dirty git skills before force update and records restore metadata', async () => {
       const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
 
       // Create initial skill
@@ -122,30 +122,38 @@ describe('source update --force', () => {
         path: 'skills'
       });
 
-      // Make local modification
       const { syncDir } = getSyncPaths(homeDir);
-      const checkoutSkillFile = join(syncDir, '.sources', 'git-source', 'checkout', 'skills', 'my-skill', 'SKILL.md');
+      const checkoutDir = join(syncDir, '.sources', 'git-source', 'checkout');
+      const checkoutSkillFile = join(checkoutDir, 'skills', 'my-skill', 'SKILL.md');
       const localModification = '# My Skill v1 - LOCAL CHANGES\n';
       await writeFile(checkoutSkillFile, localModification);
+      const { stdout: beforeCommit } = await execFileAsync('git', ['-C', checkoutDir, 'rev-parse', 'HEAD']);
 
       // Update remote
       await writeFile(join(skillsDir, 'my-skill', 'SKILL.md'), '# My Skill v2\n');
       await commitAll(workRepoDir, 'update to v2');
       await git(['push', 'origin', 'main'], workRepoDir);
+      const { stdout: remoteCommit } = await execFileAsync('git', ['-C', workRepoDir, 'rev-parse', 'HEAD']);
 
-      // Force update should backup and update
+      // Force update should stash and update
       await updateSource(homeDir, 'git-source', { force: true });
 
-      // Verify backup was created
+      const { stdout: stashCommit } = await execFileAsync('git', ['-C', checkoutDir, 'rev-parse', 'stash@{0}']);
+      const history = await getSourceHistory(homeDir, 'git-source');
+
+      expect(history).toEqual({
+        type: 'git',
+        before_commit: beforeCommit.trim(),
+        after_commit: remoteCommit.trim(),
+        stash_commit: stashCommit.trim(),
+        timestamp: expect.any(String)
+      });
+
+      const stashShow = await execFileAsync('git', ['-C', checkoutDir, 'stash', 'show', '-p', 'stash@{0}']);
+      expect(stashShow.stdout).toContain('LOCAL CHANGES');
+
       const backupsDir = join(syncDir, 'backups', 'git-source');
-      const meta = await loadBackupMeta(backupsDir);
-
-      expect(meta['my-skill']).toBeDefined();
-      expect(meta['my-skill'].reason).toBe('force-update');
-
-      // Verify backup content
-      const backupContent = await readFile(join(backupsDir, 'my-skill', 'SKILL.md'), 'utf8');
-      expect(backupContent).toBe(localModification);
+      await expect(access(backupsDir)).rejects.toThrow();
 
       // Verify the skill was updated to v2
       const updatedContent = await readFile(join(syncDir, 'skills', 'my-skill', 'SKILL.md'), 'utf8');
@@ -226,7 +234,7 @@ describe('source update --force', () => {
       expect(content).toContain('dirty');
     });
 
-    it('--force without --yes backs up and updates', async () => {
+    it('--force without --yes stashes and updates', async () => {
       const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
 
       // Create initial skill
@@ -259,20 +267,22 @@ describe('source update --force', () => {
       await commitAll(workRepoDir, 'v2');
       await git(['push', 'origin', 'main'], workRepoDir);
 
-      // --force should backup and update
+      // --force should stash and update
       await updateSource(homeDir, 'git-source', { force: true });
 
-      // Backup should exist
-      const backupsDir = join(syncDir, 'backups', 'git-source');
-      const meta = await loadBackupMeta(backupsDir);
-      expect(meta['my-skill']).toBeDefined();
+      const history = await getSourceHistory(homeDir, 'git-source');
+      expect(history?.type).toBe('git');
+      expect(history?.stash_commit).toBeDefined();
+
+      const stashShow = await execFileAsync('git', ['-C', join(syncDir, '.sources', 'git-source', 'checkout'), 'stash', 'show', '-p', 'stash@{0}']);
+      expect(stashShow.stdout).toContain('local edits');
 
       // Skill should be updated
       const updatedContent = await readFile(join(syncDir, 'skills', 'my-skill', 'SKILL.md'), 'utf8');
       expect(updatedContent).toContain('v2');
     });
 
-    it('--force and --yes together backs up and updates without prompts', async () => {
+    it('--force and --yes together stashes and updates without prompts', async () => {
       const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
 
       const skillsDir = join(workRepoDir, 'skills');
@@ -305,10 +315,9 @@ describe('source update --force', () => {
       // Both flags: --force takes precedence over --yes for dirty handling
       await updateSource(homeDir, 'git-source', { force: true, yes: true });
 
-      // Should be backed up and updated
-      const backupsDir = join(syncDir, 'backups', 'git-source');
-      const meta = await loadBackupMeta(backupsDir);
-      expect(meta['my-skill']).toBeDefined();
+      const history = await getSourceHistory(homeDir, 'git-source');
+      expect(history?.type).toBe('git');
+      expect(history?.stash_commit).toBeDefined();
 
       const updatedContent = await readFile(join(syncDir, 'skills', 'my-skill', 'SKILL.md'), 'utf8');
       expect(updatedContent).toContain('v2');
@@ -348,10 +357,11 @@ describe('source update --force', () => {
 
       expect(result.materialized_skills).toContain('my-skill');
 
-      // No backup should be created
+      // No backup or overwrite history should be created
       const { syncDir } = getSyncPaths(homeDir);
       const backupsDir = join(syncDir, 'backups', 'git-source');
       await expect(access(backupsDir)).rejects.toThrow();
+      await expect(getSourceHistory(homeDir, 'git-source')).resolves.toBeNull();
 
       // Skill should be updated
       const content = await readFile(join(syncDir, 'skills', 'my-skill', 'SKILL.md'), 'utf8');
@@ -359,8 +369,8 @@ describe('source update --force', () => {
     });
   });
 
-  describe('backup metadata', () => {
-    it('creates _meta.json with correct structure', async () => {
+  describe('overwrite metadata', () => {
+    it('records git overwrite history with stash metadata', async () => {
       const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
 
       const skillsDir = join(workRepoDir, 'skills');
@@ -399,16 +409,15 @@ describe('source update --force', () => {
       // Force update
       await updateSource(homeDir, 'git-source', { force: true });
 
-      // Check metadata
-      const backupsDir = join(syncDir, 'backups', 'git-source');
-      const meta = await loadBackupMeta(backupsDir);
+      const history = await getSourceHistory(homeDir, 'git-source');
 
-      expect(meta['skill-a']).toBeDefined();
-      expect(meta['skill-a'].reason).toBe('force-update');
-      expect(meta['skill-a'].backed_up_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-
-      expect(meta['skill-b']).toBeDefined();
-      expect(meta['skill-b'].reason).toBe('force-update');
+      expect(history).toMatchObject({
+        type: 'git',
+        before_commit: expect.any(String),
+        after_commit: expect.any(String),
+        stash_commit: expect.any(String),
+        timestamp: expect.any(String)
+      });
     });
   });
 });
