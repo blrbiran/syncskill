@@ -15,6 +15,7 @@
 - **Main Spec:** `docs/superpowers/specs/syncskill-design.md` 是总设计文档，实现前先对比 spec 与当前代码，确定待实现部分
 - **Testing:** 本地测试 CLI 使用 `npm run build && npm link`，然后运行 `syncskill <args>`
 - **CLI Entry Point:** 当通过 npm link 运行时，`process.argv[1]` 是 symlink 路径，与 `import.meta.url` 不匹配。需要使用 `realpathSync` 解析真实路径后比较
+- **Config Defaults:** `private_agents` 使用完整覆盖语义；未配置时回退到默认列表 `['cursor', 'kiro', 'augment', 'cline', 'hermes']`
 
 ## Do-Not-Repeat
 
@@ -34,3 +35,5 @@
 - **[2026-05-12]** 多 skills 安装需用户确认，单个 skill 直接安装（避免意外安装大量 skills）
 - **[2026-05-12]** `compressing` 依赖是必要的，CLI 在 Windows 支持不好，需要跨平台纯 JS 方案
 - **[2026-05-14]** Manifest 使用 3-field 模型 (`local_hash`, `remote_hash`, `recorded_hash`) 而非 2-field。`recorded_hash` 作为 3-way merge 基准点，天然解决"syncskill 外部操作"（如 git checkout）场景，无需额外的 in-sync 保护逻辑
+- **[2026-05-15]** Update overwrite recovery metadata should live in `~/.syncskill/update-history.json`, with one record per source keyed by source name.
+- **[2026-05-16]** User-facing docs should mention `private_agents`, `source update --dry-run`, `source restore`, and `--timeout` together because they shipped as one update-flow feature set.
