@@ -21,6 +21,7 @@ export interface SyncSkillConfig {
   links: Record<string, string[]>;
   servers: Record<string, unknown>;
   sources: Record<string, unknown>;
+  private_agents: string[];
 }
 
 export interface ConfiguredServer {

@@ -40,7 +40,8 @@ describe('discoverSkills', () => {
         zeta: []
       },
       servers: {},
-      sources: {}
+      sources: {},
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -63,7 +64,8 @@ describe('discoverSkills', () => {
         beta: ['*']
       },
       servers: {},
-      sources: {}
+      sources: {},
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 

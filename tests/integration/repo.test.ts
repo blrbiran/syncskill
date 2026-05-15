@@ -45,7 +45,8 @@ describe('initializeRepo', () => {
       },
       links: {},
       servers: {},
-      sources: {}
+      sources: {},
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -85,7 +86,8 @@ describe('initializeRepo', () => {
         'agents-only': ['*']
       },
       servers: {},
-      sources: {}
+      sources: {},
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -123,7 +125,8 @@ describe('initializeRepo', () => {
       },
       links: {},
       servers: {},
-      sources: {}
+      sources: {},
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 

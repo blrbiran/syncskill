@@ -82,7 +82,8 @@ describe('config persistence', () => {
         local: {
           path: '/tmp/source'
         }
-      }
+      },
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     };
 
     await saveConfig(config, homeDir);
@@ -121,7 +122,8 @@ describe('validateConfig', () => {
       },
       links: {},
       servers: {},
-      sources: {}
+      sources: {},
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -136,7 +138,8 @@ describe('validateConfig', () => {
       agents,
       links: {},
       servers: {},
-      sources: {}
+      sources: {},
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 });
@@ -158,6 +161,53 @@ describe('expandTargetAgents', () => {
 
     expect(expandTargetAgents(config, ['*'])).toEqual(['aone_copilot', 'claude', 'qwen']);
     expect(expandTargetAgents(config, ['qwen', 'claude', 'qwen'])).toEqual(['claude', 'qwen']);
+  });
+});
+
+describe('private_agents config', () => {
+  const tempDirs = useTempDirs();
+
+  it('should use default private_agents when not configured', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+    });
+  });
+
+  it('should override default private_agents when configured', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: {},
+        private_agents: ['cursor', 'my-custom-agent']
+      },
+      homeDir
+    );
+
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({
+      private_agents: ['cursor', 'my-custom-agent']
+    });
   });
 });
 

@@ -164,7 +164,8 @@ describe('config CLI', () => {
         welcome: ['claude', 'qoder']
       },
       servers: {},
-      sources: {}
+      sources: {},
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 

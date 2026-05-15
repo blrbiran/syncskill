@@ -28,6 +28,8 @@ export const KNOWN_AGENT_DIRS = {
   aone_copilot: '.aone_copilot/skills'
 } as const;
 
+export const DEFAULT_PRIVATE_AGENTS = ['cursor', 'kiro', 'augment', 'cline', 'hermes'];
+
 export function getSyncDir(homeDir = homedir()): string {
   return join(homeDir, '.syncskill');
 }
@@ -72,7 +74,8 @@ export function createDefaultConfig(homeDir = homedir(), agents: Record<string, 
     agents,
     links: {},
     servers: {},
-    sources: {}
+    sources: {},
+    private_agents: DEFAULT_PRIVATE_AGENTS
   };
 }
 
@@ -101,7 +104,10 @@ export function validateConfig(value: unknown): SyncSkillConfig {
     agents: normalizeAgents(value.agents),
     links: normalizeLinks(value.links),
     servers: isRecord(value.servers) ? value.servers : {},
-    sources: isRecord(value.sources) ? value.sources : {}
+    sources: isRecord(value.sources) ? value.sources : {},
+    private_agents: Array.isArray(value.private_agents)
+      ? value.private_agents.filter((agent): agent is string => typeof agent === 'string')
+      : DEFAULT_PRIVATE_AGENTS
   };
 }
 

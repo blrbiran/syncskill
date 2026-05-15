@@ -61,7 +61,8 @@ describe('runConfigUi', () => {
       },
       links: {},
       servers: {},
-      sources: {}
+      sources: {},
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -90,7 +91,8 @@ describe('runConfigUi', () => {
         welcome: ['*', 'qoder']
       },
       servers: {},
-      sources: {}
+      sources: {},
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -108,7 +110,8 @@ describe('runConfigUi', () => {
       agents: {},
       links: {},
       servers: {},
-      sources: {}
+      sources: {},
+      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 });
