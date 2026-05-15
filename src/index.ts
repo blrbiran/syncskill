@@ -619,7 +619,7 @@ export function createProgram(homeDir?: string): Command {
       console.log(`Unlinked "${skill}" from all agents.`);
     });
 
-  const sourceCommand = program.command('source').description('Manage external skill sources (git/http/local)');
+  const sourceCommand = program.command('source').description('Manage external skill sources and source recovery');
 
   sourceCommand
     .command('add <nameOrUrl>')
@@ -737,11 +737,11 @@ export function createProgram(homeDir?: string): Command {
 
   sourceCommand
     .command('update [name]')
-    .description('Update one source or all configured sources')
+    .description('Update one source or all configured sources, with preview support for dirty-source handling')
     .option('--all', 'Update all configured sources')
     .option('-y, --yes', 'Skip confirmation prompts, auto-skip dirty sources')
     .option('--force', 'Force update dirty sources (backs up first)')
-    .option('--dry-run', 'Preview update without making changes')
+    .option('--dry-run', 'Preview update actions, including dirty-source decisions, without making changes')
     .action(async (name: string | undefined, options: { all?: boolean; yes?: boolean; force?: boolean; dryRun?: boolean }) => {
       if (options.all || name === undefined) {
         await updateAllSources(resolvedHomeDir, undefined, { yes: options.yes, force: options.force, dryRun: options.dryRun });
@@ -753,7 +753,7 @@ export function createProgram(homeDir?: string): Command {
 
   sourceCommand
     .command('restore <name>')
-    .description('Restore a source from last force-update backup')
+    .description('Restore a source from the most recent force-update backup')
     .action(async (name: string) => {
       const { restoreSource } = await import('./source-restore.js');
       const result = await restoreSource(resolvedHomeDir, name);
@@ -1127,7 +1127,7 @@ export function createProgram(homeDir?: string): Command {
     .description('Push local skill changes to one server or all configured servers')
     .option('--all', 'Push to all configured servers')
     .option('--dry-run', 'Preview changes without pushing')
-    .option('--timeout <seconds>', 'Timeout for SSH operations in seconds', parseInteger)
+    .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; yes?: boolean }) => {
       const config = await loadConfig(resolvedHomeDir);
@@ -1159,7 +1159,7 @@ export function createProgram(homeDir?: string): Command {
     .description('Pull remote skill changes from one server or all configured servers')
     .option('--all', 'Pull from all configured servers')
     .option('--dry-run', 'Preview changes without pulling')
-    .option('--timeout <seconds>', 'Timeout for SSH operations in seconds', parseInteger)
+    .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; yes?: boolean }) => {
       const config = await loadConfig(resolvedHomeDir);
@@ -1186,7 +1186,7 @@ export function createProgram(homeDir?: string): Command {
     .description('Pull then push changes for one server or all configured servers')
     .option('--all', 'Sync all configured servers')
     .option('--dry-run', 'Preview changes without syncing')
-    .option('--timeout <seconds>', 'Timeout for SSH operations in seconds', parseInteger)
+    .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
     .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number }) => {
       // Auto-check config health
       const config = await loadConfig(resolvedHomeDir);
