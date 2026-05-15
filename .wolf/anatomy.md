@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-14T17:03:37.318Z
-> Files: 116 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-14T17:46:44.700Z
+> Files: 115 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -30,8 +30,8 @@
 
 ## docs/
 
-- `config-guide.md` — Configuration Guide (~2245 tok)
-- `design-guide.md` — Design Guide (~2402 tok)
+- `config-guide.md` — Configuration Guide (~2510 tok)
+- `design-guide.md` — Design Guide (~2708 tok)
 - `e2e-test-guide.md` — E2E Test Writing Guide (~3922 tok)
 - `README.md` — Project documentation (~296 tok)
 - `usage-guide.md` — Usage Guide (~2710 tok)
@@ -47,7 +47,7 @@
 
 ## src/
 
-- `index.ts` — Exports createProgram (~13938 tok)
+- `index.ts` — Exports createProgram (~13968 tok)
 - `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~890 tok)
 - `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4402 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
@@ -68,8 +68,8 @@
 - `manifest.ts` — Hash computation and manifest management (~3316 tok)
 - `server.ts` — Server config formatting (~440 tok)
 - `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 12 more (~2187 tok)
-- `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 6 more (~4420 tok)
-- `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer (~3668 tok)
+- `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 3 more (~5418 tok)
+- `transport.ts` — Exports ServerProbeResult, TransportRuntime, createTransportRuntime, refreshRemoteManifestFromServer (~4153 tok)
 
 ## src/receiver/
 
@@ -150,9 +150,9 @@
 - `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6530 tok)
 - `source-remove.test.ts` — Declares SourceConfig (~3048 tok)
 - `source-update-force.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~4705 tok)
-- `sync-cli.test.ts` — Declares tempDirs (~4259 tok)
-- `sync-engine.test.ts` — TransportRuntime: createRuntime (~3568 tok)
-- `transport.test.ts` — receiverPath: importReceiverModule, runReceiverCommand, runReceiverApply, createReceiverManifest, cr (~9500 tok)
+- `sync-cli.test.ts` — Declares tempDirs (~4296 tok)
+- `sync-engine.test.ts` — TransportRuntime: createRuntime (~7558 tok)
+- `transport.test.ts` — receiverPath: importReceiverModule, runReceiverCommand, runReceiverApply, createReceiverManifest, cr (~9591 tok)
 
 ## tests/unit/
 
@@ -184,3 +184,4 @@
 - `source-github-url.test.ts` — Declares result (~1291 tok)
 - `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~26159 tok)
 - `test-tiers.test.ts` — Declares rootDir (~382 tok)
+- `transport.test.ts` — TransportRuntime: createRuntime (~1383 tok)
