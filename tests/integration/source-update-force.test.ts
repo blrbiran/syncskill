@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 
 import { saveConfig, loadConfig, getSyncPaths, createDefaultConfig } from '../../src/config/config.js';
 import { updateSource, materializeSource } from '../../src/source.js';
+import { hashSkillDirectory } from '../../src/core/manifest.js';
 import { loadSkillsRegistry, saveSkillsRegistry } from '../../src/core/skills-registry.js';
 import { getSourceHistory } from '../../src/core/update-history.js';
 
@@ -418,6 +419,172 @@ describe('source update --force', () => {
         stash_commit: expect.any(String),
         timestamp: expect.any(String)
       });
+    });
+
+    it('records http overwrite history with backup metadata and clears it after a clean update', async () => {
+      const { syncDir, skillsDir } = getSyncPaths(homeDir);
+      const sourceDir = join(homeDir, 'http-source-fixture');
+      const archiveFile = join(homeDir, 'http-source.tar.gz');
+
+      await mkdir(join(sourceDir, 'skills', 'http-skill'), { recursive: true });
+      await writeFile(join(sourceDir, 'skills', 'http-skill', 'SKILL.md'), '# HTTP v1\n');
+      await execFileAsync('tar', ['-czf', archiveFile, '-C', sourceDir, '.']);
+
+      let updatedServer: { url: string; close: () => Promise<void> } | undefined;
+      const server = await (async () => {
+        const { createServer } = await import('node:http');
+        const archive = await readFile(archiveFile);
+        const httpServer = createServer((request, response) => {
+          if (request.url !== '/source.tar.gz') {
+            response.statusCode = 404;
+            response.end('not found');
+            return;
+          }
+          response.statusCode = 200;
+          response.setHeader('Content-Type', 'application/gzip');
+          response.end(archive);
+        });
+        await new Promise<void>((resolve, reject) => {
+          httpServer.listen(0, '127.0.0.1', () => resolve());
+          httpServer.once('error', reject);
+        });
+        const address = httpServer.address();
+        if (address === null || typeof address === 'string') {
+          throw new Error('Failed to determine archive server address');
+        }
+        return {
+          url: `http://127.0.0.1:${address.port}/source.tar.gz`,
+          close: () => new Promise<void>((resolve, reject) => httpServer.close(error => error ? reject(error) : resolve()))
+        };
+      })();
+
+      try {
+        const config = await loadConfig(homeDir);
+        config.sources['http-source'] = {
+          type: 'http',
+          url: server.url,
+          path: 'skills'
+        };
+        await saveConfig(config, homeDir);
+
+        await materializeSource(homeDir, 'http-source', {
+          type: 'http',
+          url: server.url,
+          path: 'skills'
+        });
+
+        const initialHash = await hashSkillDirectory(join(skillsDir, 'http-skill'));
+        const registry = await loadSkillsRegistry(homeDir);
+        registry.skills['http-skill'] = {
+          path: join(skillsDir, 'http-skill'),
+          origin: 'http-source',
+          type: 'http',
+          status: 'active',
+          last_update_hash: initialHash
+        };
+        await saveSkillsRegistry(homeDir, registry);
+
+        await writeFile(join(skillsDir, 'http-skill', 'SKILL.md'), '# HTTP local edit\n');
+
+        await writeFile(join(sourceDir, 'skills', 'http-skill', 'SKILL.md'), '# HTTP v2\n');
+        const updatedArchiveFile = join(homeDir, 'http-source-v2.tar.gz');
+        await execFileAsync('tar', ['-czf', updatedArchiveFile, '-C', sourceDir, '.']);
+
+        updatedServer = await (async () => {
+          const { createServer } = await import('node:http');
+          const archive = await readFile(updatedArchiveFile);
+          const httpServer = createServer((request, response) => {
+            if (request.url !== '/source.tar.gz') {
+              response.statusCode = 404;
+              response.end('not found');
+              return;
+            }
+            response.statusCode = 200;
+            response.setHeader('Content-Type', 'application/gzip');
+            response.end(archive);
+          });
+          await new Promise<void>((resolve, reject) => {
+            httpServer.listen(0, '127.0.0.1', () => resolve());
+            httpServer.once('error', reject);
+          });
+          const address = httpServer.address();
+          if (address === null || typeof address === 'string') {
+            throw new Error('Failed to determine archive server address');
+          }
+          return {
+            url: `http://127.0.0.1:${address.port}/source.tar.gz`,
+            close: () => new Promise<void>((resolve, reject) => httpServer.close(error => error ? reject(error) : resolve()))
+          };
+        })();
+
+        const updatedConfig = await loadConfig(homeDir);
+        updatedConfig.sources['http-source'] = {
+          type: 'http',
+          url: updatedServer.url,
+          path: 'skills'
+        };
+        await saveConfig(updatedConfig, homeDir);
+
+        await updateSource(homeDir, 'http-source', { force: true });
+
+        const history = await getSourceHistory(homeDir, 'http-source');
+        expect(history).toEqual({
+          type: 'http',
+          backup_path: join(syncDir, 'backups', 'http-source'),
+          dirty_skills: ['http-skill'],
+          timestamp: expect.any(String)
+        });
+        await expect(readFile(join(syncDir, 'backups', 'http-source', 'http-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# HTTP local edit\n');
+        await expect(readFile(join(skillsDir, 'http-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# HTTP v2\n');
+
+        const cleanArchiveFile = join(homeDir, 'http-source-v3.tar.gz');
+        await writeFile(join(sourceDir, 'skills', 'http-skill', 'SKILL.md'), '# HTTP v3\n');
+        await execFileAsync('tar', ['-czf', cleanArchiveFile, '-C', sourceDir, '.']);
+
+        const cleanServer = await (async () => {
+          const { createServer } = await import('node:http');
+          const archive = await readFile(cleanArchiveFile);
+          const httpServer = createServer((request, response) => {
+            if (request.url !== '/source.tar.gz') {
+              response.statusCode = 404;
+              response.end('not found');
+              return;
+            }
+            response.statusCode = 200;
+            response.setHeader('Content-Type', 'application/gzip');
+            response.end(archive);
+          });
+          await new Promise<void>((resolve, reject) => {
+            httpServer.listen(0, '127.0.0.1', () => resolve());
+            httpServer.once('error', reject);
+          });
+          const address = httpServer.address();
+          if (address === null || typeof address === 'string') {
+            throw new Error('Failed to determine archive server address');
+          }
+          return {
+            url: `http://127.0.0.1:${address.port}/source.tar.gz`,
+            close: () => new Promise<void>((resolve, reject) => httpServer.close(error => error ? reject(error) : resolve()))
+          };
+        })();
+
+        const cleanConfig = await loadConfig(homeDir);
+        cleanConfig.sources['http-source'] = {
+          type: 'http',
+          url: cleanServer.url,
+          path: 'skills'
+        };
+        await saveConfig(cleanConfig, homeDir);
+
+        await updateSource(homeDir, 'http-source', {});
+        await expect(getSourceHistory(homeDir, 'http-source')).resolves.toBeNull();
+        await cleanServer.close();
+      } finally {
+        await server.close();
+        if (typeof updatedServer !== 'undefined') {
+          await updatedServer.close();
+        }
+      }
     });
   });
 });

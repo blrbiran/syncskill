@@ -21,7 +21,7 @@ import {
   activateSkill,
 } from './core/skills-registry.js';
 import { hashSkillDirectory } from './core/manifest.js';
-import { recordGitOverwrite, clearSourceHistory, type GitUpdateRecord } from './core/update-history.js';
+import { recordGitOverwrite, recordHttpOverwrite, clearSourceHistory, type GitUpdateRecord } from './core/update-history.js';
 import { backupDirtySkills } from './utils/backup.js';
 import { isNotFoundError, pathExists } from './utils/utils.js';
 import {
@@ -774,6 +774,15 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
       for (const backed of backupResult.backedUp) {
         console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
       }
+      if (sourceType === 'http' && backupResult.backedUp.length > 0) {
+        await recordHttpOverwrite(homeDir, sourceName, {
+          type: 'http',
+          backup_path: join(backupsDir, sourceName),
+          dirty_skills: backupResult.backedUp.map(backed => backed.name),
+          timestamp: new Date().toISOString(),
+        });
+        console.log(`  To restore: syncskill source restore ${sourceName}`);
+      }
     }
     return 'update';
   }
@@ -859,6 +868,15 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
         });
         for (const backed of backupResult.backedUp) {
           console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
+        }
+        if (sourceType === 'http' && backupResult.backedUp.length > 0) {
+          await recordHttpOverwrite(homeDir, sourceName, {
+            type: 'http',
+            backup_path: join(backupsDir, sourceName),
+            dirty_skills: backupResult.backedUp.map(backed => backed.name),
+            timestamp: new Date().toISOString(),
+          });
+          console.log(`  To restore: syncskill source restore ${sourceName}`);
         }
       }
     }
@@ -1114,6 +1132,10 @@ async function syncSource(
   // Update last_update_hash for HTTP sources after successful update
   if (source.type === 'http') {
     await updateRegistryHashesForHttp(homeDir, name, skillsDir, materializedSkills);
+  }
+
+  if (source.type === 'http' && !options.force) {
+    await clearSourceHistory(homeDir, name);
   }
 
   return nextState;
