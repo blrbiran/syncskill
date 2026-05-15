@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 import YAML, { stringify } from 'yaml';
 
@@ -15,6 +15,14 @@ import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRe
 import type { SkillsRegistry } from '../../src/source.js';
 import { normalizeSkillsRegistry } from '../../src/core/skills-registry.js';
 import { addIgnoredSkill, isSkillIgnored } from '../../src/core/skills-registry.js';
+
+const { mockSelect } = vi.hoisted(() => ({
+  mockSelect: vi.fn(),
+}));
+
+vi.mock('@inquirer/prompts', () => ({
+  select: mockSelect,
+}));
 
 const execFileAsync = promisify(execFile);
 
@@ -106,9 +114,19 @@ async function startHttpServer(
 describe('source module', () => {
   const tempDirs = useTempDirs();
   const cleanups: Array<() => Promise<void>> = [];
+  const originalStdinIsTTY = process.stdin.isTTY;
+  const originalStdoutIsTTY = process.stdout.isTTY;
+
+  beforeEach(() => {
+    mockSelect.mockReset();
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: originalStdinIsTTY });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: originalStdoutIsTTY });
+  });
 
   afterEach(async () => {
     delete process.env.SYNCSKILL_TEST_FAIL_RENAME_TO;
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: originalStdinIsTTY });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: originalStdoutIsTTY });
     await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
   });
 
@@ -637,6 +655,129 @@ sources:
     await expect(loadSourceState(homeDir, 'http-source')).resolves.toEqual({
       materialized_skills: ['alpha'],
       updated_at: '2026-05-01T02:30:00.000Z'
+    });
+  });
+
+  it('defaults to skip for dirty git skill changes in interactive mode', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: {
+          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' }
+        }
+      },
+      homeDir
+    );
+
+    await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    await writeFile(join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout', 'source.path', 'alpha', 'SKILL.md'), '# local dirty\n', 'utf8');
+
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+
+    const promptConfigPromise = new Promise<any>((resolve) => {
+      mockSelect.mockImplementationOnce(async (config) => {
+        resolve(config);
+        return config.default;
+      });
+    });
+
+    const result = await updateSource(homeDir, 'git-source', {}, '2026-05-01T03:00:00.000Z');
+    const promptConfig = await promptConfigPromise;
+
+    expect(promptConfig.default).toBe('skip');
+    expect(promptConfig.choices).toEqual([
+      { name: '(S) Skip — keep local modifications, skip this source', value: 'skip' },
+      { name: '(o) Overwrite — stash local changes and update to latest', value: 'update' },
+      { name: '(q) Quit — stop update', value: 'quit' }
+    ]);
+    expect(result.materialized_skills).toEqual(['alpha']);
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v1\n');
+    await expect(access(join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout', '.git', 'refs', 'stash'))).rejects.toThrow();
+    await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
+      materialized_skills: ['alpha'],
+      updated_at: '2026-05-01T02:00:00.000Z'
+    });
+  });
+
+  it('defaults to skip for dirty git non-skill changes in interactive mode', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+    await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await writeFile(join(workRepoDir, 'README.md'), '# repo\n', 'utf8');
+    await commitAll(workRepoDir, 'initial source');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: {
+          'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' }
+        }
+      },
+      homeDir
+    );
+
+    await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    await writeFile(join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout', 'README.md'), '# local dirty\n', 'utf8');
+
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+
+    const promptConfigPromise = new Promise<any>((resolve) => {
+      mockSelect.mockImplementationOnce(async (config) => {
+        resolve(config);
+        return config.default;
+      });
+    });
+
+    const result = await updateSource(homeDir, 'git-source', {}, '2026-05-01T03:00:00.000Z');
+    const promptConfig = await promptConfigPromise;
+
+    expect(promptConfig.default).toBe('skip');
+    expect(promptConfig.choices).toEqual([
+      { name: '(S) Skip — keep local modifications, skip this source', value: 'skip' },
+      { name: '(o) Overwrite — stash local changes and update to latest', value: 'update' },
+      { name: '(q) Quit — stop update', value: 'quit' }
+    ]);
+    expect(result.materialized_skills).toEqual(['alpha']);
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v1\n');
+    await expect(access(join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout', '.git', 'refs', 'stash'))).rejects.toThrow();
+    await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
+      materialized_skills: ['alpha'],
+      updated_at: '2026-05-01T02:00:00.000Z'
     });
   });
 

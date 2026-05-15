@@ -902,11 +902,11 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
     const choice = await select({
       message: 'Choose action:',
       choices: [
-        { name: '(u) Update — discard local changes, use remote latest', value: 'update' as const },
-        { name: '(s) Skip — keep local modifications, skip this source', value: 'skip' as const },
+        { name: '(S) Skip — keep local modifications, skip this source', value: 'skip' as const },
+        { name: '(o) Overwrite — stash local changes and update to latest', value: 'update' as const },
         { name: '(q) Quit — stop update', value: 'quit' as const }
       ],
-      default: 'skip' // Default to skip for skill dirty (safe)
+      default: 'skip'
     });
 
     if (choice === 'update') {
@@ -955,11 +955,11 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
     const choice = await select({
       message: 'Choose action:',
       choices: [
-        { name: '(u) Update — discard non-skill changes and update', value: 'update' as const },
-        { name: '(s) Skip — keep changes, skip this source', value: 'skip' as const },
+        { name: '(S) Skip — keep local modifications, skip this source', value: 'skip' as const },
+        { name: '(o) Overwrite — stash local changes and update to latest', value: 'update' as const },
         { name: '(q) Quit — stop update', value: 'quit' as const }
       ],
-      default: 'update' // Default to update for non-skill dirty
+      default: 'skip'
     });
 
     return choice;
