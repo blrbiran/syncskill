@@ -742,6 +742,18 @@ export function createProgram(homeDir?: string): Command {
       await updateSource(resolvedHomeDir, name, { yes: options.yes, force: options.force });
     });
 
+  sourceCommand
+    .command('restore <name>')
+    .description('Restore a source from last force-update backup')
+    .action(async (name: string) => {
+      const { restoreSource } = await import('./source-restore.js');
+      const result = await restoreSource(resolvedHomeDir, name);
+      console.log(result.message);
+      if (!result.success) {
+        process.exit(1);
+      }
+    });
+
   // Top-level alias for 'source update'
   program
     .command('update [name]')
