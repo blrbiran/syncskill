@@ -36,6 +36,7 @@ export interface SyncEngineOptions {
   dryRun?: boolean;
   noRefresh?: boolean;
   yes?: boolean;
+  timeout?: number;
 }
 
 async function collectLocalFileList(dir: string): Promise<string[]> {

@@ -146,6 +146,14 @@ function formatSkillRows(action: 'pull' | 'push', result: PullResult | PushResul
   return action === 'pull' ? formatPullRows(result as PullResult) : formatPushRows(result as PushResult);
 }
 
+function parseInteger(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) {
+    throw new InvalidArgumentError('Expected an integer value');
+  }
+  return parsed;
+}
+
 export function createProgram(homeDir?: string): Command {
   const resolvedHomeDir = homeDir ?? process.env.HOME ?? '';
   const program = new Command()
@@ -1119,8 +1127,9 @@ export function createProgram(homeDir?: string): Command {
     .description('Push local skill changes to one server or all configured servers')
     .option('--all', 'Push to all configured servers')
     .option('--dry-run', 'Preview changes without pushing')
+    .option('--timeout <seconds>', 'Timeout for SSH operations in seconds', parseInteger)
     .option('-y, --yes', 'Skip confirmation prompts')
-    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; yes?: boolean }) => {
+    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; yes?: boolean }) => {
       const config = await loadConfig(resolvedHomeDir);
       // Auto-check config health
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
@@ -1134,6 +1143,7 @@ export function createProgram(homeDir?: string): Command {
       const results = await pushToServers(resolvedHomeDir, targetServers, {
         dryRun: options.dryRun,
         noRefresh: !program.opts<{ refresh: boolean }>().refresh,
+        timeout: options.timeout,
         yes: options.yes
       });
 
@@ -1149,8 +1159,9 @@ export function createProgram(homeDir?: string): Command {
     .description('Pull remote skill changes from one server or all configured servers')
     .option('--all', 'Pull from all configured servers')
     .option('--dry-run', 'Preview changes without pulling')
+    .option('--timeout <seconds>', 'Timeout for SSH operations in seconds', parseInteger)
     .option('-y, --yes', 'Skip confirmation prompts')
-    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; yes?: boolean }) => {
+    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; yes?: boolean }) => {
       const config = await loadConfig(resolvedHomeDir);
       // Auto-check config health
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
@@ -1161,7 +1172,7 @@ export function createProgram(homeDir?: string): Command {
       const targetServers = await selectTargetServers(allServers, server, options, 'pull');
       if (!targetServers) return;
 
-      const results = await pullFromServers(resolvedHomeDir, targetServers, { dryRun: options.dryRun });
+      const results = await pullFromServers(resolvedHomeDir, targetServers, { dryRun: options.dryRun, timeout: options.timeout });
 
       for (const result of results) {
         for (const line of formatSkillRows('pull', result)) {
@@ -1175,14 +1186,15 @@ export function createProgram(homeDir?: string): Command {
     .description('Pull then push changes for one server or all configured servers')
     .option('--all', 'Sync all configured servers')
     .option('--dry-run', 'Preview changes without syncing')
-    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean }) => {
+    .option('--timeout <seconds>', 'Timeout for SSH operations in seconds', parseInteger)
+    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number }) => {
       // Auto-check config health
       const config = await loadConfig(resolvedHomeDir);
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
       await autoDiagnoseConfig(config, skillsDir);
 
       const servers = options.all || server === undefined ? undefined : [server];
-      const results = await syncServers(resolvedHomeDir, servers, { dryRun: options.dryRun });
+      const results = await syncServers(resolvedHomeDir, servers, { dryRun: options.dryRun, timeout: options.timeout });
 
       for (const result of results) {
         for (const line of formatSkillRows('pull', result.pull)) {
