@@ -298,6 +298,7 @@ export async function materializeSource(
 export interface UpdateSourceOptions {
   yes?: boolean;
   force?: boolean;
+  dryRun?: boolean;
   gitOverwriteRecord?: Pick<GitUpdateRecord, 'before_commit' | 'stash_commit'>;
 }
 
@@ -472,7 +473,70 @@ export async function updateAllSources(
   const results: UpdateResult[] = [];
 
   if (updatableSources.length === 0) {
-    console.log('No updatable sources found.');
+    console.log(options.dryRun ? '[dry-run] No updatable sources found.' : 'No updatable sources found.');
+    return states;
+  }
+
+  if (options.dryRun) {
+    console.log('\n[dry-run] Updatable sources:');
+    for (const source of updatableSources) {
+      const urlDisplay = source.url ? ` — ${source.url}` : '';
+      console.log(`  ${source.name} (${source.type})${urlDisplay}`);
+    }
+
+    const dirtySummaries: Array<{ source: SourceEntry; dirtySkills: string[]; hasNonSkillDirty: boolean }> = [];
+    for (const source of updatableSources) {
+      const previousState = await loadSourceState(homeDir, source.name);
+      const previousSkills = previousState?.materialized_skills ?? [];
+      if (previousSkills.length === 0) {
+        continue;
+      }
+
+      if (source.type === 'git') {
+        const checkoutDir = join(getSyncPaths(homeDir).syncDir, '.sources', source.name, 'checkout');
+        if (!(await pathExists(checkoutDir))) {
+          continue;
+        }
+        const dirtyResult = await detectGitDirty(checkoutDir, source.path);
+        if (dirtyResult.isDirty) {
+          dirtySummaries.push({
+            source,
+            dirtySkills: dirtyResult.dirtySkills.map(skill => skill.name),
+            hasNonSkillDirty: dirtyResult.nonSkillDirty,
+          });
+        }
+        continue;
+      }
+
+      if (source.type === 'http') {
+        const dirtyResult = await detectHttpDirty(homeDir, source.name, previousSkills);
+        if (dirtyResult.isDirty) {
+          dirtySummaries.push({
+            source,
+            dirtySkills: dirtyResult.dirtySkills.map(skill => skill.name),
+            hasNonSkillDirty: false,
+          });
+        }
+      }
+    }
+
+    if (dirtySummaries.length > 0) {
+      console.log('\n[dry-run] Dirty sources:');
+      for (const summary of dirtySummaries) {
+        const details: string[] = [];
+        if (summary.dirtySkills.length > 0) {
+          details.push(`skills: ${summary.dirtySkills.join(', ')}`);
+        }
+        if (summary.hasNonSkillDirty) {
+          details.push('non-skill changes present');
+        }
+        console.log(`  ${summary.source.name} (${summary.source.type})${details.length > 0 ? ` — ${details.join('; ')}` : ''}`);
+      }
+    }
+
+    console.log('\n[dry-run] No changes were made.');
+    console.log('[dry-run] Without --force, dirty sources would be skipped.');
+    console.log('[dry-run] With --force, syncskill would back up or stash local changes before updating.');
     return states;
   }
 
@@ -1020,6 +1084,11 @@ async function syncSource(
   updatedAt: string,
   options: UpdateSourceOptions = {}
 ): Promise<SourceState> {
+  if (options.dryRun) {
+    const previousState = await loadSourceState(homeDir, name);
+    return previousState ?? { materialized_skills: [], updated_at: updatedAt };
+  }
+
   const { skillsDir, syncDir } = getSyncPaths(homeDir);
   const previousState = await loadSourceState(homeDir, name);
   const previousSkills = previousState?.materialized_skills ?? [];

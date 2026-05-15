@@ -733,13 +733,14 @@ export function createProgram(homeDir?: string): Command {
     .option('--all', 'Update all configured sources')
     .option('-y, --yes', 'Skip confirmation prompts, auto-skip dirty sources')
     .option('--force', 'Force update dirty sources (backs up first)')
-    .action(async (name: string | undefined, options: { all?: boolean; yes?: boolean; force?: boolean }) => {
+    .option('--dry-run', 'Preview update without making changes')
+    .action(async (name: string | undefined, options: { all?: boolean; yes?: boolean; force?: boolean; dryRun?: boolean }) => {
       if (options.all || name === undefined) {
-        await updateAllSources(resolvedHomeDir, undefined, { yes: options.yes, force: options.force });
+        await updateAllSources(resolvedHomeDir, undefined, { yes: options.yes, force: options.force, dryRun: options.dryRun });
         return;
       }
 
-      await updateSource(resolvedHomeDir, name, { yes: options.yes, force: options.force });
+      await updateSource(resolvedHomeDir, name, { yes: options.yes, force: options.force, dryRun: options.dryRun });
     });
 
   sourceCommand
@@ -761,13 +762,14 @@ export function createProgram(homeDir?: string): Command {
     .option('--all', 'Update all configured sources')
     .option('-y, --yes', 'Skip confirmation prompts, auto-skip dirty sources')
     .option('--force', 'Force update dirty sources (backs up first)')
-    .action(async (name: string | undefined, options: { all?: boolean; yes?: boolean; force?: boolean }) => {
+    .option('--dry-run', 'Preview update without making changes')
+    .action(async (name: string | undefined, options: { all?: boolean; yes?: boolean; force?: boolean; dryRun?: boolean }) => {
       if (options.all || name === undefined) {
-        await updateAllSources(resolvedHomeDir, undefined, { yes: options.yes, force: options.force });
+        await updateAllSources(resolvedHomeDir, undefined, { yes: options.yes, force: options.force, dryRun: options.dryRun });
         return;
       }
 
-      await updateSource(resolvedHomeDir, name, { yes: options.yes, force: options.force });
+      await updateSource(resolvedHomeDir, name, { yes: options.yes, force: options.force, dryRun: options.dryRun });
     });
 
   sourceCommand
