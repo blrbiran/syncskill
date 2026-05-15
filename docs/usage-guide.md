@@ -189,8 +189,24 @@ Source update options:
 | `--all` | Update all updatable sources |
 | `-y, --yes` | Skip confirmations (skips dirty sources unless --force) |
 | `--force` | Force update dirty sources (backs up modified skills first) |
+| `--dry-run` | Preview dirty detection and pending updates without changing files |
 
 **Dirty source handling**: When a source has local modifications (`git status` shows changes, or HTTP source hash differs from last update), the update is skipped by default. Use `--force` to overwrite after automatic backup to `~/.syncskill/backups/`.
+
+When `--force` overwrites a dirty source, syncskill writes recovery metadata to `~/.syncskill/update-history.json`. Use `syncskill source restore <name>` to recover the saved git stash or HTTP backup.
+
+```bash
+# Preview source updates without changing anything
+syncskill source update --all --dry-run
+
+# Restore a source that was overwritten by --force
+syncskill source restore vendor-docs
+```
+
+The restore command is interactive and uses the matching recovery record from `update-history.json`.
+
+- Git sources can restore the saved stash created before overwrite.
+- HTTP sources can restore files from the recorded backup directory.
 
 ### Installing Skills
 
@@ -308,6 +324,38 @@ syncskill pull --all
 # Full sync (pull then push) for all servers
 syncskill sync --all
 
+# Preview changes without executing
+syncskill push --dry-run
+syncskill pull --dry-run
+syncskill sync --dry-run
+
+# Set SSH operation timeout in seconds
+syncskill push alpha --timeout 60
+syncskill pull alpha --timeout 60
+syncskill sync --all --timeout 60
+```
+
+Remote sync timeout options:
+
+| Option | Description |
+|--------|-------------|
+| `--timeout <seconds>` | Override the default SSH/rsync timeout for `push`, `pull`, and `sync` |
+
+Use `--timeout` when a remote server is slow to respond or you want the command to fail faster than the system SSH defaults.
+
+Example timeout failure:
+
+```text
+Operation timed out after 60 seconds.
+Check network connectivity or increase --timeout value.
+```
+
+```bash
+# Retry with a longer timeout
+syncskill sync alpha --timeout 120
+```
+
+```bash
 # Preview changes without executing
 syncskill push --dry-run
 syncskill pull --dry-run

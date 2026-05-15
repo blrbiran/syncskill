@@ -6,7 +6,8 @@
 
 - **Multi-agent support**: Manage skills across Claude, Hermes, Qoder, and other AI agents
 - **Source management**: Import skills from git repositories, HTTP archives, or local directories
-- **Remote sync**: Push and pull skills to/from remote servers via SSH/rsync
+- **Dirty source recovery**: Preview updates with `source update --dry-run`, overwrite safely with `--force`, and recover with `source restore`
+- **Remote sync**: Push and pull skills to/from remote servers via SSH/rsync, with optional `--timeout` control
 - **Conflict resolution**: Three-way merge with manual or automatic resolution
 - **Cross-platform**: Works on macOS, Linux, and Windows
 
@@ -77,7 +78,9 @@ syncskill status
 | `syncskill source list` / `ls` | List configured sources |
 | `syncskill source update [name]` | Update one or all sources |
 | `syncskill source update --all` | Update all sources |
+| `syncskill source update --dry-run` | Preview updates without changing files |
 | `syncskill source update --force` | Force update, overwriting dirty sources |
+| `syncskill source restore <name>` | Restore a source overwritten by `--force` |
 | `syncskill source remove <name>` | Remove a source (interactive) |
 | `syncskill update [name]` | Top-level alias for `source update` |
 
@@ -104,9 +107,9 @@ syncskill status
 
 | Command | Description |
 |---------|-------------|
-| `syncskill push [server\|--all]` | Push local changes to servers |
-| `syncskill pull [server\|--all]` | Pull remote changes from servers |
-| `syncskill sync [server\|--all]` | Full sync (pull then push) |
+| `syncskill push [server\|--all] [--timeout <seconds>]` | Push local changes to servers |
+| `syncskill pull [server\|--all] [--timeout <seconds>]` | Pull remote changes from servers |
+| `syncskill sync [server\|--all] [--timeout <seconds>]` | Full sync (pull then push) |
 
 ### Diagnostics
 

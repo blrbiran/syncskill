@@ -9,7 +9,8 @@ Use this skill when:
 - User wants to install, add, or manage AI skills
 - User mentions syncskill, skill sync, or skill management
 - User wants to add skills from GitHub or other sources
-- User wants to sync skills to remote servers
+- User wants to update or restore skill sources after overwrite
+- User wants to sync skills to remote servers, including timeout tuning
 - User wants to link/unlink skills to AI agents
 - User asks about skill status or configuration
 
@@ -45,9 +46,10 @@ Install options: `--name`, `--path` (skill subdirectory), `--skill-subdir` (alia
 |---------|-------------|
 | `source add <url-or-path>` | Add external source (GitHub URL, local archive, local path) |
 | `source list` / `ls` | List configured sources |
-| `source update [name] [--all] [--force] [-y]` | Update sources (git pull / re-download) |
+| `source update [name] [--all] [--force] [--dry-run] [-y]` | Update sources (git pull / re-download) |
+| `source restore <name>` | Restore a source overwritten by `source update --force` |
 | `source remove <name> [--force]` | Remove source (interactive or force-remove all) |
-| `update [name] [--all] [--force] [-y]` | Top-level alias for `source update` |
+| `update [name] [--all] [--force] [--dry-run] [-y]` | Top-level alias for `source update` |
 
 Source add options: `--name`, `--type git|http|local`, `--path` (skill subdirectory), `--skill-subdir` (alias), `--branch`, `-y`
 
@@ -72,9 +74,9 @@ Source add options: `--name`, `--type git|http|local`, `--path` (skill subdirect
 
 | Command | Description |
 |---------|-------------|
-| `push [server] [--all] [--dry-run] [-y]` | Push skills to remote server |
-| `pull [server] [--all] [--dry-run] [-y]` | Pull skills from remote server |
-| `sync [server] [--all] [--dry-run]` | Full sync (pull then push) |
+| `push [server] [--all] [--dry-run] [--timeout <seconds>] [-y]` | Push skills to remote server |
+| `pull [server] [--all] [--dry-run] [--timeout <seconds>] [-y]` | Pull skills from remote server |
+| `sync [server] [--all] [--dry-run] [--timeout <seconds>]` | Full sync (pull then push) |
 | `status` | Show sync status for all tracked servers |
 | `diff <server>` | Show pending changes for a server |
 | `resolve <skill> [--local|--remote|--diff]` | Resolve sync conflicts |
@@ -121,14 +123,16 @@ syncskill link list
 syncskill link --all
 
 # Update sources
-syncskill update --all
+syncskill update --all --dry-run
+syncskill update --all --force
+syncskill source restore my-source
 
 # Diagnose and fix config issues
 syncskill doctor --fix
 
 # Sync with remote servers
 syncskill status
-syncskill sync --all
+syncskill sync --all --timeout 60
 
 # Resolve conflicts
 syncskill resolve my-skill --local

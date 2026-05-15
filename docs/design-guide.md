@@ -194,6 +194,27 @@ Local state lives under `~/.syncskill/`:
 | `manifests/<server>.json` | Per-server reconciliation snapshots |
 | `manifest_history.json` | Hash change audit trail |
 | `skills-registry.json` | Skill origin and status tracking |
+| `update-history.json` | Recovery metadata for forced dirty source updates |
+
+### `update-history.json`
+
+When a dirty source is overwritten during `source update --force`, syncskill stores restore metadata in `~/.syncskill/update-history.json`. Each source name maps to one recovery record.
+
+```json
+{
+  "source-name": {
+    "type": "git|http",
+    "before_commit": "sha (git only)",
+    "after_commit": "sha (git only)",
+    "stash_commit": "sha (git only)",
+    "backup_path": "path (http only)",
+    "dirty_skills": ["skill1"],
+    "timestamp": "ISO date"
+  }
+}
+```
+
+Use this file together with `syncskill source restore <name>` to recover local changes after an overwrite.
 
 Remote synchronization exchanges skill trees plus manifest state, while transport details remain isolated from conflict and orchestration logic.
 

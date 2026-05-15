@@ -27,6 +27,7 @@ The config model includes these top-level keys:
 - `version` - Configuration schema version
 - `conflict_resolution` - Default conflict resolution strategy
 - `agents` - Local agent directory mappings
+- `private_agents` - Agents that need dedicated links instead of the shared `~/.agents/skills/` target
 - `links` - Skill to agent link mappings
 - `servers` - Remote server configurations
 - `sources` - External skill sources
@@ -111,6 +112,23 @@ agents:
   claude: /Users/alice/.claude/skills
   qoder: /Users/alice/.qoder/skills
 ```
+
+### `private_agents`
+
+Lists agents that do not read from the shared `~/.agents/skills/` directory and therefore need individual links into their own skill homes.
+
+Default value:
+
+```yaml
+private_agents:
+  - cursor
+  - kiro
+  - augment
+  - cline
+  - hermes
+```
+
+This field uses full override semantics. If you set `private_agents` in `config.yaml`, your list replaces the built-in defaults instead of merging with them.
 
 ### `links`
 
