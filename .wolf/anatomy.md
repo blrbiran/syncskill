@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-14T17:46:44.700Z
-> Files: 115 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-15T01:11:37.654Z
+> Files: 120 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/plans/
 
@@ -89,11 +89,12 @@
 
 ## tests/end2end/cases/install/
 
-- `install-local-archive.test.ts` — E2E tests for local archive install (skipped pending CLI implementation) (~1085 tok)
+- `install-local-archive.test.ts` — E2E tests for installing local archive files (.zip, .tar.gz). (~1539 tok)
 
 ## tests/end2end/cases/link/
 
 - `link-reconcile.test.ts` — E2E tests for link reconciliation (stale symlink removal, preserving real dirs and external symlinks) (~1716 tok)
+- `link-wildcard-change.test.ts` — E2E tests for changing link config from wildcard (*) to specific agents. (~2587 tok)
 
 ## tests/end2end/cases/smoke/
 
@@ -101,13 +102,21 @@
 
 ## tests/end2end/cases/source/
 
+- `source-install-stale.test.ts` — E2E tests for install when stale checkout exists. (~1679 tok)
 - `source-stale-checkout.test.ts` — E2E tests for stale checkout handling (URL mismatch, non-git dir) (~1568 tok)
 - `source-update-dirty.test.ts` — E2E tests for dirty state detection and backup creation during update (~2704 tok)
+- `source-update-http.test.ts` — E2E tests for HTTP source update behavior. (~1854 tok)
 - `source-update.test.ts` — tests/end2end/cases/source/source-update.test.ts (~1291 tok)
 
 ## tests/end2end/cases/sync/
 
+- `pull-skill-placement.test.ts` — E2E tests for pull skill placement by source type. (~2783 tok)
 - `pull-target.test.ts` — Pull target path resolution tests. (~3316 tok)
+- `push-server-integrity.test.ts` — E2E tests for push server integrity scenarios (deleted skills, manifest mismatches). (~2650 tok)
+- `receiver-update.test.ts` — E2E tests for receiver version update scenarios. (~1320 tok)
+- `pull-target.test.ts` — Pull target path resolution tests. (~3316 tok)
+- `push-server-integrity.test.ts` — E2E tests for push server integrity scenarios. (~2577 tok)
+- `receiver-update.test.ts` — E2E tests for receiver version update scenarios. (~1194 tok)
 
 ## tests/end2end/framework/
 
