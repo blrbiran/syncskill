@@ -427,14 +427,14 @@ export function createProgram(homeDir?: string): Command {
     });
 
   program
-    .command('link [skillOrSubcommand]')
+    .command('link [skillOrSubcommand] [agentName]')
     .description('Manage skill-to-agent links (auto-cleans stale links). No args: matrix editor; list/ls: show status')
     .option('--all', 'Link all configured skills')
     .option('--list', 'Show link status (use when skill named "list" exists)')
     .option('-v, --verbose', 'Show text status instead of symbols')
     .option('--dry-run', 'Preview changes without applying')
     .option('-y, --yes', 'Auto-confirm stale link removal')
-    .action(async (skillOrSubcommand: string | undefined, options: { all?: boolean; list?: boolean; verbose?: boolean; dryRun?: boolean; yes?: boolean }) => {
+    .action(async (skillOrSubcommand: string | undefined, agentName: string | undefined, options: { all?: boolean; list?: boolean; verbose?: boolean; dryRun?: boolean; yes?: boolean }) => {
       // Auto-check config health
       const config = await loadConfig(resolvedHomeDir);
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
@@ -471,10 +471,93 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
+      if (typeof skillOrSubcommand === 'string') {
+        if (options.all) {
+          config.links[skillOrSubcommand] = ['*'];
+          await saveConfig(config, resolvedHomeDir);
+
+          if (options.dryRun) {
+            console.log(`[dry-run] Would link ${skillOrSubcommand} to all ${Object.keys(config.agents).length} agents`);
+            const staleBySkill = await findStaleLinks(resolvedHomeDir, [skillOrSubcommand]);
+            await displayStaleLinksPreview(staleBySkill);
+            return;
+          }
+
+          await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skillOrSubcommand });
+          console.log(`✓ Linked ${skillOrSubcommand} to all ${Object.keys(config.agents).length} agents`);
+          await handleStaleLinksReconciliation(resolvedHomeDir, [skillOrSubcommand], options);
+          return;
+        }
+
+        if (agentName) {
+          if (!config.agents[agentName]) {
+            console.error(`Error: Agent '${agentName}' not configured`);
+            process.exit(1);
+            return;
+          }
+
+          const currentTargets = config.links[skillOrSubcommand] ?? [];
+          const nextTargets = currentTargets.includes('*') || currentTargets.includes(agentName)
+            ? currentTargets
+            : [...currentTargets, agentName].sort();
+          config.links[skillOrSubcommand] = nextTargets;
+          await saveConfig(config, resolvedHomeDir);
+
+          if (options.dryRun) {
+            console.log(`[dry-run] Would link ${skillOrSubcommand} to ${agentName}`);
+            const staleBySkill = await findStaleLinks(resolvedHomeDir, [skillOrSubcommand]);
+            await displayStaleLinksPreview(staleBySkill);
+            return;
+          }
+
+          await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skillOrSubcommand });
+          console.log(`✓ Linked ${skillOrSubcommand} to ${agentName}`);
+          await handleStaleLinksReconciliation(resolvedHomeDir, [skillOrSubcommand], options);
+          return;
+        }
+
+        const allAgents = Object.keys(config.agents).sort();
+        const currentTargets = config.links[skillOrSubcommand] ?? [];
+        const selectedAgents = await checkbox({
+          message: `${skillOrSubcommand} is currently linked to:\n`,
+          choices: allAgents.map((agent) => ({
+            name: agent,
+            value: agent,
+            checked: currentTargets.includes('*') || currentTargets.includes(agent)
+          }))
+        });
+
+        const previousAgents = new Set(currentTargets.includes('*') ? allAgents : currentTargets);
+        const nextAgents = [...selectedAgents].sort();
+        config.links[skillOrSubcommand] = nextAgents;
+        await saveConfig(config, resolvedHomeDir);
+
+        if (options.dryRun) {
+          console.log(`[dry-run] Would update ${skillOrSubcommand}`);
+          const staleBySkill = await findStaleLinks(resolvedHomeDir, [skillOrSubcommand]);
+          await displayStaleLinksPreview(staleBySkill);
+          return;
+        }
+
+        await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skillOrSubcommand });
+        await handleStaleLinksReconciliation(resolvedHomeDir, [skillOrSubcommand], options);
+
+        const linkedAgents = nextAgents.filter((agent) => !previousAgents.has(agent));
+        const unlinkedAgents = [...previousAgents].filter((agent) => !nextAgents.includes(agent)).sort();
+        const changes: string[] = [];
+        if (linkedAgents.length > 0) {
+          changes.push(`linked to ${linkedAgents.join(', ')}`);
+        }
+        if (unlinkedAgents.length > 0) {
+          changes.push(`unlinked from ${unlinkedAgents.join(', ')}`);
+        }
+        console.log(`✓ Updated ${skillOrSubcommand}${changes.length > 0 ? `: ${changes.join(', ')}` : ''}`);
+        return;
+      }
+
       if (options.all) {
         if (options.dryRun) {
           console.log('[dry-run] Would link all configured skills');
-          // Still show what stale links would be removed
           const staleBySkill = await findStaleLinks(resolvedHomeDir);
           await displayStaleLinksPreview(staleBySkill);
           return;
@@ -482,26 +565,7 @@ export function createProgram(homeDir?: string): Command {
         const results = await linkConfiguredSkills(resolvedHomeDir, { all: true });
         const skillCount = new Set(results.map(r => r.skill)).size;
         console.log(`✓ Linked ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
-        // Reconcile stale links for all skills
         await handleStaleLinksReconciliation(resolvedHomeDir, undefined, options);
-        return;
-      }
-
-      if (typeof skillOrSubcommand === 'string') {
-        if (options.dryRun) {
-          console.log(`[dry-run] Would link skill "${skillOrSubcommand}"`);
-          // Still show what stale links would be removed
-          const staleBySkill = await findStaleLinks(resolvedHomeDir, [skillOrSubcommand]);
-          await displayStaleLinksPreview(staleBySkill);
-          return;
-        }
-        const results = await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skillOrSubcommand });
-        const agents = results.map(r => r.agent);
-        if (agents.length > 0) {
-          console.log(`✓ Linked ${skillOrSubcommand} to: ${agents.join(', ')}`);
-        }
-        // Reconcile stale links for this skill
-        await handleStaleLinksReconciliation(resolvedHomeDir, [skillOrSubcommand], options);
         return;
       }
 
