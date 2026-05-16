@@ -242,6 +242,30 @@ export async function unlinkSkill(homeDir: string, skillName: string): Promise<v
   await Promise.all(agents.map((agent) => rm(join(config.agents[agent], skillName), { recursive: true, force: true })));
 }
 
+export async function unlinkSkillFromAgent(
+  homeDir: string,
+  skillName: string,
+  agentName: string
+): Promise<void> {
+  const config = await loadConfig(homeDir);
+  const agentPath = config.agents[agentName];
+  if (!agentPath) {
+    return;
+  }
+
+  const linkPath = join(agentPath, skillName);
+  try {
+    const stats = await lstat(linkPath);
+    if (stats.isSymbolicLink()) {
+      await rm(linkPath);
+    }
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+  }
+}
+
 export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> {
   const config = await loadConfig(homeDir);
   const results: LinkStatus[] = [];

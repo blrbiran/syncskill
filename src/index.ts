@@ -68,9 +68,9 @@ import {
   type RepairOptions
 } from './config/config-doctor.js';
 import { installSyncskillSkill, installFromSource } from './install.js';
-import { getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
+import { expandTargetAgents, getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
 import { createPromptApi, runConfigUi } from './config/config-ui.js';
-import { collectLinkStatus, discoverSkills, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, type StaleLinksBySkill } from './linker.js';
+import { collectLinkStatus, discoverSkills, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
 import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './core/manifest.js';
 import { formatProbeLines, formatServerListLines, formatServerShowLines, listServers, probeServer, showServer } from './core/server.js';
 import { initializeRepo } from './repo.js';
@@ -669,24 +669,61 @@ export function createProgram(homeDir?: string): Command {
   }
 
   program
-    .command('unlink <skill>')
-    .description('Explicitly remove all links for a skill (vs reconcile which syncs to config)')
+    .command('unlink <skill> [agent]')
+    .description('Remove skill links. Requires <agent> or --all')
+    .option('--all', 'Remove all links for this skill')
     .option('-y, --yes', 'Skip confirmation')
-    .option('--dry-run', 'Preview changes without applying')
-    .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean }) => {
-      // Auto-check config health
+    .option('--dry-run', 'Preview changes')
+    .action(async (skill: string, agent: string | undefined, options: { all?: boolean; yes?: boolean; dryRun?: boolean }) => {
+      if (!agent && !options.all) {
+        console.error('Error: Please specify agent or use --all\n');
+        console.error('Usage:');
+        console.error('  syncskill unlink <skill> <agent>   Remove link for specific agent');
+        console.error('  syncskill unlink <skill> --all     Remove all links');
+        process.exit(1);
+      }
+
       const config = await loadConfig(resolvedHomeDir);
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
       await autoDiagnoseConfig(config, skillsDir);
 
+      if (options.all) {
+        const agents = [...new Set(expandTargetAgents(config, config.links[skill] ?? []))].sort();
+
+        if (options.dryRun) {
+          console.log(`[dry-run] Would unlink ${skill} from all agents (${agents.join(', ')})`);
+          return;
+        }
+
+        if (!options.yes) {
+          const confirmed = await confirm({
+            message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
+            default: false,
+          });
+          if (!confirmed) {
+            console.log('Cancelled.');
+            return;
+          }
+        }
+
+        await unlinkSkill(resolvedHomeDir, skill);
+        console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
+        return;
+      }
+
+      if (!config.agents[agent!]) {
+        console.error(`Error: Agent '${agent}' not configured`);
+        process.exit(1);
+      }
+
       if (options.dryRun) {
-        console.log(`[dry-run] Would unlink skill "${skill}" from all agents`);
+        console.log(`[dry-run] Would unlink ${skill} from ${agent}`);
         return;
       }
 
       if (!options.yes) {
         const confirmed = await confirm({
-          message: `Unlink skill "${skill}" from all agents?`,
+          message: `Unlink ${skill} from ${agent}?`,
           default: false,
         });
         if (!confirmed) {
@@ -695,8 +732,12 @@ export function createProgram(homeDir?: string): Command {
         }
       }
 
-      await unlinkSkill(resolvedHomeDir, skill);
-      console.log(`Unlinked "${skill}" from all agents.`);
+      const currentTargets = config.links[skill] ?? [];
+      const nextTargets = currentTargets.filter((target) => target !== agent);
+      config.links[skill] = nextTargets;
+      await saveConfig(config, resolvedHomeDir);
+      await unlinkSkillFromAgent(resolvedHomeDir, skill, agent!);
+      console.log(`✓ Unlinked ${skill} from ${agent}`);
     });
 
   const sourceCommand = program.command('source').description('Manage external skill sources and source recovery');

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig, type SyncSkillConfig } from '../../src/config/config.js';
-import { collectLinkStatus, ensureLinkedDirectory, formatLinkStatusMatrix, linkConfiguredSkills, reconcileStaleLinks, unlinkSkill } from '../../src/linker.js';
+import { collectLinkStatus, ensureLinkedDirectory, formatLinkStatusMatrix, linkConfiguredSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent } from '../../src/linker.js';
 import type { LinkStatus } from '../../src/linker.js';
 
 describe('linker', () => {
@@ -94,6 +94,38 @@ describe('linker', () => {
     await unlinkSkill(homeDir, 'demo-skill');
 
     await expect(access(targetDir)).rejects.toThrow();
+  });
+
+  it('removes only the specified agent link with unlinkSkillFromAgent', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
+    tempDirs.push(homeDir);
+
+    const sourceDir = join(homeDir, '.syncskill', 'skills', 'demo-skill');
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const cursorDir = join(homeDir, '.cursor', 'skills');
+    const claudeTarget = join(claudeDir, 'demo-skill');
+    const cursorTarget = join(cursorDir, 'demo-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: claudeDir, cursor: cursorDir },
+        links: { 'demo-skill': ['claude', 'cursor'] },
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    await ensureLinkedDirectory(sourceDir, claudeTarget);
+    await ensureLinkedDirectory(sourceDir, cursorTarget);
+
+    await unlinkSkillFromAgent(homeDir, 'demo-skill', 'cursor');
+
+    await expect(access(cursorTarget)).rejects.toThrow();
+    await expect(readlink(claudeTarget)).resolves.toBe(sourceDir);
   });
 
   it('detects broken symlinks in collectLinkStatus', async () => {
