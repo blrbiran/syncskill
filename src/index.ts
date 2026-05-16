@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { Command, InvalidArgumentError } from 'commander';
 
@@ -74,6 +74,7 @@ import { collectLinkStatus, discoverSkills, findStaleLinks, findUnmanagedSkills,
 import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './core/manifest.js';
 import { formatProbeLines, formatServerListLines, formatServerShowLines, listServers, probeServer, showServer } from './core/server.js';
 import { initializeRepo } from './repo.js';
+import { pathExists } from './utils/utils.js';
 import {
   autoRefreshManifests,
   formatDiffLines,
@@ -186,20 +187,30 @@ export function createProgram(homeDir?: string): Command {
   program
     .command('install [urlOrPath]')
     .alias('i')
-    .description('Install skill(s). No args: install syncskill skill; with URL/path: install from source')
+    .description('Install skill(s). Use --self or "self" for built-in skill; URL/path for external source')
+    .option('--self', 'Install built-in syncskill skill')
     .option('--name <name>', 'Source name (for URL/path)')
     .option('--path <path>', 'Storage path for source files')
     .option('--skill-subdir <dir>', 'Subdirectory within source containing skills')
     .option('--branch <branch>', 'Git branch')
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (urlOrPath: string | undefined, options: {
+      self?: boolean;
       name?: string;
       path?: string;
       skillSubdir?: string;
       branch?: string;
       yes?: boolean;
     }) => {
-      if (!urlOrPath) {
+      if (!urlOrPath && !options.self) {
+        program.commands.find(c => c.name() === 'install')?.help();
+        return;
+      }
+
+      const selfPathExists = urlOrPath === 'self' ? await pathExists(resolve('./self')) : false;
+      const isSelfInstall = options.self || (urlOrPath === 'self' && !selfPathExists);
+
+      if (isSelfInstall) {
         const result = await installSyncskillSkill(resolvedHomeDir);
 
         if (result.alreadyInstalled) {
@@ -212,6 +223,10 @@ export function createProgram(homeDir?: string): Command {
           console.log(`✓ Linked to: ${result.linkedAgents.join(', ')}`);
         }
         return;
+      }
+
+      if (!urlOrPath) {
+        throw new Error('install requires a URL/path or use --self');
       }
 
       const result = await installFromSource(resolvedHomeDir, urlOrPath, {

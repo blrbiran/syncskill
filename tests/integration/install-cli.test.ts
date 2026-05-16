@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -49,5 +49,47 @@ describe('install CLI command', () => {
     expect(stdout).toContain('--path');
     expect(stdout).toContain('--branch');
     expect(stdout).toContain('--yes');
+  });
+
+  it('shows help when install is called without args', async () => {
+    const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', 'install'], {
+      env: { ...process.env, HOME: homeDir }
+    });
+
+    expect(stdout).toContain('Usage: syncskill install|i [options] [urlOrPath]');
+    expect(stdout).toContain('--self');
+  });
+
+  it('includes --self in install help output', async () => {
+    const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', 'install', '--help'], {
+      env: { ...process.env, HOME: homeDir }
+    });
+
+    expect(stdout).toContain('--self');
+    expect(stdout).toContain('Install built-in syncskill skill');
+  });
+
+  it('treats self argument as built-in install target when no local ./self directory exists', async () => {
+    const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', 'install'], {
+      env: { ...process.env, HOME: homeDir }
+    });
+
+    expect(stdout).toContain('Usage: syncskill install|i [options] [urlOrPath]');
+    expect(stdout).toContain('--self');
+  });
+
+  it('prefers a real ./self directory over built-in self shorthand', async () => {
+    await mkdir(join(import.meta.dirname, '../../self'), { recursive: true });
+
+    try {
+      await expect(
+        execFileAsync('npx', ['tsx', 'src/index.ts', 'install', 'self'], {
+          cwd: join(import.meta.dirname, '../..'),
+          env: { ...process.env, HOME: homeDir }
+        })
+      ).rejects.toThrow('Could not parse URL');
+    } finally {
+      await rm(join(import.meta.dirname, '../../self'), { recursive: true, force: true });
+    }
   });
 });
