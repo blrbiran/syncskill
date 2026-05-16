@@ -37,3 +37,8 @@
 - **[2026-05-14]** Manifest 使用 3-field 模型 (`local_hash`, `remote_hash`, `recorded_hash`) 而非 2-field。`recorded_hash` 作为 3-way merge 基准点，天然解决"syncskill 外部操作"（如 git checkout）场景，无需额外的 in-sync 保护逻辑
 - **[2026-05-15]** Update overwrite recovery metadata should live in `~/.syncskill/update-history.json`, with one record per source keyed by source name.
 - **[2026-05-16]** User-facing docs should mention `private_agents`, `source update --dry-run`, `source restore`, and `--timeout` together because they shipped as one update-flow feature set.
+- **[2026-05-16]** 数据优先级原则：`file truth > config > registry`。registry 是 config 的派生缓存，不是独立 source of truth
+- **[2026-05-16]** `install` 无参数显示帮助；`install self` 或 `install --self` 安装内置 skill；有 `./self` 目录冲突时 `--self` 强制安装内置
+- **[2026-05-16]** `link <skill>` 打开单 skill 矩阵编辑器；`link <skill> <agent>` 追加链接；`unlink` 保持纯移除语义
+- **[2026-05-16]** 无参数 `syncskill` 显示仪表盘摘要（不触发网络请求）
+- **[2026-05-16]** 支持 `--force --dry-run` 组合预览强制更新的影响

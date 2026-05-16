@@ -97,14 +97,47 @@ syncskill/
 
 使用 `commander` 实现。命令列表：
 
+**无参数调用**
+
+| 命令 | 说明 |
+|------|------|
+| `syncskill` | 显示仪表盘摘要（不触发网络请求） |
+
+仪表盘输出示例：
+```
+Syncskill Status
+────────────────────────────────────────
+
+Skills:   12 total (10 linked, 2 ignored)
+Sources:  3 (my-repo, skill-pack, local-tools)
+Agents:   claude ✓  cursor ✓  hermes ✓
+
+Servers:
+  prod     ✓ in-sync
+  dev      ⚠ 2 skills pending push
+
+Health:   ✓ No issues
+
+Quick actions:
+  syncskill link          Edit skill-agent mappings
+  syncskill update        Update all sources
+  syncskill push          Push changes to servers
+
+Run `syncskill --help` for all commands.
+```
+
 **初始化与安装**
 
 | 命令 | 说明 |
 |------|------|
 | `init [--skip-scan] [--skip-skill] [-y/--yes]` | 创建 `~/.syncskill/` 目录结构和 config.yaml，交互式询问是否安装 syncskill skill |
-| `install [url-or-path]` / `i` | 安装 skill。无参数安装 syncskill skill；有参数等同于 `source add` + 自动 link |
+| `install` | 显示帮助（无默认行为） |
+| `install self` | 安装内置 syncskill skill（若存在 `./self` 目录则指向该目录） |
+| `install --self` | 强制安装内置 syncskill skill（无歧义） |
+| `install <url-or-path>` / `i <url-or-path>` | 等同于 `source add` + 自动 link |
 
 `install` 完整参数：
+- `--self`：强制安装内置 syncskill skill
 - `--name <name>`：指定 source 名称
 - `--path <path>`：指定存储路径
 - `--skill-subdir <dir>`：指定 skill 所在子目录
@@ -115,15 +148,22 @@ syncskill/
 
 | 命令 | 说明 |
 |------|------|
-| `link` | 进入 skills × agents 矩阵编辑器 |
-| `link <skill>` | 链接指定 skill 到配置的 agents，并清理该 skill 在其他 agent 中的 stale 链接（reconcile） |
-| `link --all` | 链接所有已配置的 skills，并清理所有 stale 的 syncskill 管理的软链接（reconcile） |
+| `link` | 进入 skills × agents 全局矩阵编辑器 |
+| `link <skill>` | 进入单 skill 矩阵编辑器（编辑该 skill 的 agent 映射） |
+| `link <skill> <agent>` | 追加链接：将 skill 链接到指定 agent 并更新 config（第二参数必须是已配置的 agent，否则报错） |
+| `link <skill> --all` | 将 skill 链接到所有已配置的 agents 并更新 config |
+| `link --all` | 按 config 配置执行 reconcile：创建/删除软链接使实际状态与 config.links 一致 |
 | `link list` / `link ls` / `link --list` | 显示链接状态矩阵 |
 | `link -v/--verbose` | 与 `list` 组合使用，显示文字状态而非符号 |
 | `link --dry-run` | 预览链接操作 |
-| `unlink <skill> [-y/--yes] [--dry-run]` | 显式删除 skill 在所有 agent 中的软链接（与 reconcile 的区别：unlink 是用户主动删除，reconcile 是根据 config 状态自动同步） |
+| `unlink` | 报错，提示用法 |
+| `unlink <skill>` | 报错，提示需要指定 agent 或使用 `--all` |
+| `unlink <skill> <agent>` | 移除指定 agent 的链接并更新 config |
+| `unlink <skill> --all [-y/--yes]` | 移除该 skill 的所有链接并更新 config |
 
 注：当存在与 `list` 同名的 skill 时，优先匹配 skill，此时需使用 `link --list` 查看状态。
+
+**`link <skill> <agent>` 参数校验**：第二参数必须在 `config.agents` 中存在，否则报错 `Agent '<name>' not configured`。
 
 **Source 管理**
 
@@ -418,9 +458,16 @@ xlsx                     broken      missing
 
 处理 `syncskill install` / `syncskill i` 命令。
 
-**安装 syncskill skill（无参数）**：
+**无参数调用**：
 ```
 syncskill install
+└─ 显示帮助信息，不执行安装
+```
+
+**安装内置 syncskill skill**：
+```
+syncskill install self
+syncskill install --self
 ├─ 检查 ~/.syncskill/skills/syncskill/ 是否已存在
 │   ├─ 已存在 → 提示 "syncskill skill already installed"
 │   └─ 不存在 → 继续
@@ -430,7 +477,11 @@ syncskill install
 └─ 输出 "✓ Installed syncskill skill"
 ```
 
-**从 URL/路径安装（有参数）**：
+**`self` 与 `--self` 的区别**：
+- `install self`：安装内置 skill，但若当前目录存在 `./self` 目录则优先指向该目录
+- `install --self`：强制安装内置 skill（无歧义）
+
+**从 URL/路径安装**：
 ```
 syncskill install <url-or-path> [--name <n>] [--path <p>] [-y/--yes]
 ├─ 执行 source add 的核心逻辑（交互式添加来源、clone/download/link）
@@ -449,16 +500,30 @@ syncskill install <url-or-path> [--name <n>] [--path <p>] [-y/--yes]
 
 **输出示例**：
 ```bash
-$ syncskill i
+# 无参数 → 显示帮助
+$ syncskill install
+Usage: syncskill install [options] [url-or-path]
+
+Install skills from URL, path, or built-in syncskill skill.
+
+Options:
+  --self              Install built-in syncskill skill
+  --name <name>       Source name
+  ...
+
+# 安装内置 skill
+$ syncskill i --self
 ✓ Installed syncskill skill to ~/.syncskill/skills/syncskill/
 ✓ Linked to: claude, hermes
 
+# 从 URL 安装
 $ syncskill i https://github.com/user/my-skills
 Cloning https://github.com/user/my-skills...
 Found 3 skills: skill-a, skill-b, skill-c
 ✓ Installed 3 skills
 ✓ Linked to: claude, hermes
 
+# 从本地压缩包安装
 $ syncskill i ~/Downloads/my-skills.tar.gz
 Extracting my-skills.tar.gz...
 Found 2 skills: skill-x, skill-y
@@ -485,10 +550,11 @@ All skills from "examples/skill-a" are already included in source "my-skills".
 
 **Stale Link Reconcile**：
 
-`link <skill>` 和 `link --all` 除了创建/确认 `config.links` 中声明的链接外，还必须清理 stale 的 syncskill 管理的软链接。当用户通过矩阵编辑器将某个 skill 从 `["*"]` 改为 `["claude"]` 后，其他 agent 目录中残留的旧链接应被自动清理。
+`link --all` 和矩阵编辑器退出后的 apply 操作需要清理 stale 的 syncskill 管理的软链接。当用户通过矩阵编辑器将某个 skill 从 `["*"]` 改为 `["claude"]` 后，其他 agent 目录中残留的旧链接应被自动清理。
 
-- `link <skill>`：reconcile 该 skill 在所有 agent 目录中的链接状态
-- `link --all`：reconcile 所有 skill 在所有 agent 目录中的链接状态
+- `link <skill>`：打开单 skill 矩阵编辑器，退出后 reconcile 该 skill 的链接状态
+- `link`：打开全局矩阵编辑器，退出后 reconcile 所有变更的 skill
+- `link --all`：按 config 配置 reconcile 所有 skill 在所有 agent 目录中的链接状态
 
 清理规则：
 1. 遍历所有 `config.agents` 目录，检查指定 skill（或所有 skill）是否存在需要清理的 stale 链接
@@ -520,18 +586,35 @@ function reconcileStaleLinks(
 - **`-y/--yes`**：显示摘要，自动确认
 - **`--dry-run`**：只显示，不执行也不询问
 
-**输出示例（单个 skill）**：
+**输出示例（单 skill 矩阵编辑器）**：
 
 ```bash
 $ syncskill link my-skill
 
-✓ Linked my-skill to: claude
+my-skill is currently linked to:
 
-Remove my-skill from hermes, qoder? (no longer in config) [Y/n] y
-✓ Removed
+  [x] claude
+  [ ] cursor
+  [x] hermes
+
+↑↓ navigate  Space: toggle  Enter: confirm  Esc: cancel
+
+# 用户取消勾选 hermes，按 Enter
+✓ Updated my-skill: linked to claude, unlinked from hermes
 ```
 
-**输出示例（批量操作，按 source-skill 分组）**：
+**输出示例（追加链接）**：
+
+```bash
+$ syncskill link my-skill cursor
+✓ Linked my-skill to cursor
+
+# 如果 agent 不存在
+$ syncskill link my-skill unknown-agent
+Error: Agent 'unknown-agent' not configured
+```
+
+**输出示例（批量 reconcile）**：
 
 ```bash
 $ syncskill link --all
@@ -556,6 +639,26 @@ $ syncskill link --all -y
 
 ✓ Linked 5 skills
 ✓ Removed 4 links (skill-a, skill-b, local-tool)
+```
+
+**Unlink 命令示例**：
+
+```bash
+# 无参数 → 报错
+$ syncskill unlink my-skill
+Error: Please specify agent or use --all
+
+Usage:
+  syncskill unlink <skill> <agent>   Remove link for specific agent
+  syncskill unlink <skill> --all     Remove all links
+
+# 移除指定 agent
+$ syncskill unlink my-skill cursor
+✓ Unlinked my-skill from cursor
+
+# 移除所有链接
+$ syncskill unlink my-skill --all
+✓ Unlinked my-skill from all agents (claude, cursor, hermes)
 ```
 
 ### 3.7 `manifest.ts` — Hash 计算与 Manifest
@@ -1281,6 +1384,13 @@ Choose action:
 选项 3 "Remove completely" 的链接清理复用 `reconcileStaleLinks()` 逻辑，确保行为一致。
 
 **Skills 注册表（`skills-registry.json`）**：
+
+**数据优先级原则**：`file truth > config > registry`
+- **file truth**：文件系统的实际状态（skill 目录是否存在、文件内容 hash）
+- **config**：`config.yaml` 中的配置（sources、links、agents）
+- **registry**：`skills-registry.json` 作为 config 的派生缓存，而非独立 source of truth
+
+当三者不一致时，以更高优先级为准。例如：registry 记录某 skill 存在但文件已删除，应以 file truth 为准移除 registry 条目。
 
 统一管理所有 skill 的来源映射和忽略状态：
 
