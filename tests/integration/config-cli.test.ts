@@ -149,7 +149,15 @@ describe('config CLI', () => {
       version: 1,
       server: 'alpha',
       updated_at: now,
-      skills: {}
+      skills: {
+        'linked-skill': {
+          local_hash: 'hash-a',
+          remote_hash: 'hash-a',
+          recorded_hash: 'hash-a',
+          direction: 'skip',
+          status: 'in-sync'
+        }
+      }
     };
     await saveServerManifest(homeDir, manifest);
 
@@ -171,13 +179,15 @@ describe('config CLI', () => {
     await createProgram(homeDir).parseAsync(['node', 'syncskill'], { from: 'node' });
 
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
-    expect(loggedOutput).toContain('Health');
-    expect(loggedOutput).toContain('0 issues');
-    expect(loggedOutput).toContain('Servers');
-    expect(loggedOutput).toContain('1 local');
-    expect(loggedOutput).toContain('Skills');
-    expect(loggedOutput).toContain('1 active');
-    expect(loggedOutput).toContain('1 ignored');
+    expect(loggedOutput).toContain('Syncskill Status');
+    expect(loggedOutput).toContain('Skills:   2 total (1 linked, 1 ignored)');
+    expect(loggedOutput).toContain('Sources:  0 ()');
+    expect(loggedOutput).toContain('Agents:   claude ✓');
+    expect(loggedOutput).toContain('Servers:');
+    expect(loggedOutput).toContain('alpha    ⚠ 2 skills pending push');
+    expect(loggedOutput).toContain('Health:   ✓ No issues');
+    expect(loggedOutput).toContain('Quick actions:');
+    expect(loggedOutput).toContain('Run `syncskill --help` for all commands.');
   });
 
   it('config show prints pretty JSON for the current config', async () => {
