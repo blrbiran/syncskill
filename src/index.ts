@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { cp, mkdir, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { Command, InvalidArgumentError } from 'commander';
@@ -99,6 +99,7 @@ import {
   updateSource,
 } from './source.js';
 import { pullFromServer, pullFromServers, pushToServers, syncServers, type PullResult, type PushResult } from './core/sync_engine.js';
+import { formatDashboardSummary, loadDashboardSummary } from './dashboard.js';
 
 function shouldSkipAutoRefresh(command: Command): boolean {
   const commandPath: string[] = [];
@@ -158,7 +159,7 @@ export function createProgram(homeDir?: string): Command {
   const resolvedHomeDir = homeDir ?? process.env.HOME ?? '';
   const program = new Command()
     .name('syncskill')
-    .description('Multi-device AI Agent Skill sync tool')
+    .description('Multi-device AI Agent Skill sync tool. No args: show local dashboard summary')
     .option('--no-refresh', 'Skip automatic manifest refresh before commands')
     .hook('preAction', async (_thisCommand, actionCommand) => {
       if (shouldSkipAutoRefresh(actionCommand)) {
@@ -1359,6 +1360,11 @@ export function createProgram(homeDir?: string): Command {
         console.log('\n[dry-run] No changes written.');
       }
     });
+
+  program.action(async () => {
+    const summary = await loadDashboardSummary(resolvedHomeDir);
+    console.log(formatDashboardSummary(summary));
+  });
 
   return program;
 }

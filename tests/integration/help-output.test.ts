@@ -17,6 +17,12 @@ describe('help output', () => {
     expect(help).toContain('remote');
   });
 
+  it('includes dashboard-oriented wording for the root command', () => {
+    const help = createProgram('/tmp').helpInformation();
+
+    expect(help).toContain('No args: show local dashboard summary');
+  });
+
   it('source list has ls alias', () => {
     const program = createProgram('/tmp');
     const sourceCmd = program.commands.find(c => c.name() === 'source');

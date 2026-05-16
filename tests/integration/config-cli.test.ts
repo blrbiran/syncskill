@@ -2,10 +2,14 @@ import { mkdir, mkdtemp, readlink, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { ServerManifest } from '../../src/core/manifest.js';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config/config.js';
+import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config/config.js';
+import { saveServerManifest } from '../../src/core/manifest.js';
+import { addActiveSkill, addIgnoredSkill, saveSkillsRegistry } from '../../src/core/skills-registry.js';
 import { createProgram } from '../../src/index.js';
 
 describe('config CLI', () => {
@@ -129,6 +133,53 @@ describe('config CLI', () => {
     vi.restoreAllMocks();
   });
 
+  it('shows dashboard summary when run with no args', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
+    tempDirs.push(homeDir);
+
+    await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'linked-skill'), { recursive: true });
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'ignored-skill'), { recursive: true });
+    await saveConfig(createDefaultConfig(homeDir, { claude: join(homeDir, '.claude', 'skills') }), homeDir);
+    await writeFile(join(homeDir, '.syncskill', 'skills', 'linked-skill', 'SKILL.md'), '# linked', 'utf8');
+    await writeFile(join(homeDir, '.syncskill', 'skills', 'ignored-skill', 'SKILL.md'), '# ignored', 'utf8');
+
+    const now = '2026-05-17T10:00:00.000Z';
+    const manifest: ServerManifest = {
+      version: 1,
+      server: 'alpha',
+      updated_at: now,
+      skills: {}
+    };
+    await saveServerManifest(homeDir, manifest);
+
+    let registry = addActiveSkill({ version: 1, skills: {} }, 'linked-skill', {
+      path: join(getSyncPaths(homeDir).skillsDir, 'linked-skill'),
+      origin: 'manual',
+      type: 'manual'
+    });
+    registry = addIgnoredSkill(registry, 'ignored-skill', {
+      path: join(getSyncPaths(homeDir).skillsDir, 'ignored-skill'),
+      origin: 'team',
+      type: 'git',
+      ignored_reason: 'duplicate'
+    });
+    await saveSkillsRegistry(homeDir, registry);
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill'], { from: 'node' });
+
+    const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
+    expect(loggedOutput).toContain('Health');
+    expect(loggedOutput).toContain('0 issues');
+    expect(loggedOutput).toContain('Servers');
+    expect(loggedOutput).toContain('1 local');
+    expect(loggedOutput).toContain('Skills');
+    expect(loggedOutput).toContain('1 active');
+    expect(loggedOutput).toContain('1 ignored');
+  });
+
   it('config show prints pretty JSON for the current config', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);
@@ -144,7 +195,6 @@ describe('config CLI', () => {
 
     expect(consoleLog).toHaveBeenCalledWith(JSON.stringify(config, null, 2));
   });
-
   it('config set updates a dotted path and parses JSON arrays', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);
