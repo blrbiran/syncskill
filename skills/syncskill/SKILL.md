@@ -21,7 +21,8 @@ Use this skill when:
 | Command | Description |
 |---------|-------------|
 | `init [--skip-scan] [--skip-skill] [-y]` | Initialize ~/.syncskill/ directory |
-| `install` / `i` | Install syncskill skill itself |
+| `install` / `i` | Show install help (no args) or install from URL/path |
+| `install --self` / `install self` | Install built-in syncskill skill |
 | `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path (= source add + auto-link) |
 
 Install options: `--name`, `--path` (skill subdirectory), `--skill-subdir` (alias), `--branch`, `-y`
@@ -33,10 +34,13 @@ Install options: `--name`, `--path` (skill subdirectory), `--skill-subdir` (alia
 | `link` | Interactive matrix editor for skill→agent mapping |
 | `link list` / `ls` / `--list` | Show link status matrix |
 | `link list -v` | Show verbose text status |
-| `link <skill>` | Link specific skill to agents + reconcile stale links |
+| `link <skill>` | Open single-skill editor |
+| `link <skill> <agent>` | Append link to specific agent |
+| `link <skill> --all` | Link skill to all agents |
 | `link --all` | Link all configured skills + reconcile all stale links |
 | `link --dry-run` | Preview link changes |
-| `unlink <skill> [-y] [--dry-run]` | Remove skill links from all agents |
+| `unlink <skill> <agent> [-y] [--dry-run]` | Remove skill link from one agent |
+| `unlink <skill> --all [-y] [--dry-run]` | Remove all links for a skill |
 
 **Reconcile behavior**: `link` and `link --all` automatically clean up stale symlinks (links pointing to skills no longer in config or to non-existent paths).
 

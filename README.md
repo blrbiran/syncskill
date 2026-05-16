@@ -32,17 +32,16 @@ node dist/index.js --help
 # Initialize the local repository
 syncskill init
 
-# Show current configuration
-syncskill config show
+# Show status dashboard
+syncskill
 
-# Scan for skills in sources and agent directories
-syncskill scan
+# Install the syncskill skill (for AI agents)
+syncskill install --self
 
-# Link all configured skills to agent directories
-syncskill link --all
-
-# Show reconciliation status
-syncskill status
+# Link skills to agent directories
+syncskill link my-skill claude   # Link specific skill to agent
+syncskill link my-skill --all    # Link to all agents
+syncskill link                   # Open matrix editor
 ```
 
 ## Commands Overview
@@ -52,7 +51,8 @@ syncskill status
 | Command | Description |
 |---------|-------------|
 | `syncskill init` | Initialize `~/.syncskill/` directory structure |
-| `syncskill install` / `i` | Install syncskill skill (no args) or from URL/path |
+| `syncskill install` / `i` | Show install help (no args) or install from URL/path |
+| `syncskill install --self` | Install built-in syncskill skill |
 | `syncskill config` | Open interactive configuration menu |
 | `syncskill config show` | Print current configuration |
 | `syncskill config set <key> <value>` | Set a configuration value |
@@ -63,12 +63,15 @@ syncskill status
 | Command | Description |
 |---------|-------------|
 | `syncskill link` | Open matrix editor for skill-to-agent links |
-| `syncskill link <skill>` | Link a specific skill |
+| `syncskill link <skill>` | Open single-skill editor |
+| `syncskill link <skill> <agent>` | Append link to specific agent |
+| `syncskill link <skill> --all` | Link skill to all agents |
 | `syncskill link --all` | Link all configured skills (auto-cleans stale symlinks) |
 | `syncskill link list` / `ls` | Show link status |
 | `syncskill link list -v` | Show link status with verbose text |
 | `syncskill link --dry-run` | Preview link changes |
-| `syncskill unlink <skill>` | Remove links for a skill |
+| `syncskill unlink <skill> <agent>` | Remove specific link |
+| `syncskill unlink <skill> --all` | Remove all links for a skill |
 
 ### Source Management
 

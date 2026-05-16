@@ -13,6 +13,7 @@ Documentation for the syncskill CLI tool.
 ## Quick Links
 
 - **Getting started**: See [Usage Guide - First Run](usage-guide.md#first-run)
+- **Dashboard overview**: Run `syncskill` with no args to see the local status dashboard
 - **Command reference**: See [Usage Guide](usage-guide.md) or run `syncskill --help`
 - **Config file format**: See [Configuration Guide](config-guide.md#configuration-shape)
 - **Remote sync setup**: See [Usage Guide - Remote Sync Workflow](usage-guide.md#remote-sync-workflow)

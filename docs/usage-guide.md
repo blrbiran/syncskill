@@ -2,10 +2,11 @@
 
 ## First Run
 
-Initialize the local repository, inspect the generated configuration, scan for managed skills, and link them into configured agent directories.
+Initialize the local repository, inspect the generated configuration, use the local dashboard, scan for managed skills, and link them into configured agent directories.
 
 ```bash
 syncskill init
+syncskill
 syncskill config show
 syncskill scan
 syncskill link --all
@@ -46,8 +47,14 @@ syncskill link list -v    # verbose text output
 # Open matrix editor
 syncskill link
 
-# Link a specific skill
+# Link a specific skill (opens single-skill editor)
 syncskill link welcome
+
+# Append link to specific agent
+syncskill link welcome claude
+
+# Link skill to all agents
+syncskill link welcome --all
 
 # Link all configured skills
 syncskill link --all
@@ -59,11 +66,15 @@ syncskill link welcome --dry-run
 # Auto-confirm stale link removal
 syncskill link --all -y
 
+# Unlink a skill from specific agent
+syncskill unlink welcome claude
+
 # Unlink a skill from all agents
-syncskill unlink welcome
+syncskill unlink welcome --all
 
 # Preview unlink without applying
-syncskill unlink welcome --dry-run
+syncskill unlink welcome claude --dry-run
+syncskill unlink welcome --all --dry-run
 ```
 
 ### Stale Link Reconciliation
@@ -211,9 +222,12 @@ The restore command is interactive and uses the matching recovery record from `u
 ### Installing Skills
 
 ```bash
-# Install the syncskill skill itself
+# Show install help
 syncskill install
-syncskill i
+
+# Install the syncskill skill itself
+syncskill install --self
+syncskill install self
 
 # Install from a GitHub URL
 syncskill install https://github.com/org/skills-repo
