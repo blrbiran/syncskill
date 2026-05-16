@@ -69,6 +69,17 @@ describe('install CLI command', () => {
     expect(stdout).toContain('Install built-in syncskill skill');
   });
 
+  it('installs the built-in skill with --self', async () => {
+    const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', 'install', '--self'], {
+      cwd: join(import.meta.dirname, '../..'),
+      env: { ...process.env, HOME: homeDir }
+    });
+
+    expect(stdout).toContain('Installed syncskill skill to');
+    const installedSkills = await readdir(join(homeDir, '.syncskill', 'skills'));
+    expect(installedSkills).toContain('syncskill');
+  });
+
   it('treats self argument as built-in install target when no local ./self directory exists', async () => {
     const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', 'install', 'self'], {
       cwd: join(import.meta.dirname, '../..'),
