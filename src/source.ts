@@ -50,6 +50,55 @@ async function gitStashAndRecord(
   };
 }
 
+interface PerformStashOrBackupOptions {
+  homeDir: string;
+  sourceName: string;
+  sourceType: 'git' | 'http';
+  dirtySkills: DirtySkillInfo[];
+  backupsDir: string;
+  checkoutDir?: string;
+  updatedAt: string;
+  options: UpdateSourceOptions;
+}
+
+async function performStashOrBackup(opts: PerformStashOrBackupOptions): Promise<void> {
+  const { homeDir, sourceName, sourceType, dirtySkills, backupsDir, checkoutDir, updatedAt, options } = opts;
+
+  if (sourceType === 'git' && checkoutDir) {
+    console.log('⚠ Stashing local changes before update...');
+    const { stashCommit, beforeCommit } = await gitStashAndRecord(checkoutDir, updatedAt);
+    options.gitOverwriteRecord = {
+      before_commit: beforeCommit,
+      stash_commit: stashCommit,
+    };
+    console.log(`  ✓ Stashed changes (${stashCommit.slice(0, 7)})`);
+    console.log(`  To restore: syncskill source restore ${sourceName}`);
+  } else if (dirtySkills.length > 0) {
+    console.log('⚠ Backing up dirty skills before update...');
+    const backupResult = await backupDirtySkills({
+      backupsDir,
+      sourceName,
+      dirtySkills: dirtySkills.map(s => ({
+        name: s.name,
+        path: s.path,
+        hash: s.hash || 'unknown'
+      }))
+    });
+    for (const backed of backupResult.backedUp) {
+      console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
+    }
+    if (sourceType === 'http' && backupResult.backedUp.length > 0) {
+      await recordHttpOverwrite(homeDir, sourceName, {
+        type: 'http',
+        backup_path: join(backupsDir, sourceName),
+        dirty_skills: backupResult.backedUp.map(backed => backed.name),
+        timestamp: new Date().toISOString(),
+      });
+      console.log(`  To restore: syncskill source restore ${sourceName}`);
+    }
+  }
+}
+
 export type { ArchiveType, ArchiveFormat };
 export { detectArchiveFormat, parseContentDisposition, detectArchiveFormatFromFilename };
 
@@ -815,38 +864,17 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
 
   // --force: stash/backup and update
   if (options.force) {
-    if (sourceType === 'git' && checkoutDir && (hasSkillDirty || hasNonSkillDirty)) {
-      console.log('⚠ Stashing local changes before update...');
-      const { stashCommit, beforeCommit } = await gitStashAndRecord(checkoutDir, updatedAt);
-      options.gitOverwriteRecord = {
-        before_commit: beforeCommit,
-        stash_commit: stashCommit,
-      };
-      console.log(`  ✓ Stashed changes (${stashCommit.slice(0, 7)})`);
-      console.log(`  To restore: syncskill source restore ${sourceName}`);
-    } else if (hasSkillDirty) {
-      console.log('⚠ Backing up dirty skills before force-update...');
-      const backupResult = await backupDirtySkills({
-        backupsDir,
+    if ((sourceType === 'git' && checkoutDir && (hasSkillDirty || hasNonSkillDirty)) || hasSkillDirty) {
+      await performStashOrBackup({
+        homeDir,
         sourceName,
-        dirtySkills: dirtyResult.dirtySkills.map(s => ({
-          name: s.name,
-          path: s.path,
-          hash: s.hash || 'unknown'
-        }))
+        sourceType,
+        dirtySkills: dirtyResult.dirtySkills,
+        backupsDir,
+        checkoutDir,
+        updatedAt,
+        options
       });
-      for (const backed of backupResult.backedUp) {
-        console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
-      }
-      if (sourceType === 'http' && backupResult.backedUp.length > 0) {
-        await recordHttpOverwrite(homeDir, sourceName, {
-          type: 'http',
-          backup_path: join(backupsDir, sourceName),
-          dirty_skills: backupResult.backedUp.map(backed => backed.name),
-          timestamp: new Date().toISOString(),
-        });
-        console.log(`  To restore: syncskill source restore ${sourceName}`);
-      }
     }
     return 'update';
   }
@@ -910,39 +938,16 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
     });
 
     if (choice === 'update') {
-      if (sourceType === 'git' && checkoutDir) {
-        console.log('⚠ Stashing local changes before update...');
-        const { stashCommit, beforeCommit } = await gitStashAndRecord(checkoutDir, updatedAt);
-        options.gitOverwriteRecord = {
-          before_commit: beforeCommit,
-          stash_commit: stashCommit,
-        };
-        console.log(`  ✓ Stashed changes (${stashCommit.slice(0, 7)})`);
-        console.log(`  To restore: syncskill source restore ${sourceName}`);
-      } else if (dirtyResult.dirtySkills.length > 0) {
-        console.log('⚠ Backing up dirty skills before update...');
-        const backupResult = await backupDirtySkills({
-          backupsDir,
-          sourceName,
-          dirtySkills: dirtyResult.dirtySkills.map(s => ({
-            name: s.name,
-            path: s.path,
-            hash: s.hash || 'unknown'
-          }))
-        });
-        for (const backed of backupResult.backedUp) {
-          console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
-        }
-        if (sourceType === 'http' && backupResult.backedUp.length > 0) {
-          await recordHttpOverwrite(homeDir, sourceName, {
-            type: 'http',
-            backup_path: join(backupsDir, sourceName),
-            dirty_skills: backupResult.backedUp.map(backed => backed.name),
-            timestamp: new Date().toISOString(),
-          });
-          console.log(`  To restore: syncskill source restore ${sourceName}`);
-        }
-      }
+      await performStashOrBackup({
+        homeDir,
+        sourceName,
+        sourceType,
+        dirtySkills: dirtyResult.dirtySkills,
+        backupsDir,
+        checkoutDir,
+        updatedAt,
+        options
+      });
     }
 
     return choice;
