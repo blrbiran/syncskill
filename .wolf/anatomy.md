@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-16T23:14:00.854Z
-> Files: 136 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-17T01:26:04.827Z
+> Files: 132 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -50,7 +50,7 @@
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
 - `source-restore.ts` — Exports RestoreResult, restoreSource (~1341 tok)
-- `source.ts` — Git only: Convert source from git to local, keep path directory (~22208 tok)
+- `source.ts` — Git only: Convert source from git to local, keep path directory (~22042 tok)
 
 ## src/config/
 
@@ -112,11 +112,8 @@
 
 - `pull-skill-placement.test.ts` — E2E tests for pull skill placement by source type. (~2783 tok)
 - `pull-target.test.ts` — Pull target path resolution tests. (~3316 tok)
-- `pull-target.test.ts` — Pull target path resolution tests. (~3316 tok)
 - `push-server-integrity.test.ts` — E2E tests for push server integrity scenarios (deleted skills, manifest mismatches). (~2650 tok)
-- `push-server-integrity.test.ts` — E2E tests for push server integrity scenarios. (~2577 tok)
 - `receiver-update.test.ts` — E2E tests for receiver version update scenarios. (~1320 tok)
-- `receiver-update.test.ts` — E2E tests for receiver version update scenarios. (~1194 tok)
 
 ## tests/end2end/framework/
 
