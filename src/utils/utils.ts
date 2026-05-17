@@ -1,4 +1,12 @@
+import { execFile } from 'node:child_process';
 import { lstat, readFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
+
+/**
+ * Promisified version of child_process.execFile.
+ * Common utility used across source, transport, archive, and restore modules.
+ */
+export const execFileAsync = promisify(execFile);
 
 /**
  * Check if an error is a "file not found" error (ENOENT).

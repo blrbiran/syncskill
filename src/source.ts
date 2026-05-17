@@ -3,10 +3,8 @@ import process from 'node:process';
 import { createWriteStream } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { execFile } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { promisify } from 'node:util';
 
 import { select } from '@inquirer/prompts';
 
@@ -23,7 +21,7 @@ import {
 import { hashSkillDirectory } from './core/manifest.js';
 import { recordGitOverwrite, recordHttpOverwrite, clearSourceHistory, type GitUpdateRecord } from './core/update-history.js';
 import { backupDirtySkills } from './utils/backup.js';
-import { isNotFoundError, pathExists } from './utils/utils.js';
+import { execFileAsync, isNotFoundError, pathExists } from './utils/utils.js';
 import {
   type ArchiveType,
   type ArchiveFormat,
@@ -32,8 +30,6 @@ import {
   detectArchiveFormatFromFilename,
   extractArchive,
 } from './utils/archive.js';
-
-const execFileAsync = promisify(execFile);
 
 async function gitStashAndRecord(
   checkoutDir: string,

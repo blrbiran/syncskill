@@ -1,7 +1,5 @@
 import { cp } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 
 import { select } from '@inquirer/prompts';
 
@@ -12,8 +10,7 @@ import {
   type GitUpdateRecord,
   type HttpUpdateRecord
 } from './core/update-history.js';
-
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from './utils/utils.js';
 
 export interface RestoreResult {
   success: boolean;

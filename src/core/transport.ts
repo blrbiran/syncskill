@@ -1,19 +1,17 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { promisify } from 'node:util';
 
 import { type ConfiguredServer } from '../config/config.js';
 import { createEmptyManifest, rebuildRemoteManifestFromHashes, type ServerManifest } from './manifest.js';
+import { execFileAsync } from '../utils/utils.js';
 
 export interface ServerProbeResult {
   check: string;
   ok: boolean;
   detail: string;
 }
-
-const execFileAsync = promisify(execFile);
 const REMOTE_ROOT = '~/.syncskill';
 const REMOTE_RECEIVER = `${REMOTE_ROOT}/sync_receiver.mjs`;
 const REMOTE_SKILLS_DIR = `${REMOTE_ROOT}/skills`;

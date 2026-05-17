@@ -1,9 +1,6 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
 import * as compressing from 'compressing';
 
-const execFileAsync = promisify(execFile);
+import { execFileAsync } from './utils.js';
 
 export type ArchiveType = 'tar.gz' | 'tar.bz2' | 'tar.xz' | 'zip';
 
