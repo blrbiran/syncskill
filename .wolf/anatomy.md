@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-17T01:26:04.827Z
-> Files: 132 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-17T02:43:57.874Z
+> Files: 129 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -49,8 +49,8 @@
 - `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4545 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
-- `source-restore.ts` — Exports RestoreResult, restoreSource (~1341 tok)
-- `source.ts` — Git only: Convert source from git to local, keep path directory (~22042 tok)
+- `source-restore.ts` — Exports RestoreResult, restoreSource (~1318 tok)
+- `source.ts` — Git only: Convert source from git to local, keep path directory (~22010 tok)
 
 ## src/config/
 
@@ -68,7 +68,7 @@
 - `server.ts` — Server config formatting (~440 tok)
 - `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 12 more (~2187 tok)
 - `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 3 more (~5424 tok)
-- `transport.ts` — Exports ServerProbeResult, TransportRuntime, withTimeout, createTransportRuntime + 9 more (~4292 tok)
+- `transport.ts` — Exports ServerProbeResult, TransportRuntime, withTimeout, createTransportRuntime + 9 more (~4280 tok)
 - `update-history.ts` — Exports GitUpdateRecord, HttpUpdateRecord, UpdateRecord, UpdateHistory + 6 more (~667 tok)
 
 ## src/receiver/
@@ -78,9 +78,9 @@
 
 ## src/utils/
 
-- `archive.ts` — Exports ArchiveType, ArchiveFormat, detectArchiveFormat, parseContentDisposition + 2 more (~980 tok)
+- `archive.ts` — Exports ArchiveType, ArchiveFormat, detectArchiveFormat, parseContentDisposition + 2 more (~955 tok)
 - `backup.ts` — Exports BackupMetaEntry, BackupMeta, getBackupDir, loadBackupMeta + 6 more (~772 tok)
-- `utils.ts` — Check if an error is a "file not found" error (ENOENT), pathExists (~359 tok)
+- `utils.ts` — Exports execFileAsync, isNotFoundError, readJsonOrDefault, readFileOrDefault, pathExists (~438 tok)
 
 ## tests/end2end/
 
