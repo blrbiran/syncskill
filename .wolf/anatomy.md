@@ -1,11 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-15T17:02:11.915Z
-> Files: 133 tracked | Anatomy hits: 0 | Misses: 0
-
-## ../../../.claude/plans/
-
-- `transient-dreaming-hare.md` — Implementation Plan: syncskill UX Improvements (~1784 tok)
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-16T23:14:00.854Z
+> Files: 136 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -16,7 +12,7 @@
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
 - `package.json` — Node.js package manifest (~355 tok)
-- `README.md` — Project documentation (~1314 tok)
+- `README.md` — Project documentation (~1402 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
 
@@ -33,28 +29,24 @@
 - `config-guide.md` — Configuration Guide (~2641 tok)
 - `design-guide.md` — Design Guide (~2878 tok)
 - `e2e-test-guide.md` — E2E Test Writing Guide (~3922 tok)
-- `README.md` — Project documentation (~327 tok)
-- `usage-guide.md` — Usage Guide (~3086 tok)
-
-## docs/superpowers/plans/
-
-- `2026-05-15-update-flow-enhancements.md` — Implementation Plan: Update Flow Enhancements (private_agents, source restore, --timeout, --dry-run) (~8500 tok)
-- `2026-05-15-update-flow-enhancements.md` — Update Flow Enhancements Implementation Plan (~10374 tok)
+- `README.md` — Project documentation (~349 tok)
+- `usage-guide.md` — Usage Guide (~3177 tok)
 
 ## docs/superpowers/specs/
 
 - `e2e-test-design.md` — E2E 测试框架设计 (~4850 tok)
-- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~15526 tok)
+- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~16168 tok)
 
 ## skills/syncskill/
 
-- `SKILL.md` — syncskill (~1360 tok)
+- `SKILL.md` — syncskill (~1424 tok)
 
 ## src/
 
-- `index.ts` — Exports createProgram (~14360 tok)
+- `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1021 tok)
+- `index.ts` — Exports createProgram (~15859 tok)
 - `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~890 tok)
-- `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4402 tok)
+- `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4545 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
 - `source-restore.ts` — Exports RestoreResult, restoreSource (~1341 tok)
@@ -153,14 +145,14 @@
 
 ## tests/integration/
 
-- `config-cli.test.ts` — Declares homeDir (~2555 tok)
+- `config-cli.test.ts` — Declares homeDir (~4175 tok)
 - `config-ui.test.ts` — Declares PromptStub (~4865 tok)
 - `discover.test.ts` — Declares tempDirs (~3912 tok)
 - `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1228 tok)
-- `help-output.test.ts` — Declares help (~834 tok)
-- `install-cli.test.ts` — Declares execFileAsync (~512 tok)
+- `help-output.test.ts` — Declares help (~894 tok)
+- `install-cli.test.ts` — Declares execFileAsync (~1140 tok)
 - `README.md` — Project documentation (~37 tok)
-- `reconciliation-cli.test.ts` — Declares tempDirs (~6348 tok)
+- `reconciliation-cli.test.ts` — Declares actual (~8467 tok)
 - `remote-refresh.test.ts` — Declares tempDirs (~669 tok)
 - `repo.test.ts` — Declares pathExists (~1942 tok)
 - `server-cli.test.ts` — Declares tempDirs (~1061 tok)
@@ -180,6 +172,7 @@
 - `config-doctor.test.ts` — Declares DiagnosticItem (~5859 tok)
 - `config.test.ts` — Declares tempDirs (~2026 tok)
 - `conflict.test.ts` — Declares ServerManifest (~2429 tok)
+- `dashboard.test.ts` — Declares ServerManifest (~1422 tok)
 - `docs.test.ts` — Declares rootDir (~1320 tok)
 - `e2e-cleanup.test.ts` — tests/unit/e2e-cleanup.test.ts (~495 tok)
 - `e2e-context.test.ts` — tests/unit/e2e-context.test.ts (~1744 tok)
@@ -193,7 +186,7 @@
 - `e2e-runner.test.ts` — tests/unit/e2e-runner.test.ts (~540 tok)
 - `e2e-scenario.test.ts` — Unit tests for E2EScenario builder class. (~931 tok)
 - `install.test.ts` — Declares path (~1694 tok)
-- `linker.test.ts` — Declares SyncSkillConfig (~6552 tok)
+- `linker.test.ts` — Declares SyncSkillConfig (~6881 tok)
 - `manifest.test.ts` — Declares tempDirs (~2630 tok)
 - `matrix-editor.test.ts` — Declares config (~2288 tok)
 - `package.test.ts` — Declares rootDir (~597 tok)

@@ -40,5 +40,7 @@
 - **[2026-05-16]** 数据优先级原则：`file truth > config > registry`。registry 是 config 的派生缓存，不是独立 source of truth
 - **[2026-05-16]** `install` 无参数显示帮助；`install self` 或 `install --self` 安装内置 skill；有 `./self` 目录冲突时 `--self` 强制安装内置
 - **[2026-05-16]** `link <skill>` 打开单 skill 矩阵编辑器；`link <skill> <agent>` 追加链接；`unlink` 保持纯移除语义
-- **[2026-05-16]** 无参数 `syncskill` 显示仪表盘摘要（不触发网络请求）
+- **[2026-05-17]** `unlink` CLI 现在要求显式目标：`unlink <skill> <agent>` 只移除单 agent 链接，`unlink <skill> --all` 才移除全部链接
+- **[2026-05-16]** 无参数 `syncskill` 显示仪表盘摘要（不触发网络请求）；health=本地 `diagnoseConfig()` 的 errors+warnings，server 状态仅读 `~/.syncskill/manifests/*.json`，skills 统计来自 `loadSkillsRegistry()`，其中 active=linked、ignored=ignored
+- **[2026-05-17]** Dashboard spec 输出要求固定格式：标题+分隔线、`Skills: total (linked, ignored)`、`Sources: count (names)`、agent 存在性符号、server 基于 manifest 非 `in-sync` 项计为 pending、底部 quick actions 与 help 提示都需要精确覆盖到测试
 - **[2026-05-16]** 支持 `--force --dry-run` 组合预览强制更新的影响
