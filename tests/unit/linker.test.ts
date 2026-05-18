@@ -279,7 +279,7 @@ describe('reconcileStaleLinks', () => {
       sources: {}
     };
 
-    const result = await reconcileStaleLinks([], config);
+    const result = await reconcileStaleLinks(homeDir, [], config);
 
     expect(result.removed).toEqual([]);
     expect(result.skipped).toEqual([]);
@@ -311,7 +311,7 @@ describe('reconcileStaleLinks', () => {
       sources: {}
     };
 
-    const result = await reconcileStaleLinks([], config);
+    const result = await reconcileStaleLinks(homeDir, [], config);
 
     expect(result.removed).toEqual([targetDir]);
     expect(result.skipped).toEqual([]);
@@ -339,7 +339,7 @@ describe('reconcileStaleLinks', () => {
       sources: {}
     };
 
-    const result = await reconcileStaleLinks([], config);
+    const result = await reconcileStaleLinks(homeDir, [], config);
 
     expect(result.removed).toEqual([]);
     expect(result.skipped).toEqual([realDir]);
@@ -369,7 +369,7 @@ describe('reconcileStaleLinks', () => {
       sources: {}
     };
 
-    const result = await reconcileStaleLinks([], config);
+    const result = await reconcileStaleLinks(homeDir, [], config);
 
     expect(result.removed).toEqual([]);
     expect(result.skipped).toEqual([targetDir]);
@@ -400,7 +400,7 @@ describe('reconcileStaleLinks', () => {
       sources: {}
     };
 
-    const result = await reconcileStaleLinks([], config);
+    const result = await reconcileStaleLinks(homeDir, [], config);
 
     expect(result.removed).toEqual([]);
     expect(result.skipped).toEqual([]);
@@ -436,7 +436,7 @@ describe('reconcileStaleLinks', () => {
       sources: {}
     };
 
-    const result = await reconcileStaleLinks([], config);
+    const result = await reconcileStaleLinks(homeDir, [], config);
 
     expect(result.removed).toEqual([hermesTarget]);
     expect(result.skipped).toEqual([]);
@@ -474,7 +474,7 @@ describe('reconcileStaleLinks', () => {
       sources: {}
     };
 
-    const result = await reconcileStaleLinks([], config);
+    const result = await reconcileStaleLinks(homeDir, [], config);
 
     expect(result.removed).toContain(claudeTarget);
     expect(result.removed).toContain(hermesTarget);
@@ -516,7 +516,7 @@ describe('reconcileStaleLinks', () => {
 
     const { reconcileStaleLinks: mockedReconcileStaleLinks } = await import('../../src/linker.js');
 
-    const result = await mockedReconcileStaleLinks([], config);
+    const result = await mockedReconcileStaleLinks(homeDir, [], config);
 
     expect(result.errors.length).toBe(1);
     expect(result.errors[0]).toContain('Failed to remove');
@@ -570,7 +570,7 @@ describe('reconcileStaleLinks', () => {
 
     const { reconcileStaleLinks: mockedReconcileStaleLinks } = await import('../../src/linker.js');
 
-    const result = await mockedReconcileStaleLinks([], config);
+    const result = await mockedReconcileStaleLinks(homeDir, [], config);
 
     // One error and one success
     expect(result.errors.length).toBe(1);
@@ -608,7 +608,7 @@ describe('reconcileStaleLinks', () => {
     };
 
     // Only reconcile skill-a
-    const result = await reconcileStaleLinks(['skill-a'], config);
+    const result = await reconcileStaleLinks(homeDir, ['skill-a'], config);
 
     expect(result.removed).toEqual([targetDir1]);
     expect(result.skipped).toEqual([]);
@@ -645,7 +645,7 @@ describe('reconcileStaleLinks', () => {
     };
 
     // Empty array means all skills mode
-    const result = await reconcileStaleLinks([], config);
+    const result = await reconcileStaleLinks(homeDir, [], config);
 
     expect(result.removed).toContain(targetDir1);
     expect(result.removed).toContain(targetDir2);
@@ -679,7 +679,7 @@ describe('reconcileStaleLinks', () => {
       sources: {}
     };
 
-    const result = await reconcileStaleLinks([], config);
+    const result = await reconcileStaleLinks(homeDir, [], config);
 
     // Both links should be valid (wildcard expands to all agents)
     expect(result.removed).toEqual([]);

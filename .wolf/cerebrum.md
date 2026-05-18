@@ -24,6 +24,7 @@
 
 - [2026-05-06] **严重事故：删除用户 home 目录数据** — 绝对不能执行 `rm -rf ~/` 或任何针对 home 目录的递归删除。任何破坏性操作必须先停下来询问用户，列出影响范围，等待明确同意。
 - [2026-05-07] `.wolf/memory.md` and `.wolf/buglog.json` are in `.gitignore` — never include them in git commits. They are local-only tracking files.
+- [2026-05-18] **CRITICAL: Tilde (~) in paths must be expanded** — Node.js treats `~` as a literal directory name, NOT as home directory shortcut. Using `join(config.agents[x], skill)` directly when config contains `~/.claude/skills` creates `./~/.claude/skills/` in CWD. Always use `resolveAgentPath(agentPath, homeDir)` to expand `~` before any filesystem operation. This bug caused users to accidentally delete their home directory when running `rm -rf ~/` thinking they're cleaning up test artifacts.
 
 ## Decision Log
 

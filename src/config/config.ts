@@ -170,6 +170,21 @@ export function expandTargetAgents(config: SyncSkillConfig, targets: string[]): 
   return [...new Set(targets)].sort();
 }
 
+/**
+ * Resolve an agent path, expanding ~ to the actual home directory.
+ * CRITICAL: Always use this function when accessing agent paths on the filesystem.
+ * Using config.agents[x] directly will create a literal ./~/ directory!
+ */
+export function resolveAgentPath(agentPath: string, homeDir: string): string {
+  if (agentPath.startsWith('~/')) {
+    return homeDir + agentPath.slice(1);
+  }
+  if (agentPath === '~') {
+    return homeDir;
+  }
+  return agentPath;
+}
+
 export function getConfiguredServer(config: SyncSkillConfig, name: string): ConfiguredServer {
   const raw = config.servers[name];
 

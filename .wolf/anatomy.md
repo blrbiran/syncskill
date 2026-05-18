@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-18T15:47:25.762Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-18T15:57:07.571Z
 > Files: 129 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -44,9 +44,9 @@
 ## src/
 
 - `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1021 tok)
-- `index.ts` — Exports createProgram (~15859 tok)
+- `index.ts` — Exports createProgram (~15864 tok)
 - `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~890 tok)
-- `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4545 tok)
+- `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4680 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
 - `source-restore.ts` — Exports RestoreResult, restoreSource (~1318 tok)
@@ -56,7 +56,7 @@
 
 - `config-doctor.ts` — Config diagnosis and repair (~3986 tok)
 - `config-ui.ts` — Interactive TUI config editing (~5956 tok)
-- `config.ts` — Re-export types from types.ts (~2122 tok)
+- `config.ts` — Resolve an agent path, expanding ~ to the actual home directory. (~2255 tok)
 - `matrix-editor.ts` — 2D matrix editor component (~2264 tok)
 - `types.ts` — TypeScript type definitions for syncskill configuration (~274 tok)
 
@@ -183,7 +183,7 @@
 - `e2e-runner.test.ts` — tests/unit/e2e-runner.test.ts (~540 tok)
 - `e2e-scenario.test.ts` — Unit tests for E2EScenario builder class. (~931 tok)
 - `install.test.ts` — Declares path (~1694 tok)
-- `linker.test.ts` — Declares SyncSkillConfig (~6881 tok)
+- `linker.test.ts` — Declares SyncSkillConfig (~6912 tok)
 - `manifest.test.ts` — Declares tempDirs (~2630 tok)
 - `matrix-editor.test.ts` — Declares config (~2288 tok)
 - `package.test.ts` — Declares rootDir (~597 tok)

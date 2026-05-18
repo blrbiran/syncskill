@@ -1,7 +1,7 @@
 import { cp, lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, saveConfig, type SyncSkillConfig } from './config/config.js';
+import { expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, resolveAgentPath, saveConfig, type SyncSkillConfig } from './config/config.js';
 import { buildSkillsIndex, saveSkillsIndex } from './source.js';
 import { isNotFoundError, pathExists } from './utils/utils.js';
 
@@ -221,7 +221,8 @@ export async function linkConfiguredSkills(homeDir: string, request: LinkRequest
     const agents = expandTargetAgents(config, config.links[skill] ?? []);
 
     for (const agent of agents) {
-      const state = await ensureLinkedDirectory(sourceDir, join(config.agents[agent], skill));
+      const agentPath = resolveAgentPath(config.agents[agent], homeDir);
+      const state = await ensureLinkedDirectory(sourceDir, join(agentPath, skill));
       results.push({ skill, agent, state });
     }
   }
@@ -239,7 +240,10 @@ export async function unlinkSkill(homeDir: string, skillName: string): Promise<v
   const config = await loadConfig(homeDir);
   const agents = expandTargetAgents(config, config.links[skillName] ?? []);
 
-  await Promise.all(agents.map((agent) => rm(join(config.agents[agent], skillName), { recursive: true, force: true })));
+  await Promise.all(agents.map((agent) => {
+    const agentPath = resolveAgentPath(config.agents[agent], homeDir);
+    return rm(join(agentPath, skillName), { recursive: true, force: true });
+  }));
 }
 
 export async function unlinkSkillFromAgent(
@@ -248,11 +252,12 @@ export async function unlinkSkillFromAgent(
   agentName: string
 ): Promise<void> {
   const config = await loadConfig(homeDir);
-  const agentPath = config.agents[agentName];
-  if (!agentPath) {
+  const rawAgentPath = config.agents[agentName];
+  if (!rawAgentPath) {
     return;
   }
 
+  const agentPath = resolveAgentPath(rawAgentPath, homeDir);
   const linkPath = join(agentPath, skillName);
   try {
     const stats = await lstat(linkPath);
@@ -274,7 +279,8 @@ export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> 
     const agents = expandTargetAgents(config, config.links[skill] ?? []);
 
     for (const agent of agents) {
-      const targetDir = join(config.agents[agent], skill);
+      const agentPath = resolveAgentPath(config.agents[agent], homeDir);
+      const targetDir = join(agentPath, skill);
 
       try {
         const lstats = await lstat(targetDir);
@@ -332,16 +338,16 @@ export async function findUnmanagedSkills(homeDir: string): Promise<UnmanagedSki
   const managedSkills = new Set(await listLocalSkills(homeDir));
   const unmanaged: UnmanagedSkill[] = [];
 
-  for (const [agentName, agentPath] of Object.entries(config.agents)) {
-    const resolvedPath = agentPath.replace(/^~/, homeDir);
+  for (const [agentName, rawAgentPath] of Object.entries(config.agents)) {
+    const agentPath = resolveAgentPath(rawAgentPath, homeDir);
 
     try {
-      const entries = await readdir(resolvedPath, { withFileTypes: true });
+      const entries = await readdir(agentPath, { withFileTypes: true });
 
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
 
-        const skillPath = join(resolvedPath, entry.name);
+        const skillPath = join(agentPath, entry.name);
 
         // Check if it's a symlink pointing to our managed skills
         try {
@@ -389,14 +395,14 @@ export async function findStaleLinks(
   // If specific skills provided, only check those; otherwise check all configured links
   const skillsToCheck = skillNames ?? Object.keys(config.links);
 
-  for (const [agentName, agentPath] of Object.entries(config.agents)) {
-    const resolvedPath = agentPath.replace(/^~/, homeDir);
+  for (const [agentName, rawAgentPath] of Object.entries(config.agents)) {
+    const agentPath = resolveAgentPath(rawAgentPath, homeDir);
 
     try {
-      const entries = await readdir(resolvedPath, { withFileTypes: true });
+      const entries = await readdir(agentPath, { withFileTypes: true });
 
       for (const entry of entries) {
-        const skillPath = join(resolvedPath, entry.name);
+        const skillPath = join(agentPath, entry.name);
         const skillName = entry.name;
 
         // Only check skills we're interested in
@@ -444,18 +450,21 @@ export async function findStaleLinks(
  * - It's a symlink pointing to a syncskill-managed path (.syncskill/skills/)
  * - The skill was removed from config.links OR the agent was removed from the skill's targets
  *
+ * @param homeDir - The home directory (for resolving ~ in agent paths)
  * @param skillNames - Specific skills to check, or empty array for all skills in all agent dirs
  * @param config - The current SyncSkillConfig
  * @returns ReconcileResult with removed paths, skipped paths, and errors
  */
 export function reconcileStaleLinks(
+  homeDir: string,
   skillNames: string[],
   config: SyncSkillConfig
 ): Promise<ReconcileResult> {
-  return reconcileStaleLinksImpl(skillNames, config);
+  return reconcileStaleLinksImpl(homeDir, skillNames, config);
 }
 
 async function reconcileStaleLinksImpl(
+  homeDir: string,
   skillNames: string[],
   config: SyncSkillConfig
 ): Promise<ReconcileResult> {
@@ -475,7 +484,8 @@ async function reconcileStaleLinksImpl(
   }
 
   // Check each agent directory for stale links
-  for (const [agentName, agentPath] of Object.entries(config.agents)) {
+  for (const [agentName, rawAgentPath] of Object.entries(config.agents)) {
+    const agentPath = resolveAgentPath(rawAgentPath, homeDir);
     let entries: import('node:fs').Dirent[];
     try {
       entries = await readdir(agentPath, { withFileTypes: true });

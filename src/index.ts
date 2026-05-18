@@ -625,7 +625,7 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (shouldRemove) {
-        const result = await reconcileStaleLinks(skillNames, config);
+        const result = await reconcileStaleLinks(homeDir, skillNames, config);
         if (result.removed.length > 0) {
           console.log('✓ Removed');
         }
@@ -658,7 +658,7 @@ export function createProgram(homeDir?: string): Command {
 
     if (shouldRemove) {
       // For batch, pass empty array to check all skills
-      const result = await reconcileStaleLinks([], config);
+      const result = await reconcileStaleLinks(homeDir, [], config);
       if (result.removed.length > 0) {
         console.log(`✓ Removed ${result.removed.length} link${result.removed.length !== 1 ? 's' : ''}`);
       }
