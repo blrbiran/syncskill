@@ -152,6 +152,8 @@ vite.config.ts.timestamp-*
 .wolf/memory.md
 .wolf/token-ledger.json
 
+.claude/settings.local.json
+
 # omc
 .omc/
 

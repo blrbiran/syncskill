@@ -112,9 +112,10 @@ Skills:   12 total (10 linked, 2 ignored)
 Sources:  3 (my-repo, skill-pack, local-tools)
 Agents:   claude ✓  cursor ✓  hermes ✓
 
-Servers:
+Servers:  (based on cached manifests, no network requests)
   prod     ✓ in-sync
-  dev      ⚠ 2 skills pending push
+  dev      ⚠ 2 skills pending
+  staging  ? never synced
 
 Health:   ✓ No issues
 
@@ -126,18 +127,24 @@ Quick actions:
 Run `syncskill --help` for all commands.
 ```
 
+仪表盘 Servers 状态数据来源：
+- 基于本地缓存的 manifest（`~/.syncskill/manifests/<server>.json`，3-field 模型直接含 `local_hash`/`remote_hash`/`recorded_hash`）
+- 对每个 skill 重新计算当前文件的 hash，调用 `classifySkillDelta` 得到 action
+- `pending` 计数 = action ≠ `skip` 的 skill 数（push / pull / conflict / new 不区分方向；细节用 `status` / `diff` 查看）
+- 无缓存（从未 sync 过）→ 显示 `? never synced`
+- 不触发网络请求，显示的是上次 sync/refresh 时的快照
+
 **初始化与安装**
 
 | 命令 | 说明 |
 |------|------|
 | `init [--skip-scan] [--skip-skill] [-y/--yes]` | 创建 `~/.syncskill/` 目录结构和 config.yaml，交互式询问是否安装 syncskill skill |
-| `install` | 显示帮助（无默认行为） |
-| `install self` | 安装内置 syncskill skill（若存在 `./self` 目录则指向该目录） |
-| `install --self` | 强制安装内置 syncskill skill（无歧义） |
+| `install` | TTY 下交互式菜单，让用户选择安装来源；非 TTY 下显示帮助 |
+| `install self` / `install --self` | 安装内置 syncskill skill（`self` 是保留关键字，本地 `./self` 目录请用 `install ./self`） |
 | `install <url-or-path>` / `i <url-or-path>` | 等同于 `source add` + 自动 link |
 
 `install` 完整参数：
-- `--self`：强制安装内置 syncskill skill
+- `--self`：安装内置 syncskill skill（与 `install self` 等效）
 - `--name <name>`：指定 source 名称
 - `--path <path>`：指定存储路径
 - `--skill-subdir <dir>`：指定 skill 所在子目录
@@ -149,21 +156,36 @@ Run `syncskill --help` for all commands.
 | 命令 | 说明 |
 |------|------|
 | `link` | 进入 skills × agents 全局矩阵编辑器 |
-| `link <skill>` | 进入单 skill 矩阵编辑器（编辑该 skill 的 agent 映射） |
+| `link <skill>` | 进入单 skill 矩阵编辑器（编辑该 skill 的 agent 映射）— 交互式命令 |
 | `link <skill> <agent>` | 追加链接：将 skill 链接到指定 agent 并更新 config（第二参数必须是已配置的 agent，否则报错） |
-| `link <skill> --all` | 将 skill 链接到所有已配置的 agents 并更新 config |
-| `link --all` | 按 config 配置执行 reconcile：创建/删除软链接使实际状态与 config.links 一致 |
-| `link list` / `link ls` / `link --list` | 显示链接状态矩阵 |
+| `link <skill> --all` | 将 skill 链接到所有已配置的 agents 并写入 config（通配符语义，见下方说明） |
+| `link --apply` | 按 config 配置执行 reconcile：创建/删除软链接使实际状态与 config.links 一致 |
+| `link list` / `link ls` | 显示链接状态矩阵 |
 | `link -v/--verbose` | 与 `list` 组合使用，显示文字状态而非符号 |
-| `link --dry-run` | 预览链接操作 |
-| `unlink` | 报错，提示用法 |
-| `unlink <skill>` | 报错，提示需要指定 agent 或使用 `--all` |
-| `unlink <skill> <agent>` | 移除指定 agent 的链接并更新 config |
-| `unlink <skill> --all [-y/--yes]` | 移除该 skill 的所有链接并更新 config |
+| `link --dry-run` | 预览 `link --apply` / `link <skill> --all` 等可预览的链接操作 |
+| `unlink <skill> [-y/--yes]` | 删除 skill 在所有 agent 中的软链接并从 config.links 移除（交互确认，`-y` 跳过） |
 
-注：当存在与 `list` 同名的 skill 时，优先匹配 skill，此时需使用 `link --list` 查看状态。
+注：当存在与 `list` 同名的 skill 时，优先匹配 skill。此时使用 `link ls` 查看状态，或通过交互式编辑器 `link` 管理该 skill。
 
 **`link <skill> <agent>` 参数校验**：第二参数必须在 `config.agents` 中存在，否则报错 `Agent '<name>' not configured`。
+
+**`link <skill>` 是交互式命令**：
+
+- 进入单 skill 矩阵编辑器需要 TTY。
+- 不接受 `--dry-run`：交互式编辑器没有 dry-run 概念，传 `--dry-run` 会报错并提示用户改用 `link <skill> --all --dry-run` 或 `link --apply --dry-run`：
+  ```
+  Error: link <skill> does not support --dry-run (interactive editor).
+  Use `link <skill> --all --dry-run` or `link --apply --dry-run` instead.
+  ```
+- 非 TTY（CI、管道输入、`-y` 模式）下报错并提示用户使用显式形式：
+  ```
+  Error: link <skill> requires an interactive terminal.
+  Use `link <skill> <agent>` or `link <skill> --all` instead.
+  ```
+
+**`link <skill> --all` 写入通配符 `["*"]`**：
+
+`config.links[skill]` 写入 `["*"]` 而非展开后的 agent 名列表。这是**通配符语义**：将来新增的 agent 会自动被包含，而不是当前 agent 的快照。如果用户希望只链接到当前的 agents 列表，应该使用矩阵编辑器或 `link <skill> <agent>` 逐个指定。
 
 **Source 管理**
 
@@ -186,7 +208,7 @@ Run `syncskill --help` for all commands.
 `source update` 完整参数：
 - `[name]`：指定要更新的 source 名称（不带参数 = `--all`）
 - `--all`：更新所有可更新的 source（显式写法，与不带参数等效）
-- `-y/--yes`：跳过逐个确认（HTTP source 默认逐个确认）；dirty source 自动 skip（安全优先）
+- `-y/--yes`：跳过 HTTP sources 的批量确认；dirty source 自动 skip（安全优先）
 - `--force`：强制更新 dirty source（git source 先 stash，http source 先备份到 `backups/`；记录恢复信息到 `update-history.json`，可通过 `source restore` 恢复）
 - `--dry-run`：预览更新操作但不执行（dirty 检测仍会执行，只打印 dirty source）
 
@@ -208,7 +230,7 @@ Run `syncskill --help` for all commands.
 
 | 命令 | 说明 |
 |------|------|
-| `server` | 快捷入口，等同于 `config server`（进入服务器管理菜单） |
+| `server` | 进入服务器管理菜单 |
 | `server list` / `server ls` | 列出已配置的远程服务器 |
 | `server show <name>` | 显示指定服务器的配置详情 |
 | `server probe <name>` | 诊断服务器状态（SSH 连通性、Node 版本、receiver 部署状态、最后同步时间） |
@@ -217,7 +239,7 @@ Run `syncskill --help` for all commands.
 
 | 命令 | 说明 |
 |------|------|
-| `remote` | 快捷入口，等同于 `config remote`（进入 skills × servers 矩阵编辑器） |
+| `remote` | 进入 skills × servers 矩阵编辑器 |
 
 **同步操作**
 
@@ -245,9 +267,8 @@ Run `syncskill --help` for all commands.
 | `config show` | 打印当前配置（JSON 格式） |
 | `config set <key> <value>` | 设置单个配置项 |
 | `config set --show-paths` | 显示所有可配置的路径 |
-| `config link` | 进入 links 矩阵编辑器（已废弃，请用 `link`） |
-| `config server` | 进入服务器管理菜单 |
-| `config remote` | 进入 remote 矩阵编辑器 |
+
+注：`config link`、`config server`、`config remote` 已废弃，请使用顶级命令 `link`、`server`、`remote`。
 
 **全局参数**：
 - `--no-refresh`：跳过自动刷新
@@ -299,11 +320,15 @@ Use --no-refresh to skip, then run `syncskill refresh` manually.
   3. 遍历已检测到的 agent，若该 agent 属于 `private_agents`（不读取共享目录），则追加到 target 列表
   4. 返回最终 target 数组，如 `["agents", "cursor", "kiro"]`
 - **`private_agents` 配置**：不读取 `~/.agents/skills/` 共享目录的 agent 列表，需要单独 link 到其专有目录。这些 agent 只读取自己的 `~/.<agent>/skills/` 目录。
-  - **默认值**（硬编码）：`["cursor", "kiro", "augment", "cline", "hermes"]`
-  - **用户覆盖**：可在 `config.yaml` 中配置 `private_agents` 字段完全覆盖默认值（非 merge）：
+  - **默认值**（硬编码）：`["claude", "codex", "gemini", "cursor", "kiro", "augment", "cline", "hermes"]`
+  - **config.yaml 初始化**：`init` 命令生成 `config.yaml` 时，自动写入 `private_agents` 字段的默认值，方便用户查看和修改
+  - **用户覆盖**：可在 `config.yaml` 中修改 `private_agents` 字段（完全覆盖，非 merge）：
     ```yaml
     # config.yaml
     private_agents:
+      - claude
+      - codex
+      - gemini
       - cursor
       - kiro
       - augment
@@ -311,7 +336,7 @@ Use --no-refresh to skip, then run `syncskill refresh` manually.
       - hermes
       - my-custom-agent  # 用户新增的不支持共享目录的 agent
     ```
-  - **合并逻辑**：`finalList = config.private_agents ?? DEFAULT_PRIVATE_AGENTS`
+  - **合并逻辑**：`finalList = config.private_agents ?? DEFAULT_PRIVATE_AGENTS`（硬编码作为 fallback，防止用户误删 config 中的字段）
 - 验证必填字段：`version`, `agents`, `links`
 - 解析通配符 `*` → 展开为所有 agent
 - `getSyncDir()` 返回 `~/.syncskill/` 路径，所有其他路径（config、skills、manifests、history）均基于此计算
@@ -383,36 +408,39 @@ Configuration Menu
 
 **config link 保存时的通配符优化**：如果某个 skill 选中了所有已配置的 agents，保存时写入 `["*"]` 而不是逐个列出所有 agent 名称。
 
-**`link`**（无参数）：直接调用矩阵编辑器。退出矩阵编辑器后，若 links 配置发生了变更，交互式询问用户是否立即 apply（等效于 `link --all`，创建/清理 symlink 使实际状态与配置一致）。用户确认则执行 reconcile，拒绝则仅保存配置不操作 symlink。
+**`link`**（无参数）：直接调用矩阵编辑器。退出矩阵编辑器后，若 links 配置发生了变更，交互式询问用户是否立即 apply（等效于 `link --apply`，创建/清理 symlink 使实际状态与配置一致）。用户确认则执行 reconcile，拒绝则仅保存配置不操作 symlink。
 
 **`config link`**（已废弃，行为与 `link` 一致）：退出矩阵编辑器后同样触发 apply 询问。
 
-**`link list`** / **`link ls`** / **`link --list`**：显示链接状态。
+**`link list`** / **`link ls`**：显示链接状态。
 
 默认符号版输出：
 ```
 Link Status
 
-Skill                    claude    agents
-──────────────────────────────────────────
-web-artifacts-builder    ⚠         ·
-web-design-guidelines    ⚠         ·
-webapp-testing           ✓         ·
-xlsx                     ✗         ·
+Skill                    claude*   agents    cursor*   kiro*
+────────────────────────────────────────────────────────────
+web-artifacts-builder    ⚠         ·         ✓         ·
+web-design-guidelines    ⚠         ·         ✓         ·
+webapp-testing           ✓         ·         ✓         ·
+xlsx                     ✗         ·         ·         ·
 
 Legend: ✓ linked  ⚠ copied  · missing  ✗ broken
+        * = private agent (requires separate link)
 ```
 
 `-v` / `--verbose` 文字版输出：
 ```
 Link Status
 
-Skill                    claude      agents
-─────────────────────────────────────────────
-web-artifacts-builder    copied      missing
-web-design-guidelines    copied      missing
-webapp-testing           linked      missing
-xlsx                     broken      missing
+Skill                    claude*     agents      cursor*     kiro*
+──────────────────────────────────────────────────────────────────
+web-artifacts-builder    copied      missing     linked      missing
+web-design-guidelines    copied      missing     linked      missing
+webapp-testing           linked      missing     linked      missing
+xlsx                     broken      missing     missing     missing
+
+* = private agent (doesn't read ~/.agents/skills/, requires separate link)
 ```
 
 **状态符号说明**：
@@ -461,7 +489,17 @@ xlsx                     broken      missing
 **无参数调用**：
 ```
 syncskill install
-└─ 显示帮助信息，不执行安装
+├─ TTY → 进入交互式选择菜单：
+│   ┌─────────────────────────────────────────────────────────┐
+│   │ ? What would you like to install?                       │
+│   │ > Built-in syncskill skill                              │
+│   │   From a URL or local path                              │
+│   │   Cancel                                                │
+│   └─────────────────────────────────────────────────────────┘
+│   ├─ Built-in syncskill skill → 等同 install --self
+│   ├─ From a URL or local path → 提示输入 URL 或路径，等同 install <input>
+│   └─ Cancel → 退出，不操作
+└─ 非 TTY → 显示帮助信息，不执行安装
 ```
 
 **安装内置 syncskill skill**：
@@ -477,9 +515,7 @@ syncskill install --self
 └─ 输出 "✓ Installed syncskill skill"
 ```
 
-**`self` 与 `--self` 的区别**：
-- `install self`：安装内置 skill，但若当前目录存在 `./self` 目录则优先指向该目录
-- `install --self`：强制安装内置 skill（无歧义）
+**`self` 是保留关键字**：`install self` 和 `install --self` 完全等效，都安装内置 syncskill skill。如果用户本地有名为 `self` 的目录需要安装，请使用 `install ./self`（显式路径）。
 
 **从 URL/路径安装**：
 ```
@@ -500,8 +536,15 @@ syncskill install <url-or-path> [--name <n>] [--path <p>] [-y/--yes]
 
 **输出示例**：
 ```bash
-# 无参数 → 显示帮助
+# 无参数 + TTY → 交互式菜单
 $ syncskill install
+? What would you like to install? (Use arrow keys)
+> Built-in syncskill skill
+  From a URL or local path
+  Cancel
+
+# 无参数 + 非 TTY (CI、管道) → 显示帮助
+$ echo "" | syncskill install
 Usage: syncskill install [options] [url-or-path]
 
 Install skills from URL, path, or built-in syncskill skill.
@@ -550,11 +593,11 @@ All skills from "examples/skill-a" are already included in source "my-skills".
 
 **Stale Link Reconcile**：
 
-`link --all` 和矩阵编辑器退出后的 apply 操作需要清理 stale 的 syncskill 管理的软链接。当用户通过矩阵编辑器将某个 skill 从 `["*"]` 改为 `["claude"]` 后，其他 agent 目录中残留的旧链接应被自动清理。
+`link --apply` 和矩阵编辑器退出后的 apply 操作需要清理 stale 的 syncskill 管理的软链接。当用户通过矩阵编辑器将某个 skill 从 `["*"]` 改为 `["claude"]` 后，其他 agent 目录中残留的旧链接应被自动清理。
 
 - `link <skill>`：打开单 skill 矩阵编辑器，退出后 reconcile 该 skill 的链接状态
 - `link`：打开全局矩阵编辑器，退出后 reconcile 所有变更的 skill
-- `link --all`：按 config 配置 reconcile 所有 skill 在所有 agent 目录中的链接状态
+- `link --apply`：按 config 配置 reconcile 所有 skill 在所有 agent 目录中的链接状态
 
 清理规则：
 1. 遍历所有 `config.agents` 目录，检查指定 skill（或所有 skill）是否存在需要清理的 stale 链接
@@ -601,7 +644,16 @@ my-skill is currently linked to:
 
 # 用户取消勾选 hermes，按 Enter
 ✓ Updated my-skill: linked to claude, unlinked from hermes
+
+# 用户按 Esc 取消（不写 config，不操作 symlink）
+$ syncskill link my-skill
+... (matrix editor)
+Cancelled. No changes made.
 ```
+
+**单 skill 矩阵的 Enter / Esc 语义**：
+- **Enter**：confirm 即 apply。立即写入 `config.links[skill]` 并执行 createLink/removeLink，**不再二次询问**"是否 apply"（与全局矩阵不同：因为单 skill 作用域小且明确）。
+- **Esc** 或 `Ctrl+C`：取消。**不写 config，不操作 symlink**。打印 `Cancelled. No changes made.` 后返回。
 
 **输出示例（追加链接）**：
 
@@ -617,7 +669,7 @@ Error: Agent 'unknown-agent' not configured
 **输出示例（批量 reconcile）**：
 
 ```bash
-$ syncskill link --all
+$ syncskill link --apply
 
 ✓ Linked 5 skills
 
@@ -635,7 +687,7 @@ Remove 4 links? [Y/n] y
 **使用 `-y` 时**：
 
 ```bash
-$ syncskill link --all -y
+$ syncskill link --apply -y
 
 ✓ Linked 5 skills
 ✓ Removed 4 links (skill-a, skill-b, local-tool)
@@ -644,21 +696,16 @@ $ syncskill link --all -y
 **Unlink 命令示例**：
 
 ```bash
-# 无参数 → 报错
+# 交互确认后删除所有 agent 链接
 $ syncskill unlink my-skill
-Error: Please specify agent or use --all
+Remove all links for skill "my-skill"? (claude, cursor, hermes) [y/N] y
+✓ Unlinked my-skill from all agents
+✓ Removed "my-skill" from config links.
 
-Usage:
-  syncskill unlink <skill> <agent>   Remove link for specific agent
-  syncskill unlink <skill> --all     Remove all links
-
-# 移除指定 agent
-$ syncskill unlink my-skill cursor
-✓ Unlinked my-skill from cursor
-
-# 移除所有链接
-$ syncskill unlink my-skill --all
-✓ Unlinked my-skill from all agents (claude, cursor, hermes)
+# 使用 -y 跳过确认
+$ syncskill unlink my-skill -y
+✓ Unlinked my-skill from all agents
+✓ Removed "my-skill" from config links.
 ```
 
 ### 3.7 `manifest.ts` — Hash 计算与 Manifest
@@ -1065,12 +1112,18 @@ Step 2: 逐个执行更新
   │      "  ✓ Backed up skill-a to ~/.syncskill/backups/skill-pack/skill-a/"
   │      "  To restore: syncskill source restore skill-pack"
   │
-  ├─ 如果 clean：询问用户是否更新此 source（除非 -y）
-  │   选项：
-  │   (Y) Yes — 更新这个 source
-  │   (n) No — 跳过这个 source
-  │   (a) Yes to all — 更新这个及后续所有 HTTP source
-  │   (q) Quit — 停止更新
+  ├─ 如果 clean：HTTP sources 在 Git sources 更新完成后，**批量确认一次**（除非 -y）
+  │   提示格式：
+  │   ```
+  │   HTTP sources to update:
+  │     cdn-skills     https://cdn.example.com/skills-v2.tar.gz
+  │     another-pack   https://example.com/pack.zip
+  │
+  │   Update 2 HTTP sources? [Y/n]
+  │   ```
+  │   - `Y` / Enter → 更新所有列出的 HTTP sources
+  │   - `n` → 跳过所有 HTTP sources
+  │   - `-y` flag → 跳过此确认，直接更新
   │
   ├─ 下载到 tmp 目录（~/.syncskill/.tmp/update-<name>/）
   ├─ 解压到 tmp 目录
@@ -1316,7 +1369,10 @@ Updating my-repo (git)...
   Fetching origin/main...
   ✓ Updated. 1 skill modified, 1 skill added.
 
-Update source "skill-pack" (http)? [Y/n/a/q] a
+HTTP sources to update:
+  skill-pack   https://cdn.example.com/skills-v2.tar.gz
+
+Update 1 HTTP source? [Y/n] y
 
 Updating skill-pack (http)...
   Downloading to tmp...
@@ -1369,19 +1425,20 @@ Updating skill-pack (http)...
 
 **`source remove` 命令行为（交互式确认）**：
 
-统一显示所有选项，不适用的标记为 disabled：
+两个选项：
 
 ```
-Removing source "my-skill" (type: git)
+Removing source "my-repo" (3 skills: skill-a, skill-b, skill-c)
 
 Choose action:
-  1. Convert to local source (keep files, no more git)
-  2. Remove config only (keep files, becomes manual)
-  3. Remove completely (config + files + links)
-  [disabled] 4. ... (only for HTTP type)
+> 1. Keep files (remove from sources, skills become manual)
+  2. Remove completely (delete config + files + links)
 ```
 
-选项 3 "Remove completely" 的链接清理复用 `reconcileStaleLinks()` 逻辑，确保行为一致。
+- **Keep files**：从 `config.sources` 移除该 source 条目，但保留文件。skills 变为 manual（可通过 `scan` 发现并重新纳管）。
+- **Remove completely**：删除 config 条目、文件目录、所有相关 symlinks。链接清理复用 `reconcileStaleLinks()` 逻辑。
+
+`--force` flag 直接执行 "Remove completely"，跳过确认。
 
 **Skills 注册表（`skills-registry.json`）**：
 
