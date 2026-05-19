@@ -43,7 +43,7 @@ syncskill install
 
 # Link skills to agent directories
 syncskill link my-skill claude    # Link specific skill to agent
-syncskill link my-skill --apply   # Link to all configured agents
+syncskill link my-skill --all     # Link to all configured agents
 syncskill link                    # Open matrix editor
 syncskill link --apply            # Apply all configured links and clean stale symlinks
 syncskill unlink my-skill         # Remove all links for a skill
@@ -70,7 +70,7 @@ syncskill unlink my-skill         # Remove all links for a skill
 | `syncskill link` | Open matrix editor for skill-to-agent links |
 | `syncskill link <skill>` | Open single-skill editor |
 | `syncskill link <skill> <agent>` | Append link to specific agent |
-| `syncskill link <skill> --apply` | Link skill to all configured agents |
+| `syncskill link <skill> --all` | Link skill to all configured agents |
 | `syncskill link --apply` | Apply all configured links (auto-cleans stale symlinks) |
 | `syncskill link list` / `ls` | Show link status |
 | `syncskill link list -v` | Show link status with verbose text |

@@ -36,7 +36,7 @@ Install options: `--name`, `--path` (source storage path), `--skill-subdir`, `--
 | `link list -v` | Show verbose text status |
 | `link <skill>` | Open single-skill editor |
 | `link <skill> <agent>` | Append link to specific agent |
-| `link <skill> --apply` | Link that skill to all configured agents |
+| `link <skill> --all` | Link that skill to all configured agents |
 | `link --apply` | Apply config for all configured skills + reconcile stale links |
 | `link --dry-run` | Preview link changes |
 | `unlink <skill> [-y] [--dry-run]` | Remove all links for a skill |
@@ -102,7 +102,7 @@ Source add options: `--name`, `--type git|http|local`, `--path` (skill subdirect
 
 **Doctor checks**: missing agent directories, orphaned links, invalid sources, registry inconsistencies.
 
-**`private_agents`**: agents that need dedicated per-agent links instead of the shared `~/.agents/skills/` target. Current defaults are `cursor`, `kiro`, `augment`, `cline`, and `hermes`. Setting `private_agents` in config fully overrides the default list.
+**`private_agents`**: agents that need dedicated per-agent links instead of the shared `~/.agents/skills/` target. Current defaults are `claude`, `codex`, `gemini`, `cursor`, `kiro`, `augment`, `cline`, and `hermes`. Setting `private_agents` in config fully overrides the default list.
 
 ### Global Options
 
