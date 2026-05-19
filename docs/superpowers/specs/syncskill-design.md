@@ -165,7 +165,7 @@ Run `syncskill --help` for all commands.
 | `link --dry-run` | 预览 `link --apply` / `link <skill> --all` 等可预览的链接操作 |
 | `unlink <skill> [-y/--yes]` | 删除 skill 在所有 agent 中的软链接并从 config.links 移除（交互确认，`-y` 跳过） |
 
-注：当存在与 `list` 同名的 skill 时，优先匹配 skill。此时使用 `link ls` 查看状态，或通过交互式编辑器 `link` 管理该 skill。
+注：`list` / `ls` 是保留子命令。如果存在与之同名的 skill，子命令优先匹配；要管理这种 skill，使用显式形式 `link <skill> <agent>` / `link <skill> --all` 或全局矩阵编辑器 `link`。
 
 **`link <skill> <agent>` 参数校验**：第二参数必须在 `config.agents` 中存在，否则报错 `Agent '<name>' not configured`。
 
@@ -247,7 +247,7 @@ Run `syncskill --help` for all commands.
 |------|------|
 | `push [server] [--all] [-y/--yes] [--dry-run] [--timeout <s>]` | 推送到远程；无参数时交互式选择服务器 |
 | `pull [server] [--all] [-y/--yes] [--dry-run] [--timeout <s>]` | 从远程拉取；无参数时交互式选择服务器 |
-| `sync [server] [--all] [--dry-run] [--timeout <s>]` | 一键全量同步：先 pull 再 push |
+| `sync [server] [--all] [--dry-run] [--timeout <s>]` | 双向同步：pull → refresh → push 串行执行；带 server 参数时只针对该服务器，否则覆盖所有 servers |
 | `status` | 显示所有 tracked manifests 的同步状态 |
 | `diff <server>` | 显示指定服务器的待同步变更 |
 | `resolve <skill>` | 交互式解决冲突 |
@@ -290,33 +290,40 @@ Use --no-refresh to skip, then run `syncskill refresh` manually.
 ### 3.2 `config.ts` — 配置加载与验证
 
 - 加载 `~/.syncskill/config.yaml`（使用 `yaml` npm 包）
-- 自动检测本地 agent 目录（存在即添加）：
-  - `claude` → `~/.claude/skills`
-  - `agents` → `~/.agents/skills`
-  - `cursor` → `~/.cursor/skills`
-  - `windsurf` → `~/.windsurf/skills`
-  - `codex` → `~/.codex/skills`
-  - `gemini` → `~/.gemini/skills`
-  - `antigravity` → `~/.gemini/antigravity/skills`
-  - `kiro` → `~/.kiro/skills`
-  - `augment` → `~/.augment/skills`
-  - `amp` → `~/.config/agents/skills`
-  - `cline` → `~/.cline/skills`
-  - `opencode` → `~/.config/opencode/skills`
-  - `qwen` → `~/.qwen/skills`
-  - `openclaw` → `~/.openclaw/skills`
-  - `hermes` → `~/.hermes/skills`
-  - `qoder` → `~/.qoder/skills`
-  - `aone_copilot` → `~/.aone_copilot/skills`
-- **智能默认 link target（`computeDefaultLinkTargets()`）**：`install`、`source add`、`init` 迁移等场景自动为新 skill 计算默认 link target，避免在支持 `~/.agents/skills/` 标准目录的 agent 中产生重复 skill。规则：
+- 自动检测本地 agent **父目录**（存在即添加）。**检测的是 agent 的根目录是否存在**（例如 `~/.claude/`），而不是 `skills/` 子目录。这是合理场景：用户安装 Claude 但还没创建过 `~/.claude/skills/` 子目录时，agent 也应该被注册：
+
+| Agent | 检测父目录 | 链接路径 |
+|-------|-----------|---------|
+| `claude` | `~/.claude/` | `~/.claude/skills` |
+| `agents` | `~/.agents/` | `~/.agents/skills` |
+| `cursor` | `~/.cursor/` | `~/.cursor/skills` |
+| `windsurf` | `~/.windsurf/` | `~/.windsurf/skills` |
+| `codex` | `~/.codex/` | `~/.codex/skills` |
+| `gemini` | `~/.gemini/` | `~/.gemini/skills` |
+| `antigravity` | `~/.gemini/antigravity/` | `~/.gemini/antigravity/skills` |
+| `kiro` | `~/.kiro/` | `~/.kiro/skills` |
+| `augment` | `~/.augment/` | `~/.augment/skills` |
+| `amp` | `~/.config/agents/` | `~/.config/agents/skills` |
+| `cline` | `~/.cline/` | `~/.cline/skills` |
+| `opencode` | `~/.config/opencode/` | `~/.config/opencode/skills` |
+| `qwen` | `~/.qwen/` | `~/.qwen/skills` |
+| `openclaw` | `~/.openclaw/` | `~/.openclaw/skills` |
+| `hermes` | `~/.hermes/` | `~/.hermes/skills` |
+| `qoder` | `~/.qoder/` | `~/.qoder/skills` |
+| `aone_copilot` | `~/.aone_copilot/` | `~/.aone_copilot/skills` |
+
+`agents` 与其它 agent 走相同检测逻辑，无特殊分支：检测 `~/.agents/` 是否存在，存在即注册，链接路径是 `~/.agents/skills`。
+
+- **链接时 mkdir**：`linker.createLink()` 创建链接前，若 `<agent_link_path>` 父目录（如 `~/.claude/skills/`）不存在，自动 `mkdirSync({ recursive: true })`。这样首次链接到任意 agent 都不会因为缺少 `skills/` 子目录失败。
+- **`ensureDefaultLinkTargets()`**（原 `computeDefaultLinkTargets`，重命名以反映副作用）：`install`、`source add`、`init` 迁移等场景自动为新 skill 计算默认 link target，**该函数有副作用**：会在必要时创建 `~/.agents/skills/` 目录、写入 `config.agents.agents` 字段并 `saveConfig()`。规则：
   1. 默认 target 为 `["agents"]`（即 `~/.agents/skills/`，跨客户端标准目录）
-  2. 若 `~/.agents/skills/` 目录不存在，自动创建并输出提示：
+  2. 若 `~/.agents/` 父目录不存在，**自动创建** `~/.agents/skills/`，把 `agents` 加入 `config.agents`，并落盘 `config.yaml`，输出提示：
      ```
      Created ~/.agents/skills/
        This is the standard shared skills directory for agents that support it.
        Skills linked here are available to: claude, windsurf, codex, ...
      ```
-     （仅首次创建时打印此提示）
+     （仅首次创建时打印此提示；幂等：第二次调用不会重复打印或重复落盘）
   3. 遍历已检测到的 agent，若该 agent 属于 `private_agents`（不读取共享目录），则追加到 target 列表
   4. 返回最终 target 数组，如 `["agents", "cursor", "kiro"]`
 - **`private_agents` 配置**：不读取 `~/.agents/skills/` 共享目录的 agent 列表，需要单独 link 到其专有目录。这些 agent 只读取自己的 `~/.<agent>/skills/` 目录。
@@ -451,7 +458,7 @@ xlsx                     broken      missing     missing     missing
 | `missing` | `·` | 未链接 |
 | `broken` | `✗` | 链接损坏 |
 
-**重名 skill 处理**：当存在与子命令同名的 skill（如名为 "list" 的 skill）时，优先匹配 skill。此时需使用 `link --list` flag 形式显示状态。
+**重名 skill 处理**：`list` / `ls` 子命令优先匹配。要操作与之同名的 skill，使用显式形式 `link <skill> <agent>` / `link <skill> --all`，或在全局矩阵编辑器 `link` 中管理该 skill。
 
 **`config server`**：直接进入服务器管理菜单。
 
@@ -479,7 +486,7 @@ xlsx                     broken      missing     missing     missing
 - 生成 `~/.syncskill/config.yaml`（含自动检测的 agent）
 - 复制 `config.example.yaml` 作为参考
 - **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-scan` 参数跳过此步骤。
-- **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.yaml` 的 `links` 字段（使用 `computeDefaultLinkTargets()` 计算默认目标，即 `["agents"]` + 已检测到的不支持 `~/.agents/skills/` 的 agent）。
+- **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.yaml` 的 `links` 字段（使用 `ensureDefaultLinkTargets()` 计算默认目标，即 `["agents"]` + 已检测到的不支持 `~/.agents/skills/` 的 agent）。
 - **交互式安装 syncskill skill**：流程末尾询问是否安装 syncskill skill（默认 Y）。`--skip-skill` 参数跳过此询问，`-y`/`--yes` 参数自动选择 yes。
 
 ### 3.5 `install.ts` — Skill 安装
@@ -511,7 +518,7 @@ syncskill install --self
 │   └─ 不存在 → 继续
 ├─ 定位 dist/skills/syncskill/ 目录（通过 import.meta.url）
 ├─ 复制到 ~/.syncskill/skills/syncskill/
-├─ 自动执行 link syncskill（使用 computeDefaultLinkTargets() 计算目标 agent）
+├─ 自动执行 link syncskill（使用 ensureDefaultLinkTargets() 计算目标 agent）
 └─ 输出 "✓ Installed syncskill skill"
 ```
 
@@ -520,17 +527,19 @@ syncskill install --self
 **从 URL/路径安装**：
 ```
 syncskill install <url-or-path> [--name <n>] [--path <p>] [-y/--yes]
-├─ 执行 source add 的核心逻辑（交互式添加来源、clone/download/link）
-├─ 应用结果到 config（复用与 source add CLI 相同的写入逻辑）
+├─ 执行核心逻辑（交互式添加来源、clone/download/link）
+├─ 应用结果到 config
 │   持久化 sources + links，支持三种场景：
 │   - 新 source
 │   - 合并到已有 source（同 URL 时）
 │   - 新建附加 source（拒绝合并时）
-├─ 创建 symlink 到 agent 目录（install 额外步骤，source add 不做此步）
+├─ 创建 symlink 到 agent 目录
 ├─ 保存 config.yaml
 ├─ 刷新 skills-registry.json（注册活跃 skills，保留 ignored 条目）
 └─ 输出安装结果摘要
 ```
+
+**`source add` ≡ `install` 别名**：`source add <url-or-path>` 和 `install <url-or-path>` 行为完全等价：都执行上述全部步骤（含 symlink 落盘）。两者复用同一份 `installFromSource()` 实现，CLI 命令名上的区别只是用户视角的两种入口。`source add` 保留是为了语义完整性（"管理 sources 的子命令"），但 `install` 是推荐的主入口。
 
 本地压缩包安装等效于 HTTP 下载后的状态：解压到 `~/.syncskill/sources/<name>/`，`SourceConfig` 记录 `type: "local"` + `archive_path` 指向原始压缩包路径。后续的 skill 发现、link 逻辑与其他 source 类型完全一致。
 
@@ -744,6 +753,8 @@ $ syncskill unlink my-skill -y
 - `local_hash`：当前本地文件的实际 hash（每次刷新时重新计算）
 - `remote_hash`：最后已知的远程 hash（从远程 manifest 拉取）
 - `recorded_hash`：上次同步点的基准 hash（push/pull 完成时设置为同步后的 hash）
+- `direction`：同步方向，取值 `push` / `pull` / `conflict`（其中 `conflict` 由 manual 策略下的冲突标记产生；不设方向等价于 `push`，需要双向同步用 `sync` 命令）
+- `status`：同步状态，取值固定为 5 态枚举之一 —— `in-sync` / `local-changed` / `remote-changed` / `conflict` / `new`。所有写入 manifest 的代码路径都通过 `classifySkillDelta(local, remote, recorded)` 派生该值，避免出现 `changed`、`pending` 等非枚举值。
 
 `recorded_hash` 作为 3-way merge 的基准点，用于判断"谁改了"：
 - `local_hash ≠ recorded_hash` → 本地相对基准有变化
@@ -754,13 +765,22 @@ $ syncskill unlink my-skill -y
 **Manifest 变更历史** (`manifest_history.json`)：用于追踪 hash 变更事件，仅在 hash 实际变更时追加记录。
 
 **Delta 比较逻辑**（`classifySkillDelta`）：
-```
-if (local_hash === remote_hash) → skip, in-sync
-if (local_hash ≠ recorded_hash && remote_hash === recorded_hash) → push, local-changed
-if (remote_hash ≠ recorded_hash && local_hash === recorded_hash) → pull, remote-changed
-if (local_hash ≠ remote_hash && 以上都不满足) → conflict
-if (recorded_hash === null && local_hash && !remote_hash) → push, new
-if (recorded_hash === null && remote_hash && !local_hash) → pull, new
+
+返回二元组 `{ action, status }`：
+
+- `action` 取值 `skip` / `push` / `pull` / `conflict` / `init`（同步动作，给 push/pull 引擎消费）
+  - `init`：首次同步（recorded 为 null），具体方向（推/拉）由调用方根据哪一侧有 hash 推断
+  - 注意 action 与 status 词表共享 `conflict` 但**不共享 `new`**：状态用 `new`，动作用 `init`
+- `status` 取值 `in-sync` / `local-changed` / `remote-changed` / `conflict` / `new`（写入 manifest 的当前状态）
+
+```text
+1. local_hash === remote_hash                                                     → skip, in-sync
+2. local_hash ≠ recorded_hash && remote_hash === recorded_hash                    → push, local-changed
+3. remote_hash ≠ recorded_hash && local_hash === recorded_hash                    → pull, remote-changed
+4. recorded_hash === null && local_hash && !remote_hash                           → init, new   (首次同步,推方向)
+5. recorded_hash === null && !local_hash && remote_hash                           → init, new   (首次同步,拉方向)
+6. recorded_hash === null && local_hash && remote_hash && local_hash ≠ remote_hash → conflict, conflict   (双方独立创建,内容冲突)
+7. local_hash ≠ remote_hash && 以上都不满足                                        → conflict, conflict
 ```
 
 ### 3.8 `source.ts` — 外部来源管理
@@ -887,10 +907,13 @@ Step 5b: 与外部 source 冲突时
 
 Step 6: 写入配置
 ├─ source entry 写入 config.yaml
-├─ 选中的 skills 加入 links（默认使用 computeDefaultLinkTargets()，即 ["agents"] + 已检测到的不支持共享目录的 agent）
+├─ 选中的 skills 加入 links（默认使用 ensureDefaultLinkTargets()，即 ["agents"] + 已检测到的不支持共享目录的 agent）
 ├─ 未选中的 skills 在 skills-registry.json 中标记为 ignored
 ├─ 重名冲突的 skills 在 skills-registry.json 中标记为 ignored 并记录原因
 └─ 更新 skills-registry.json
+
+Step 6.5: 创建 symlink 到 agent 目录（与 install 一致）
+└─ 对每个加入 links 的 skill，按其 link target 创建 symlink。这一步与 §3.5 install 的 symlink 步骤共享同一份实现（`applySourceResult`）。
 
 Step 7: -y/--yes 行为
 ├─ 跳过 Step 5 的交互
@@ -1142,7 +1165,7 @@ Step 3: 处理被删除的 skill
 │   ├─ Yes → 复制 skill 到 ~/.syncskill/skills/<name>，registry 更新为 manual
 │   └─ No → 从 links 中移除，清理软链接，registry 标记删除
 │
-└─ 新增的 skill → 提示用户是否要 link（除非 -y 则自动使用 computeDefaultLinkTargets() link）
+└─ 新增的 skill → 提示用户是否要 link（除非 -y 则自动使用 ensureDefaultLinkTargets() link）
 
 Step 4: 输出更新报告（始终显示，包括 -y 模式）
 ├─ ✓ 更新成功的 source + 变更 skill 列表
@@ -1505,13 +1528,14 @@ Choose action:
 4. 拉取远程 manifest
 5. 对比 → delta（注：`compareManifests` 对不在远程 manifest 中的 skill **无论本地 hash 是否变化**都标记为 `"new"`，确保新增到 include 列表的 skill 一定会被 push）
 6. 检测冲突
-7. **验证远程 skills 目录存在性**（安全网，仅 `--no-refresh` 时执行）：当使用 `--no-refresh` 跳过 manifest 刷新时，通过 SSH `ls` 远程 `skills/` 目录，获取实际存在的 skill 列表。对 delta 中被标记为 "skip"（manifest 认为已同步）但远程实际缺失的 skill，强制改为 "push"。正常流程已有 `refreshRemoteManifest()` 保护，此步骤仅作为 `--no-refresh` 场景的安全网。
-8. **清理远程不再需要的 skill**：对比远程 `skills/` 目录中的实际条目与当前 include 列表，删除远程存在但不再在 include 中的 skill 目录。删除前列出将被删除的 skill 列表并要求用户确认（除非指定 `-y/--yes`）。
-9. rsync 将具体 skill 目录推送到远程
-10. **对远程有变更但本地不需要 push 的 skill**：仅打印警告（`Skipping <skill>: remote has changes. Use syncskill pull to update local.`），**不执行隐式 pull**。push 命令只推送，不拉取。用户需要单独执行 `syncskill pull` 来获取远程变更。
-11. **更新本地 manifest**（3-field 模型）：区分实际推送的 skill 和未推送的 skill。实际 pushed 的 skill 设置 `remote_hash=local_hash, recorded_hash=local_hash, status="in-sync"`（三个 hash 同步）；未 pushed 的 skill（skip/pull/conflict）保留旧的 `remote_hash` 和 `recorded_hash`，正确反映同步状态。
-12. 推送 manifest
-13. SSH exec `sync_receiver.mjs apply`（receiver 会创建当前 skill 的 agent symlink，并清理指向已删除 skill 目录的 stale symlink）
+7. **Reconcile remote skill set**：一次性 SSH `ls` 远端 `~/.syncskill/skills/` 目录，得到实际存在的 skill 列表。基于此列表执行两件事，复用同一次 ls 调用：
+   - **7a (always — cleanup)**：远端实际存在但不在当前 include 列表中的 skill → 列出待删除项，除 `-y/--yes` 外要求用户确认后删除。
+   - **7b (`--no-refresh` only — safety net)**：delta 中被标记为 "skip"（manifest 认为已同步）但远端实际缺失的 skill → 强制改为 "push"。正常流程下 `refreshRemoteManifest()` 已经从 manifest 删除了消失的远端 skill（详见 §3.12），所以 7b 仅在 `--no-refresh` 场景下有意义；正常流程不会命中。
+8. rsync 将具体 skill 目录推送到远程
+9. **对远程有变更但本地不需要 push 的 skill**：仅打印警告（`Skipping <skill>: remote has changes. Use syncskill pull to update local.`），**不执行隐式 pull**。push 命令只推送，不拉取。用户需要单独执行 `syncskill pull` 来获取远程变更。
+10. **更新本地 manifest**（3-field 模型）：区分实际推送的 skill 和未推送的 skill。实际 pushed 的 skill 设置 `remote_hash=local_hash, recorded_hash=local_hash, status="in-sync"`（三个 hash 同步）；未 pushed 的 skill（skip/pull/conflict）保留旧的 `remote_hash` 和 `recorded_hash`，正确反映同步状态。
+11. 推送 manifest
+12. SSH exec `sync_receiver.mjs apply`（receiver 会创建当前 skill 的 agent symlink，并清理指向已删除 skill 目录的 stale symlink）
 
 **Push 命令交互**：
 
@@ -1561,32 +1585,56 @@ resolveSkillPullTarget(skillName):
 
 **Sync 流程**（串行策略，防止竞态）：
 
-Sync 采用**两阶段串行策略**：先完成所有服务器的 pull，再统一 push。这避免了并行操作导致的竞态问题（例如：从 server-A pull 的内容尚未落盘，同时 push 到 server-B 就会推送旧数据）。
+Sync 采用**两阶段串行策略**：先完成所有目标服务器的 pull，刷新 manifest 后再统一 push。串行避免并行操作导致的竞态问题（例如：从 server-A pull 的内容尚未落盘，同时 push 到 server-B 就会推送旧数据）。
+
+**作用域**：
+- `syncskill sync`（无参数）/ `syncskill sync --all`：作用域 = `config.servers` 中所有服务器。
+- `syncskill sync <server>`：作用域缩小到单台服务器，仍执行 pull → refresh → push 三阶段，等价于"对该服务器做一次完整双向同步"。**不再有 relay 模式**（旧版"从 <server> pull 后再 push 到其他服务器"已经被移除；如需中转用 `pull <s>` + `push <other>` 显式组合）。
+
+**遍历顺序**：所有阶段按 `Object.keys(config.servers)` 的插入顺序串行处理（YAML 中的 servers 出现顺序）。文档化的固定顺序让多 server sync 行为可预测。
 
 ```
-Phase 1: PULL ALL（串行遍历所有服务器）
-  for each server:
+Phase 1: PULL（按 config.servers 插入顺序串行）
+  for each target in Object.keys(config.servers):
     ├─ 拉取远程 manifest
     ├─ 对比 delta → 确定需要 pull 的 skill
+    ├─ 检测跨 server 冲突（详见下方）
     ├─ rsync/scp pull 变更到本地
+    ├─ 记录本次 pull 实际改写的 skill → crossServerChangeMap
     └─ 更新本地 manifest
 
 Phase 2: REFRESH
-  └─ 刷新所有 manifest（确保 Phase 1 的变更反映在 hash 中）
+  └─ 刷新目标服务器的 manifest（确保 Phase 1 的变更反映在 hash 中）
 
-Phase 3: PUSH ALL（串行遍历所有服务器）
-  for each server:
+Phase 3: PUSH（按 config.servers 插入顺序串行）
+  for each target in Object.keys(config.servers):
     ├─ 重新对比 delta（基于刷新后的 manifest）
     ├─ rsync/scp push 本地变更到远程
     └─ 更新 manifest + 执行远程 receiver apply
 ```
 
 详细步骤：
-1. **Pull 阶段**：串行遍历所有配置的服务器，对每个服务器执行 pull
-2. 刷新所有 manifest
-3. **Push 阶段**：再次串行遍历所有服务器，对有本地变更的 skill 执行 push
-4. **冲突处理**：遇到冲突的 skill 跳过，继续处理其他 skill
-5. 汇总输出每个 skill 的最终同步状态，冲突的 skill 单独列出并提示用户执行 `resolve` 命令
+
+1. **Pull 阶段**：按 `Object.keys(config.servers)` 顺序串行遍历目标服务器
+2. **跨 server 冲突检测**（Phase 1 内）：每次 pull 前，对将要被本次 pull 覆盖的 skill 检查 —— 若该 skill 已在本次 sync 的某个先前 server pull 中被改写（即 `crossServerChangeMap` 中记录过），且新内容（本次 server 远端）与已写入本地的内容不同 → 暂停并提示用户：
+
+   ```
+   ⚠ Cross-server conflict detected for skill "<name>":
+     - Already pulled from <server-A>: hash <hash-A>
+     - Now <server-B> wants to pull: hash <hash-B>
+     - Local content matches <server-A>
+
+   Choose action:
+   > (A) Keep <server-A> version (skip <server-B> pull for this skill)
+     (B) Use <server-B> version (overwrite local with <server-B>'s content)
+     (C) Keep current local (do not pull from either)
+   ```
+
+   `-y/--yes` 模式自动选 A（先到先得，与配置顺序一致）。
+3. **刷新 manifest**
+4. **Push 阶段**：按相同顺序串行遍历目标服务器，对有本地变更的 skill 执行 push
+5. **单 server 冲突处理**：遇到冲突的 skill 跳过，继续处理其他 skill
+6. 汇总输出每个 skill 的最终同步状态，冲突的 skill 单独列出并提示用户执行 `resolve` 命令
 
 **超时机制**：默认依赖操作系统的 SSH 超时配置（`ConnectTimeout`、`ServerAliveInterval`）。可通过 `--timeout` 参数显式设置超时：
 
@@ -1605,7 +1653,11 @@ Host *
   ServerAliveCountMax 3
 ```
 
-当 `--timeout` 指定时，rsync/scp 命令会被包装为带超时的子进程。超时后输出：
+当 `--timeout` 指定时，CLI 在 await 层面 race 该次 push/pull/sync：到时立即抛错并放弃等待，已经启动的 rsync/scp/ssh 子进程不会被强制 kill —— 它们继续运行直到自然结束（或被 OS 级 SSH 超时配置回收）。这意味着 `--timeout` 能让 CLI 及时返回，但 **不能保证立即释放远端连接**。
+
+**为什么不 kill 子进程**：rsync/scp 在传输 skill 目录中途如果被强制 kill，远端可能进入"部分文件已写入、部分未写入"的半同步状态，下次 push 时 hash 比较结果不可预测。OS 级 SSH 超时（`ConnectTimeout` / `ServerAliveInterval`）由 SSH 协议本身处理半状态恢复，更安全。所以 `--timeout` 故意只在 CLI 层面释放等待，不干预子进程。如果需要严格的进程级超时，请同时配置 `~/.ssh/config` 的 `ConnectTimeout` / `ServerAliveInterval`。
+
+超时后 CLI 输出：
 ```
 ✗ Timeout: push to dev-server exceeded 60s
   Check network connectivity or increase --timeout value.
@@ -1744,31 +1796,28 @@ syncskill refresh --status # 仅显示状态，不刷新
 
 - `remote_agents`：agent 名称 → 远程 skill 目录路径的映射。服务器级 `agents` 配置优先于全局 `agents`（§3.3）。
 
-**远程 `manifest.json` schema**：
+**远程 `manifest.json` schema** (single-hash snapshot, version 2)：
 
-远程 manifest 与本地 manifest 使用相同的 3-field 模型（§3.7），由 push 流程推送、receiver `apply` 命令更新：
+远程 manifest 是**远端在某时刻的 hash 快照**，与本地 manifest 的 3-field 模型（§3.7）不同。本地 manifest 用 3 个 hash 跟踪 "当前 / 已知远程 / 同步基准"；远端机器作为 receiver 不需要这种角色区分，只需要"我现在每个 skill 的 hash 是什么"这一个事实。schema：
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "server": "server-name",
-  "updated_at": "2026-04-30T00:00:00Z",
+  "updated_at": "2026-05-19T00:00:00Z",
   "skills": {
     "skill-name": {
-      "local_hash": "abc123...",
-      "remote_hash": "def456...",
-      "recorded_hash": "abc123...",
-      "direction": "push",
-      "status": "in-sync"
+      "hash": "abc123..."
     }
   }
 }
 ```
 
-receiver `apply` 执行后，对远程 `skills/` 目录中每个 skill 重新计算 hash，并将三个 hash 字段统一设置为计算结果（表示远程已同步）：
-```
-local_hash = remote_hash = recorded_hash = computeHash(skillDir)
-```
+receiver `apply` 执行后，对远程 `skills/` 目录中每个 skill 重新计算 hash 并写入 `hash` 字段（不再写 `local_hash` / `remote_hash` / `recorded_hash`）。
+
+**`fetchRemoteManifest()` 兼容读取**：本地 `transport.ts` 拉取远端 manifest 后，对每个 skill 优先读 `entry.hash`；若不存在（旧版 receiver 写的 manifest），fallback 读 `entry.local_hash`。读到的值映射为本地 manifest 视角的 `remote_hash`。下次 push 后，receiver 会自动覆盖为新 schema。
+
+**版本迁移**：旧 manifest 仍可读（fallback 路径），但首次 push 后 receiver 会重写为新 schema。无需手动迁移。
 
 ### 3.14 `receiver/bootstrap_remote.sh` — 远程部署脚本
 
@@ -1840,20 +1889,20 @@ $ syncskill source list
 Sources:
 
   my-repo (git)
-    url:    https://github.com/user/my-repo.git
-    path:   ~/.syncskill/sources/my-repo
-    branch: main
-    skills: skill-a, skill-b, skill-c
+    url:     https://github.com/user/my-repo.git
+    path:    ~/.syncskill/sources/my-repo
+    branch:  main
+    skills:  skill-a, skill-b, skill-c
     ignored: old-skill
 
   skill-pack (http)
-    url:    https://cdn.example.com/skills-v2.tar.gz
-    path:   ~/.syncskill/sources/skill-pack
-    skills: http-skill-1, http-skill-2
+    url:     https://cdn.example.com/skills-v2.tar.gz
+    path:    ~/.syncskill/sources/skill-pack
+    skills:  http-skill-1, http-skill-2
 
   local-tools (local)
-    path:   /home/user/my-tools
-    skills: tool-a, tool-b
+    path:    /home/user/my-tools
+    skills:  tool-a, tool-b
 
   archive-skills (local)
     path:    ~/.syncskill/sources/archive-skills
@@ -1863,6 +1912,7 @@ Sources:
 
 **显示规则**：
 - 每个 source 显示：名称、类型、URL（如有）、路径、分支（Git）、archive 路径（本地压缩包）、活跃 skills、忽略的 skills（如有）
+- **Label 列宽对齐**：所有字段标签的冒号后用空格补齐，使 value 列对齐到第 9 字符（按最长 label `archive:` / `ignored:` 8 字符 + 1 空格计算）。具体：`url:` 5 空格、`path:` 4 空格、`branch:`/`skills:` 2 空格、`archive:`/`ignored:` 1 空格。
 - 无 source 时显示 `No sources configured.`
 
 ## 4. 同步协议
