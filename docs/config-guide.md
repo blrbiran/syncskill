@@ -117,10 +117,15 @@ agents:
 
 Lists agents that do not read from the shared `~/.agents/skills/` directory and therefore need individual links into their own skill homes.
 
+These agents do not read the shared `~/.agents/skills/` directory. You need to create separate links under each agent's own skills directory, and `link list` marks private agents with `*` (for example, `claude*`).
+
 Default value:
 
 ```yaml
 private_agents:
+  - claude
+  - codex
+  - gemini
   - cursor
   - kiro
   - augment
@@ -160,7 +165,7 @@ To synchronize actual symlinks with the configuration, run the `link` command:
 syncskill link my-skill
 
 # Reconcile all links
-syncskill link --all
+syncskill link --apply
 ```
 
 The `link` command performs reconciliation:
@@ -172,10 +177,10 @@ Stale link removal requires confirmation by default. Use flags to control this:
 
 ```bash
 # Preview what would change without making changes
-syncskill link --all --dry-run
+syncskill link --apply --dry-run
 
 # Auto-confirm stale link removal
-syncskill link --all -y
+syncskill link --apply -y
 ```
 
 Example workflow:

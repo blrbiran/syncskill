@@ -38,10 +38,15 @@ syncskill
 # Install the syncskill skill (for AI agents)
 syncskill install --self
 
+# Install from a source interactively when running in a TTY
+syncskill install
+
 # Link skills to agent directories
-syncskill link my-skill claude   # Link specific skill to agent
-syncskill link my-skill --all    # Link to all agents
-syncskill link                   # Open matrix editor
+syncskill link my-skill claude    # Link specific skill to agent
+syncskill link my-skill --apply   # Link to all configured agents
+syncskill link                    # Open matrix editor
+syncskill link --apply            # Apply all configured links and clean stale symlinks
+syncskill unlink my-skill         # Remove all links for a skill
 ```
 
 ## Commands Overview
@@ -51,7 +56,7 @@ syncskill link                   # Open matrix editor
 | Command | Description |
 |---------|-------------|
 | `syncskill init` | Initialize `~/.syncskill/` directory structure |
-| `syncskill install` / `i` | Show install help (no args) or install from URL/path |
+| `syncskill install` / `i` | Open interactive install menu in TTY, otherwise show help; also install from URL/path |
 | `syncskill install --self` | Install built-in syncskill skill |
 | `syncskill config` | Open interactive configuration menu |
 | `syncskill config show` | Print current configuration |
@@ -65,13 +70,12 @@ syncskill link                   # Open matrix editor
 | `syncskill link` | Open matrix editor for skill-to-agent links |
 | `syncskill link <skill>` | Open single-skill editor |
 | `syncskill link <skill> <agent>` | Append link to specific agent |
-| `syncskill link <skill> --all` | Link skill to all agents |
-| `syncskill link --all` | Link all configured skills (auto-cleans stale symlinks) |
+| `syncskill link <skill> --apply` | Link skill to all configured agents |
+| `syncskill link --apply` | Apply all configured links (auto-cleans stale symlinks) |
 | `syncskill link list` / `ls` | Show link status |
 | `syncskill link list -v` | Show link status with verbose text |
 | `syncskill link --dry-run` | Preview link changes |
-| `syncskill unlink <skill> <agent>` | Remove specific link |
-| `syncskill unlink <skill> --all` | Remove all links for a skill |
+| `syncskill unlink <skill>` | Remove all links for a skill |
 
 ### Source Management
 

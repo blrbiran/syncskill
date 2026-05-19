@@ -193,8 +193,21 @@ describe('linker', () => {
 });
 
 describe('formatLinkStatusMatrix', () => {
+  it('marks private agents in headers and legend', () => {
+    const statuses: LinkStatus[] = [
+      { skill: 'my-skill', agent: 'claude', state: 'linked' },
+      { skill: 'my-skill', agent: 'cursor', state: 'linked' },
+    ];
+
+    const result = formatLinkStatusMatrix(statuses, false, ['cursor']);
+
+    expect(result).toContain('claude');
+    expect(result).toContain('cursor');
+    expect(result).toContain('private agent');
+  });
+
   it('formats empty status list', () => {
-    const result = formatLinkStatusMatrix([], false);
+    const result = formatLinkStatusMatrix([], false, []);
     expect(result).toBe('No skills configured.');
   });
 
@@ -202,7 +215,7 @@ describe('formatLinkStatusMatrix', () => {
     const statuses: LinkStatus[] = [
       { skill: 'my-skill', agent: 'claude', state: 'linked' },
     ];
-    const result = formatLinkStatusMatrix(statuses, false);
+    const result = formatLinkStatusMatrix(statuses, false, []);
 
     expect(result).toContain('Link Status');
     expect(result).toContain('my-skill');
@@ -218,7 +231,7 @@ describe('formatLinkStatusMatrix', () => {
       { skill: 'skill-b', agent: 'claude', state: 'copied' },
       { skill: 'skill-b', agent: 'hermes', state: 'broken' },
     ];
-    const result = formatLinkStatusMatrix(statuses, false);
+    const result = formatLinkStatusMatrix(statuses, false, []);
 
     expect(result).toContain('✓'); // linked
     expect(result).toContain('·'); // missing
@@ -226,16 +239,17 @@ describe('formatLinkStatusMatrix', () => {
     expect(result).toContain('✗'); // broken
   });
 
-  it('formats verbose output with text', () => {
+  it('formats verbose output with text and private agent legend', () => {
     const statuses: LinkStatus[] = [
       { skill: 'my-skill', agent: 'claude', state: 'linked' },
       { skill: 'my-skill', agent: 'hermes', state: 'copied' },
     ];
-    const result = formatLinkStatusMatrix(statuses, true);
+    const result = formatLinkStatusMatrix(statuses, true, ['hermes']);
 
     expect(result).toContain('linked');
     expect(result).toContain('copied');
-    expect(result).not.toContain('Legend:'); // No legend in verbose mode
+    expect(result).toContain('hermes');
+    expect(result).toContain('private agent');
   });
 
   it('sorts skills and agents alphabetically', () => {
@@ -244,7 +258,7 @@ describe('formatLinkStatusMatrix', () => {
       { skill: 'alpha', agent: 'hermes', state: 'linked' },
       { skill: 'alpha', agent: 'claude', state: 'linked' },
     ];
-    const result = formatLinkStatusMatrix(statuses, false);
+    const result = formatLinkStatusMatrix(statuses, false, []);
     const lines = result.split('\n');
 
     // Find the data rows (after header)

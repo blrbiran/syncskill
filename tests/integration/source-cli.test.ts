@@ -399,7 +399,7 @@ describe('source add --path option', () => {
 describe('skills-registry generation', () => {
   const tempDirs = useTempDirs();
 
-  it('generates skills-registry.json after link --all', async () => {
+  it('generates skills-registry.json after link --apply', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-registry-'));
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
@@ -416,15 +416,15 @@ describe('skills-registry generation', () => {
       stringify({
         version: 1,
         agents: { claude: join(homeDir, '.claude', 'skills') },
-        links: { 'test-skill': ['*'] },
+        links: { 'test-skill': ['claude'] },
         sources: {},
         servers: {},
         conflict_resolution: 'manual',
       })
     );
 
-    // Run link --all
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all'], { from: 'node' });
+    // Run link --apply
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply'], { from: 'node' });
 
     // Check skills-registry.json was created
     const registryPath = join(syncDir, 'skills-registry.json');

@@ -28,7 +28,7 @@ const STATUS_SYMBOLS: Record<LinkStatus['state'], string> = {
   broken: '✗',
 };
 
-export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean): string {
+export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean, privateAgents: string[] = []): string {
   if (statuses.length === 0) {
     return 'No skills configured.';
   }
@@ -36,6 +36,7 @@ export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean)
   // Group by skill, collect unique agents
   const skillMap = new Map<string, Map<string, LinkStatus['state']>>();
   const agents = new Set<string>();
+  const privateAgentSet = new Set(privateAgents);
 
   for (const status of statuses) {
     if (!skillMap.has(status.skill)) {
@@ -47,10 +48,11 @@ export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean)
 
   const agentList = Array.from(agents).sort();
   const skillList = Array.from(skillMap.keys()).sort();
+  const displayAgentNames = agentList.map((agent) => privateAgentSet.has(agent) ? `${agent}*` : agent);
 
   // Calculate column widths
   const skillColWidth = Math.max(5, ...skillList.map(s => s.length));
-  const agentColWidth = verbose ? 8 : 3;
+  const agentColWidth = Math.max(verbose ? 8 : 3, ...displayAgentNames.map((name) => name.length));
 
   // Build header
   const lines: string[] = [];
@@ -58,8 +60,8 @@ export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean)
   lines.push('');
 
   const headerParts = ['Skill'.padEnd(skillColWidth)];
-  for (const agent of agentList) {
-    headerParts.push(agent.padStart(agentColWidth + 2));
+  for (const agentName of displayAgentNames) {
+    headerParts.push(agentName.padStart(agentColWidth + 2));
   }
   lines.push(headerParts.join('  '));
   lines.push('─'.repeat(skillColWidth + agentList.length * (agentColWidth + 4)));
@@ -77,10 +79,12 @@ export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean)
     lines.push(rowParts.join('  '));
   }
 
-  // Legend (only for symbol mode)
+  lines.push('');
   if (!verbose) {
-    lines.push('');
     lines.push('Legend: ✓ linked  ⚠ copied  · missing  ✗ broken');
+  }
+  if (displayAgentNames.some((name) => name.endsWith('*'))) {
+    lines.push('* = private agent (requires separate link)');
   }
 
   return lines.join('\n');

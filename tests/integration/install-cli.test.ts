@@ -51,7 +51,7 @@ describe('install CLI command', () => {
     expect(stdout).toContain('--yes');
   });
 
-  it('shows help when install is called without args', async () => {
+  it('shows help when install is called without args in non-tty mode', async () => {
     const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', 'install'], {
       env: { ...process.env, HOME: homeDir }
     });

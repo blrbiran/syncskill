@@ -14,11 +14,12 @@ Documentation for the syncskill CLI tool.
 
 - **Getting started**: See [Usage Guide - First Run](usage-guide.md#first-run)
 - **Dashboard overview**: Run `syncskill` with no args to see the local status dashboard
-- **Command reference**: See [Usage Guide](usage-guide.md) or run `syncskill --help`
+- **Command reference**: See [Usage Guide](usage-guide.md) or run `syncskill --help` (notably, `link --apply` applies configured links and `unlink <skill>` removes all links for that skill)
 - **Config file format**: See [Configuration Guide](config-guide.md#configuration-shape)
 - **Remote sync setup**: See [Usage Guide - Remote Sync Workflow](usage-guide.md#remote-sync-workflow)
 - **Stale symlink cleanup**: The `link` command automatically reconciles and removes stale symlinks
 - **Dirty source recovery**: See `source update --force`, `source restore`, and `update-history.json` in the guides below
+- **Install UX**: In a TTY, `syncskill install` opens an interactive menu instead of only showing help
 
 ## Specifications
 

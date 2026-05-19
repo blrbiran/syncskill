@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 
 import { Command, InvalidArgumentError } from 'commander';
 
-import { checkbox, select, confirm } from '@inquirer/prompts';
+import { checkbox, select, confirm, input } from '@inquirer/prompts';
 
 interface SelectServersOptions {
   all?: boolean;
@@ -203,8 +203,27 @@ export function createProgram(homeDir?: string): Command {
       yes?: boolean;
     }) => {
       if (!urlOrPath && !options.self) {
-        program.commands.find(c => c.name() === 'install')?.help();
-        return;
+        if (process.stdout.isTTY) {
+          const choice = await select({
+            message: 'What would you like to install?',
+            choices: [
+              { name: 'Built-in syncskill skill', value: 'self' },
+              { name: 'From a URL or local path', value: 'url' },
+              { name: 'Cancel', value: 'cancel' }
+            ]
+          });
+
+          if (choice === 'self') {
+            options.self = true;
+          } else if (choice === 'url') {
+            urlOrPath = await input({ message: 'Enter URL or path:' });
+          } else {
+            return;
+          }
+        } else {
+          program.commands.find(c => c.name() === 'install')?.help();
+          return;
+        }
       }
 
       const selfPathExists = urlOrPath === 'self' ? await pathExists(resolve('./self')) : false;
@@ -429,12 +448,11 @@ export function createProgram(homeDir?: string): Command {
   program
     .command('link [skillOrSubcommand] [agentName]')
     .description('Manage skill-to-agent links (auto-cleans stale links). No args: matrix editor; list/ls: show status')
-    .option('--all', 'Link all configured skills')
-    .option('--list', 'Show link status (use when skill named "list" exists)')
+    .option('--apply', 'Apply config: create/remove links to match config')
     .option('-v, --verbose', 'Show text status instead of symbols')
     .option('--dry-run', 'Preview changes without applying')
     .option('-y, --yes', 'Auto-confirm stale link removal')
-    .action(async (skillOrSubcommand: string | undefined, agentName: string | undefined, options: { all?: boolean; list?: boolean; verbose?: boolean; dryRun?: boolean; yes?: boolean }) => {
+    .action(async (skillOrSubcommand: string | undefined, agentName: string | undefined, options: { apply?: boolean; verbose?: boolean; dryRun?: boolean; yes?: boolean }) => {
       // Auto-check config health
       const config = await loadConfig(resolvedHomeDir);
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
@@ -443,8 +461,7 @@ export function createProgram(homeDir?: string): Command {
       // Check if argument is 'list' or 'ls' subcommand
       const isListSubcommand = skillOrSubcommand === 'list' || skillOrSubcommand === 'ls';
 
-      // If --list flag is used OR argument is list/ls (and not a skill name)
-      if (options.list || isListSubcommand) {
+      if (isListSubcommand) {
         // If it looks like a subcommand, check if a skill with that name exists
         if (isListSubcommand) {
           const skills = await listLocalSkills(resolvedHomeDir);
@@ -467,12 +484,12 @@ export function createProgram(homeDir?: string): Command {
 
         // Show link status
         const statuses = await collectLinkStatus(resolvedHomeDir);
-        console.log(formatLinkStatusMatrix(statuses, options.verbose ?? false));
+        console.log(formatLinkStatusMatrix(statuses, options.verbose ?? false, config.private_agents));
         return;
       }
 
       if (typeof skillOrSubcommand === 'string') {
-        if (options.all) {
+        if (options.apply) {
           config.links[skillOrSubcommand] = ['*'];
           await saveConfig(config, resolvedHomeDir);
 
@@ -555,7 +572,7 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      if (options.all) {
+      if (options.apply) {
         if (options.dryRun) {
           console.log('[dry-run] Would link all configured skills');
           const staleBySkill = await findStaleLinks(resolvedHomeDir);
@@ -669,61 +686,25 @@ export function createProgram(homeDir?: string): Command {
   }
 
   program
-    .command('unlink <skill> [agent]')
-    .description('Remove skill links. Requires <agent> or --all')
-    .option('--all', 'Remove all links for this skill')
+    .command('unlink <skill>')
+    .description('Remove all skill links for this skill')
     .option('-y, --yes', 'Skip confirmation')
     .option('--dry-run', 'Preview changes')
-    .action(async (skill: string, agent: string | undefined, options: { all?: boolean; yes?: boolean; dryRun?: boolean }) => {
-      if (!agent && !options.all) {
-        console.error('Error: Please specify agent or use --all\n');
-        console.error('Usage:');
-        console.error('  syncskill unlink <skill> <agent>   Remove link for specific agent');
-        console.error('  syncskill unlink <skill> --all     Remove all links');
-        process.exit(1);
-      }
-
+    .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean; apply?: boolean }) => {
       const config = await loadConfig(resolvedHomeDir);
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
       await autoDiagnoseConfig(config, skillsDir);
 
-      if (options.all) {
-        const agents = [...new Set(expandTargetAgents(config, config.links[skill] ?? []))].sort();
-
-        if (options.dryRun) {
-          console.log(`[dry-run] Would unlink ${skill} from all agents (${agents.join(', ')})`);
-          return;
-        }
-
-        if (!options.yes) {
-          const confirmed = await confirm({
-            message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
-            default: false,
-          });
-          if (!confirmed) {
-            console.log('Cancelled.');
-            return;
-          }
-        }
-
-        await unlinkSkill(resolvedHomeDir, skill);
-        console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
-        return;
-      }
-
-      if (!config.agents[agent!]) {
-        console.error(`Error: Agent '${agent}' not configured`);
-        process.exit(1);
-      }
+      const agents = [...new Set(expandTargetAgents(config, config.links[skill] ?? []))].sort();
 
       if (options.dryRun) {
-        console.log(`[dry-run] Would unlink ${skill} from ${agent}`);
+        console.log(`[dry-run] Would unlink ${skill} from all agents (${agents.join(', ')})`);
         return;
       }
 
       if (!options.yes) {
         const confirmed = await confirm({
-          message: `Unlink ${skill} from ${agent}?`,
+          message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
           default: false,
         });
         if (!confirmed) {
@@ -732,14 +713,11 @@ export function createProgram(homeDir?: string): Command {
         }
       }
 
-      const currentTargets = config.links[skill] ?? [];
-      const nextTargets = currentTargets.filter((target) => target !== agent);
-      config.links[skill] = nextTargets;
+      await unlinkSkill(resolvedHomeDir, skill);
+      config.links[skill] = [];
       await saveConfig(config, resolvedHomeDir);
-      await unlinkSkillFromAgent(resolvedHomeDir, skill, agent!);
-      console.log(`✓ Unlinked ${skill} from ${agent}`);
+      console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
     });
-
   const sourceCommand = program.command('source').description('Manage external skill sources and source recovery');
 
   sourceCommand

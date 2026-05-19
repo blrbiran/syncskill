@@ -47,6 +47,14 @@ describe('help output', () => {
     expect(options).toContain('--dry-run');
   });
 
+  it('link command does not expose a --list flag', () => {
+    const program = createProgram('/tmp');
+    const linkCmd = program.commands.find(c => c.name() === 'link');
+    const options = linkCmd?.options.map(o => o.long);
+
+    expect(options).not.toContain('--list');
+  });
+
   it('describes update-flow commands and options clearly', () => {
     const program = createProgram('/tmp');
     const sourceCmd = program.commands.find(c => c.name() === 'source');

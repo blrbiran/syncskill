@@ -21,11 +21,11 @@ Use this skill when:
 | Command | Description |
 |---------|-------------|
 | `init [--skip-scan] [--skip-skill] [-y]` | Initialize ~/.syncskill/ directory |
-| `install` / `i` | Show install help (no args) or install from URL/path |
+| `install` / `i` | In TTY, open an interactive install menu; in non-TTY, show install help |
 | `install --self` / `install self` | Install built-in syncskill skill |
 | `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path (= source add + auto-link) |
 
-Install options: `--name`, `--path` (skill subdirectory), `--skill-subdir` (alias), `--branch`, `-y`
+Install options: `--name`, `--path` (source storage path), `--skill-subdir`, `--branch`, `-y`
 
 ### Link Management
 
@@ -36,13 +36,12 @@ Install options: `--name`, `--path` (skill subdirectory), `--skill-subdir` (alia
 | `link list -v` | Show verbose text status |
 | `link <skill>` | Open single-skill editor |
 | `link <skill> <agent>` | Append link to specific agent |
-| `link <skill> --all` | Link skill to all agents |
-| `link --all` | Link all configured skills + reconcile all stale links |
+| `link <skill> --apply` | Link that skill to all configured agents |
+| `link --apply` | Apply config for all configured skills + reconcile stale links |
 | `link --dry-run` | Preview link changes |
-| `unlink <skill> <agent> [-y] [--dry-run]` | Remove skill link from one agent |
-| `unlink <skill> --all [-y] [--dry-run]` | Remove all links for a skill |
+| `unlink <skill> [-y] [--dry-run]` | Remove all links for a skill |
 
-**Reconcile behavior**: `link` and `link --all` automatically clean up stale symlinks (links pointing to skills no longer in config or to non-existent paths).
+**Reconcile behavior**: `link` and `link --apply` automatically clean up stale symlinks (links pointing to skills no longer in config or to non-existent paths).
 
 ### Source Management
 
@@ -103,6 +102,8 @@ Source add options: `--name`, `--type git|http|local`, `--path` (skill subdirect
 
 **Doctor checks**: missing agent directories, orphaned links, invalid sources, registry inconsistencies.
 
+**`private_agents`**: agents that need dedicated per-agent links instead of the shared `~/.agents/skills/` target. Current defaults are `cursor`, `kiro`, `augment`, `cline`, and `hermes`. Setting `private_agents` in config fully overrides the default list.
+
 ### Global Options
 
 | Option | Description |
@@ -124,7 +125,8 @@ syncskill i https://github.com/user/skills-repo
 
 # Manage links (includes stale link cleanup)
 syncskill link list
-syncskill link --all
+syncskill link --apply
+syncskill unlink my-skill
 
 # Update sources
 syncskill update --all --dry-run

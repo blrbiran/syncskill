@@ -83,7 +83,7 @@ describe('config persistence', () => {
           path: '/tmp/source'
         }
       },
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     };
 
     await saveConfig(config, homeDir);
@@ -123,7 +123,7 @@ describe('validateConfig', () => {
       links: {},
       servers: {},
       sources: {},
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -139,7 +139,7 @@ describe('validateConfig', () => {
       links: {},
       servers: {},
       sources: {},
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 });
@@ -184,7 +184,7 @@ describe('private_agents config', () => {
     );
 
     await expect(loadConfig(homeDir)).resolves.toMatchObject({
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 

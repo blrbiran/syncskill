@@ -66,15 +66,11 @@ syncskill link welcome --dry-run
 # Auto-confirm stale link removal
 syncskill link --all -y
 
-# Unlink a skill from specific agent
-syncskill unlink welcome claude
-
-# Unlink a skill from all agents
-syncskill unlink welcome --all
+# Unlink a skill from all configured agents
+syncskill unlink welcome
 
 # Preview unlink without applying
-syncskill unlink welcome claude --dry-run
-syncskill unlink welcome --all --dry-run
+syncskill unlink welcome --dry-run
 ```
 
 ### Stale Link Reconciliation

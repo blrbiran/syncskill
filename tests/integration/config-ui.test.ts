@@ -62,7 +62,7 @@ describe('runConfigUi', () => {
       links: {},
       servers: {},
       sources: {},
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -92,7 +92,7 @@ describe('runConfigUi', () => {
       },
       servers: {},
       sources: {},
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -111,7 +111,7 @@ describe('runConfigUi', () => {
       links: {},
       servers: {},
       sources: {},
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 });

@@ -28,7 +28,7 @@ export const KNOWN_AGENT_DIRS = {
   aone_copilot: '.aone_copilot/skills'
 } as const;
 
-export const DEFAULT_PRIVATE_AGENTS = ['cursor', 'kiro', 'augment', 'cline', 'hermes'];
+export const DEFAULT_PRIVATE_AGENTS = ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes'];
 
 export function getSyncDir(homeDir = homedir()): string {
   return join(homeDir, '.syncskill');

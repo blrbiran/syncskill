@@ -41,7 +41,7 @@ describe('discoverSkills', () => {
       },
       servers: {},
       sources: {},
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -65,7 +65,7 @@ describe('discoverSkills', () => {
       },
       servers: {},
       sources: {},
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 

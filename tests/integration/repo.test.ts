@@ -46,7 +46,7 @@ describe('initializeRepo', () => {
       links: {},
       servers: {},
       sources: {},
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -87,7 +87,7 @@ describe('initializeRepo', () => {
       },
       servers: {},
       sources: {},
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
@@ -126,7 +126,7 @@ describe('initializeRepo', () => {
       links: {},
       servers: {},
       sources: {},
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 

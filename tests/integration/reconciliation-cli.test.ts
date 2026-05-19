@@ -910,8 +910,8 @@ describe('reconciliation CLI', () => {
     });
   });
 
-  it('link <skill> --all sets wildcard links and links all configured agents', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-all-'));
+  it('link <skill> --apply sets wildcard links and links all configured agents', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-apply-'));
     tempDirs.push(homeDir);
 
     const claudeDir = join(homeDir, '.claude', 'skills');
@@ -943,7 +943,7 @@ describe('reconciliation CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'my-skill', '--all'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'my-skill', '--apply'], { from: 'node' });
 
     await expect(loadConfig(homeDir)).resolves.toMatchObject({
       links: {

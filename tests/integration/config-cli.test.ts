@@ -25,7 +25,7 @@ describe('config CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply'], { from: 'node' });
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'list'], { from: 'node' });
 
     // Check that the matrix format output was logged (contains skill name and linked symbol)
@@ -46,7 +46,7 @@ describe('config CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply'], { from: 'node' });
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'list', '-v'], { from: 'node' });
 
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
@@ -66,7 +66,7 @@ describe('config CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all', '--dry-run'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply', '--dry-run'], { from: 'node' });
 
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
     expect(loggedOutput).toContain('[dry-run]');
@@ -75,30 +75,7 @@ describe('config CLI', () => {
     await expect(readlink(join(homeDir, '.claude', 'skills', 'dry-skill'))).rejects.toThrow();
   });
 
-  it('unlink <skill> errors without agent or --all', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
-    tempDirs.push(homeDir);
-
-    await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
-
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('process.exit');
-    }) as never);
-
-    await expect(
-      createProgram(homeDir).parseAsync(['node', 'syncskill', 'unlink', 'unlink-test'], { from: 'node' })
-    ).rejects.toThrow('process.exit');
-
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    const errorOutput = consoleError.mock.calls.map(c => c[0]).join('\n');
-    expect(errorOutput).toContain('Error: Please specify agent or use --all');
-    expect(errorOutput).toContain('syncskill unlink <skill> <agent>');
-    expect(errorOutput).toContain('syncskill unlink <skill> --all');
-  });
-
-  it('unlink <skill> <agent> removes only the specified agent link', async () => {
+  it('unlink <skill> --dry-run previews unlinking all linked agents without unlinking', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);
 
@@ -123,70 +100,69 @@ describe('config CLI', () => {
       sources: {}
     }, homeDir);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply'], { from: 'node' });
 
     await expect(readlink(join(homeDir, '.claude', 'skills', 'unlink-test'))).resolves.toBeDefined();
     await expect(readlink(join(homeDir, '.cursor', 'skills', 'unlink-test'))).resolves.toBeDefined();
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'unlink', 'unlink-test', 'cursor', '--yes'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'unlink', '--dry-run', 'unlink-test'], { from: 'node' });
 
-    expect(consoleLog.mock.calls.map(c => c[0]).join('\n')).toContain('✓ Unlinked unlink-test from cursor');
-    await expect(readlink(join(homeDir, '.cursor', 'skills', 'unlink-test'))).rejects.toThrow();
+    const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
+    expect(loggedOutput).toContain('[dry-run] Would unlink unlink-test from all agents (claude, cursor)');
+
     await expect(readlink(join(homeDir, '.claude', 'skills', 'unlink-test'))).resolves.toBeDefined();
+    await expect(readlink(join(homeDir, '.cursor', 'skills', 'unlink-test'))).resolves.toBeDefined();
     await expect(loadConfig(homeDir)).resolves.toMatchObject({
       links: {
-        'unlink-test': ['claude']
+        'unlink-test': ['claude', 'cursor']
       }
     });
   });
 
-  it('unlink <skill> --all --dry-run previews without unlinking', async () => {
+  it('unlink <skill> --yes removes all links and clears configured agents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);
 
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
-
-    await mkdir(join(homeDir, '.syncskill', 'skills', 'unlink-test'), { recursive: true });
-    await writeFile(join(homeDir, '.syncskill', 'skills', 'unlink-test', 'SKILL.md'), '# test', 'utf8');
-
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all'], { from: 'node' });
-
-    await expect(readlink(join(homeDir, '.claude', 'skills', 'unlink-test'))).resolves.toBeDefined();
-
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'unlink', 'unlink-test', '--all', '--dry-run'], { from: 'node' });
-
-    const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
-    expect(loggedOutput).toContain('[dry-run]');
-
-    await expect(readlink(join(homeDir, '.claude', 'skills', 'unlink-test'))).resolves.toBeDefined();
-  });
-
-  it('unlink <skill> --all --yes skips confirmation', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
-    tempDirs.push(homeDir);
-
-    await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
+    await mkdir(join(homeDir, '.cursor', 'skills'), { recursive: true });
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
 
     await mkdir(join(homeDir, '.syncskill', 'skills', 'to-unlink'), { recursive: true });
     await writeFile(join(homeDir, '.syncskill', 'skills', 'to-unlink', 'SKILL.md'), '# test', 'utf8');
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--all'], { from: 'node' });
+    await saveConfig({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {
+        claude: join(homeDir, '.claude', 'skills'),
+        cursor: join(homeDir, '.cursor', 'skills')
+      },
+      links: {
+        'to-unlink': ['claude', 'cursor']
+      },
+      servers: {},
+      sources: {}
+    }, homeDir);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply'], { from: 'node' });
 
     await expect(readlink(join(homeDir, '.claude', 'skills', 'to-unlink'))).resolves.toBeDefined();
+    await expect(readlink(join(homeDir, '.cursor', 'skills', 'to-unlink'))).resolves.toBeDefined();
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'unlink', 'to-unlink', '--all', '--yes'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'unlink', '--yes', 'to-unlink'], { from: 'node' });
 
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
-    expect(loggedOutput).toContain('Unlinked');
+    expect(loggedOutput).toContain('✓ Unlinked to-unlink from all agents (claude, cursor)');
 
     await expect(readlink(join(homeDir, '.claude', 'skills', 'to-unlink'))).rejects.toThrow();
+    await expect(readlink(join(homeDir, '.cursor', 'skills', 'to-unlink'))).rejects.toThrow();
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({
+      links: {
+        'to-unlink': []
+      }
+    });
   });
 
   const tempDirs = useTempDirs();
@@ -287,7 +263,7 @@ describe('config CLI', () => {
       },
       servers: {},
       sources: {},
-      private_agents: ['cursor', 'kiro', 'augment', 'cline', 'hermes']
+      private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
 
