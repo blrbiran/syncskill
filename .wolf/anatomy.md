@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-19T00:38:16.262Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-19T14:38:40.584Z
 > Files: 129 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -64,11 +64,11 @@
 
 - `conflict.ts` — 3-way conflict detection and resolution (~1129 tok)
 - `manifest.ts` — Hash computation and manifest management (~3316 tok)
-- `private-agents.ts` — Compute default link targets for shared and private agent skill directories (~414 tok)
+- `private-agents.ts` — Pure function: compute default link targets based on config. (~505 tok)
 - `server.ts` — Server config formatting (~440 tok)
 - `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 12 more (~2187 tok)
 - `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 3 more (~5424 tok)
-- `transport.ts` — Exports ServerProbeResult, TransportRuntime, withTimeout, createTransportRuntime + 9 more (~4280 tok)
+- `transport.ts` — Exports ServerProbeResult, TransportRuntime, withTimeout, createTransportRuntime + 9 more (~4328 tok)
 - `update-history.ts` — Exports GitUpdateRecord, HttpUpdateRecord, UpdateRecord, UpdateHistory + 6 more (~667 tok)
 
 ## src/receiver/
@@ -187,7 +187,7 @@
 - `manifest.test.ts` — Declares tempDirs (~2630 tok)
 - `matrix-editor.test.ts` — Declares config (~2288 tok)
 - `package.test.ts` — Declares rootDir (~597 tok)
-- `private-agents.test.ts` — Declares tempDirs (~591 tok)
+- `private-agents.test.ts` — Declares tempDirs (~716 tok)
 - `README.md` — Project documentation (~35 tok)
 - `refresh.test.ts` — Declares tempDirs (~5658 tok)
 - `server.test.ts` (~406 tok)
