@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { computeDefaultLinkTargets } from '../../src/core/private-agents.js';
+import { computeDefaultLinkTargets, ensureSharedSkillsDirectory } from '../../src/core/private-agents.js';
 
 describe('computeDefaultLinkTargets', () => {
   const tempDirs = useTempDirs();
@@ -22,8 +22,7 @@ describe('computeDefaultLinkTargets', () => {
     });
 
     expect(result).toEqual({
-      targets: ['agents'],
-      created: false
+      targets: ['agents']
     });
   });
 
@@ -44,29 +43,41 @@ describe('computeDefaultLinkTargets', () => {
     });
 
     expect(result).toEqual({
-      targets: ['agents', 'cursor'],
-      created: false
+      targets: ['agents', 'cursor']
     });
   });
+});
 
-  it('creates the shared agents directory when requested', async () => {
+describe('ensureSharedSkillsDirectory', () => {
+  const tempDirs = useTempDirs();
+
+  it('creates the shared agents directory when it does not exist', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-private-agents-'));
     tempDirs.push(homeDir);
 
     const sharedDir = join(homeDir, '.agents', 'skills');
 
-    const result = await computeDefaultLinkTargets(
-      homeDir,
-      {
-        agents: {}
-      },
-      { createSharedDir: true }
-    );
+    const result = await ensureSharedSkillsDirectory(homeDir);
 
     expect(result).toEqual({
-      targets: ['agents'],
-      created: true
+      created: true,
+      path: sharedDir
     });
     await expect(access(sharedDir)).resolves.toBeUndefined();
+  });
+
+  it('returns created=false when directory already exists', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-private-agents-'));
+    tempDirs.push(homeDir);
+
+    const sharedDir = join(homeDir, '.agents', 'skills');
+    await mkdir(sharedDir, { recursive: true });
+
+    const result = await ensureSharedSkillsDirectory(homeDir);
+
+    expect(result).toEqual({
+      created: false,
+      path: sharedDir
+    });
   });
 });

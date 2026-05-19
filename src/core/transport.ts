@@ -30,7 +30,10 @@ export function withTimeout<T>(
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`Timeout: ${message} exceeded ${timeoutMs / 1000}s`));
+      reject(new Error(
+        `Timeout: ${message} exceeded ${timeoutMs / 1000}s\n` +
+        `  Note: Background transfer may still be running. CLI has released, but the subprocess continues until completion or OS-level SSH timeout.`
+      ));
     }, timeoutMs);
 
     promise
