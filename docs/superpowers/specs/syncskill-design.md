@@ -315,17 +315,18 @@ Use --no-refresh to skip, then run `syncskill refresh` manually.
 `agents` 与其它 agent 走相同检测逻辑，无特殊分支：检测 `~/.agents/` 是否存在，存在即注册，链接路径是 `~/.agents/skills`。
 
 - **链接时 mkdir**：`linker.createLink()` 创建链接前，若 `<agent_link_path>` 父目录（如 `~/.claude/skills/`）不存在，自动 `mkdirSync({ recursive: true })`。这样首次链接到任意 agent 都不会因为缺少 `skills/` 子目录失败。
-- **`ensureDefaultLinkTargets()`**（原 `computeDefaultLinkTargets`，重命名以反映副作用）：`install`、`source add`、`init` 迁移等场景自动为新 skill 计算默认 link target，**该函数有副作用**：会在必要时创建 `~/.agents/skills/` 目录、写入 `config.agents.agents` 字段并 `saveConfig()`。规则：
-  1. 默认 target 为 `["agents"]`（即 `~/.agents/skills/`，跨客户端标准目录）
-  2. 若 `~/.agents/` 父目录不存在，**自动创建** `~/.agents/skills/`，把 `agents` 加入 `config.agents`，并落盘 `config.yaml`，输出提示：
+- **Default Link Targets 计算**：`install`、`source add`、`init` 迁移等场景自动为新 skill 计算默认 link target。实现拆分为两个函数以分离关注点：
+  - **`computeDefaultLinkTargets(config)`**：纯函数，根据 config 计算默认 link target 数组。规则：
+    1. 默认 target 为 `["agents"]`（即 `~/.agents/skills/`，跨客户端标准目录）
+    2. 遍历已检测到的 agent，若该 agent 属于 `private_agents`（不读取共享目录），则追加到 target 列表
+    3. 返回最终 target 数组，如 `["agents", "cursor", "kiro"]`
+  - **`ensureSharedSkillsDirectory(homeDir)`**：有副作用的函数，在必要时创建 `~/.agents/skills/` 目录、写入 `config.agents.agents` 字段并 `saveConfig()`。输出提示：
      ```
      Created ~/.agents/skills/
        This is the standard shared skills directory for agents that support it.
        Skills linked here are available to: claude, windsurf, codex, ...
      ```
-     （仅首次创建时打印此提示；幂等：第二次调用不会重复打印或重复落盘）
-  3. 遍历已检测到的 agent，若该 agent 属于 `private_agents`（不读取共享目录），则追加到 target 列表
-  4. 返回最终 target 数组，如 `["agents", "cursor", "kiro"]`
+     （仅首次创建时打印此提示；幂等：第二次调用不会重复打印或重复落盘。操作超时 2 秒时返回 null 并打印警告）
 - **`private_agents` 配置**：不读取 `~/.agents/skills/` 共享目录的 agent 列表，需要单独 link 到其专有目录。这些 agent 只读取自己的 `~/.<agent>/skills/` 目录。
   - **默认值**（硬编码）：`["claude", "codex", "gemini", "cursor", "kiro", "augment", "cline", "hermes"]`
   - **config.yaml 初始化**：`init` 命令生成 `config.yaml` 时，自动写入 `private_agents` 字段的默认值，方便用户查看和修改
@@ -486,7 +487,7 @@ xlsx                     broken      missing     missing     missing
 - 生成 `~/.syncskill/config.yaml`（含自动检测的 agent）
 - 复制 `config.example.yaml` 作为参考
 - **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-scan` 参数跳过此步骤。
-- **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.yaml` 的 `links` 字段（使用 `ensureDefaultLinkTargets()` 计算默认目标，即 `["agents"]` + 已检测到的不支持 `~/.agents/skills/` 的 agent）。
+- **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.yaml` 的 `links` 字段（使用 `computeDefaultLinkTargets()` 计算默认目标，即 `["agents"]` + 已检测到的不支持 `~/.agents/skills/` 的 agent）。
 - **交互式安装 syncskill skill**：流程末尾询问是否安装 syncskill skill（默认 Y）。`--skip-skill` 参数跳过此询问，`-y`/`--yes` 参数自动选择 yes。
 
 ### 3.5 `install.ts` — Skill 安装
@@ -518,7 +519,7 @@ syncskill install --self
 │   └─ 不存在 → 继续
 ├─ 定位 dist/skills/syncskill/ 目录（通过 import.meta.url）
 ├─ 复制到 ~/.syncskill/skills/syncskill/
-├─ 自动执行 link syncskill（使用 ensureDefaultLinkTargets() 计算目标 agent）
+├─ 自动执行 link syncskill（使用 computeDefaultLinkTargets() 计算目标 agent）
 └─ 输出 "✓ Installed syncskill skill"
 ```
 
@@ -907,7 +908,7 @@ Step 5b: 与外部 source 冲突时
 
 Step 6: 写入配置
 ├─ source entry 写入 config.yaml
-├─ 选中的 skills 加入 links（默认使用 ensureDefaultLinkTargets()，即 ["agents"] + 已检测到的不支持共享目录的 agent）
+├─ 选中的 skills 加入 links（默认使用 computeDefaultLinkTargets()，即 ["agents"] + 已检测到的不支持共享目录的 agent）
 ├─ 未选中的 skills 在 skills-registry.json 中标记为 ignored
 ├─ 重名冲突的 skills 在 skills-registry.json 中标记为 ignored 并记录原因
 └─ 更新 skills-registry.json
@@ -1165,7 +1166,7 @@ Step 3: 处理被删除的 skill
 │   ├─ Yes → 复制 skill 到 ~/.syncskill/skills/<name>，registry 更新为 manual
 │   └─ No → 从 links 中移除，清理软链接，registry 标记删除
 │
-└─ 新增的 skill → 提示用户是否要 link（除非 -y 则自动使用 ensureDefaultLinkTargets() link）
+└─ 新增的 skill → 提示用户是否要 link（除非 -y 则自动使用 computeDefaultLinkTargets() link）
 
 Step 4: 输出更新报告（始终显示，包括 -y 模式）
 ├─ ✓ 更新成功的 source + 变更 skill 列表

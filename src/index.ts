@@ -89,7 +89,7 @@ import {
   DiscoveredSkill,
   findOrphanSkills,
   formatSourceListLines,
-  listSources,
+  listSourcesWithDetails,
   loadSkillOwnershipState,
   RemovalAction,
   removeSource,
@@ -449,10 +449,11 @@ export function createProgram(homeDir?: string): Command {
     .command('link [skillOrSubcommand] [agentName]')
     .description('Manage skill-to-agent links (auto-cleans stale links). No args: matrix editor; list/ls: show status')
     .option('--apply', 'Apply config: create/remove links to match config')
+    .option('--all', 'Link skill to all configured agents (writes ["*"] to config)')
     .option('-v, --verbose', 'Show text status instead of symbols')
     .option('--dry-run', 'Preview changes without applying')
     .option('-y, --yes', 'Auto-confirm stale link removal')
-    .action(async (skillOrSubcommand: string | undefined, agentName: string | undefined, options: { apply?: boolean; verbose?: boolean; dryRun?: boolean; yes?: boolean }) => {
+    .action(async (skillOrSubcommand: string | undefined, agentName: string | undefined, options: { apply?: boolean; all?: boolean; verbose?: boolean; dryRun?: boolean; yes?: boolean }) => {
       // Auto-check config health
       const config = await loadConfig(resolvedHomeDir);
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
@@ -489,7 +490,8 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (typeof skillOrSubcommand === 'string') {
-        if (options.apply) {
+        // link <skill> --all: link to all agents with wildcard
+        if (options.all) {
           config.links[skillOrSubcommand] = ['*'];
           await saveConfig(config, resolvedHomeDir);
 
@@ -506,6 +508,7 @@ export function createProgram(homeDir?: string): Command {
           return;
         }
 
+        // link <skill> <agent>: add specific agent
         if (agentName) {
           if (!config.agents[agentName]) {
             console.error(`Error: Agent '${agentName}' not configured`);
@@ -530,6 +533,21 @@ export function createProgram(homeDir?: string): Command {
           await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skillOrSubcommand });
           console.log(`✓ Linked ${skillOrSubcommand} to ${agentName}`);
           await handleStaleLinksReconciliation(resolvedHomeDir, [skillOrSubcommand], options);
+          return;
+        }
+
+        // link <skill> (interactive mode): requires TTY, does not support --dry-run
+        if (options.dryRun) {
+          console.error('Error: link <skill> does not support --dry-run (interactive editor).');
+          console.error('Use `link <skill> --all --dry-run` or `link --apply --dry-run` instead.');
+          process.exit(1);
+          return;
+        }
+
+        if (!process.stdout.isTTY) {
+          console.error('Error: link <skill> requires an interactive terminal.');
+          console.error('Use `link <skill> <agent>` or `link <skill> --all` instead.');
+          process.exit(1);
           return;
         }
 
@@ -829,7 +847,7 @@ export function createProgram(homeDir?: string): Command {
     .alias('ls')
     .description('List configured sources')
     .action(async () => {
-      for (const line of formatSourceListLines(await listSources(resolvedHomeDir))) {
+      for (const line of formatSourceListLines(await listSourcesWithDetails(resolvedHomeDir))) {
         console.log(line);
       }
     });

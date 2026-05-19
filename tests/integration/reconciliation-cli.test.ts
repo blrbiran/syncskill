@@ -800,8 +800,14 @@ describe('reconciliation CLI', () => {
     mockConfirm.mockResolvedValue(true);
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const originalIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, writable: true });
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'my-skill'], { from: 'node' });
+    try {
+      await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'my-skill'], { from: 'node' });
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+    }
 
     expect(mockCheckbox).toHaveBeenCalledWith({
       message: 'my-skill is currently linked to:\n',
@@ -910,7 +916,7 @@ describe('reconciliation CLI', () => {
     });
   });
 
-  it('link <skill> --apply sets wildcard links and links all configured agents', async () => {
+  it('link <skill> --all sets wildcard links and links all configured agents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-apply-'));
     tempDirs.push(homeDir);
 
@@ -943,7 +949,7 @@ describe('reconciliation CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'my-skill', '--apply'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'my-skill', '--all'], { from: 'node' });
 
     await expect(loadConfig(homeDir)).resolves.toMatchObject({
       links: {

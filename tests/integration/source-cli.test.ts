@@ -338,12 +338,14 @@ describe('source CLI', () => {
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'source', 'list'], { from: 'node' });
 
-    expect(consoleLog.mock.calls).toEqual([
-      ['alpha\thttp\thttps://example.com/alpha.zip\tbundle'],
-      [`local-alpha\tlocal\t${join(homeDir, 'source-alpha')}\tbundle`],
-      [`local-zeta\tlocal\t${join(homeDir, 'source-zeta')}\tskills`],
-      ['zeta\tgit\thttps://example.com/zeta.git\tskills']
-    ]);
+    const output = consoleLog.mock.calls.map((call) => call[0]).join('\n');
+    expect(output).toContain('Sources:');
+    expect(output).toContain('alpha (http)');
+    expect(output).toContain('url:     https://example.com/alpha.zip');
+    expect(output).toContain('local-alpha (local)');
+    expect(output).toContain('local-zeta (local)');
+    expect(output).toContain('zeta (git)');
+    expect(output).toContain('url:     https://example.com/zeta.git');
   });
 });
 

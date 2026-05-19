@@ -313,8 +313,76 @@ export async function addSource(homeDir = homedir(), name: string, source: Sourc
   }
 }
 
-export function formatSourceListLines(sources: SourceEntry[]): string[] {
-  return sources.map((source) => `${source.name}\t${source.type}\t${source.url}\t${source.path}`);
+export interface SourceListEntry extends SourceEntry {
+  skills: string[];
+  ignored: string[];
+}
+
+export async function listSourcesWithDetails(homeDir = homedir()): Promise<SourceListEntry[]> {
+  const config = await loadConfig(homeDir);
+  const sources = Object.entries(config.sources)
+    .flatMap(([name, value]) => normalizeSourceEntry(name, value))
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  const registry = await loadSkillsRegistry(homeDir);
+
+  return sources.map((source) => {
+    const skills: string[] = [];
+    const ignored: string[] = [];
+
+    for (const [skillName, entry] of Object.entries(registry.skills)) {
+      if (entry.origin === source.name) {
+        if (entry.status === 'ignored') {
+          ignored.push(skillName);
+        } else {
+          skills.push(skillName);
+        }
+      }
+    }
+
+    return {
+      ...source,
+      skills: skills.sort(),
+      ignored: ignored.sort()
+    };
+  });
+}
+
+export function formatSourceListLines(sources: SourceListEntry[]): string[] {
+  if (sources.length === 0) {
+    return ['No sources configured.'];
+  }
+
+  const lines: string[] = ['Sources:', ''];
+
+  for (const source of sources) {
+    lines.push(`  ${source.name} (${source.type})`);
+
+    if (source.url) {
+      lines.push(`    url:     ${source.url}`);
+    }
+    lines.push(`    path:    ${source.path}`);
+
+    if (source.branch) {
+      lines.push(`    branch:  ${source.branch}`);
+    }
+
+    if (source.archive_path) {
+      lines.push(`    archive: ${source.archive_path}`);
+    }
+
+    if (source.skills.length > 0) {
+      lines.push(`    skills:  ${source.skills.join(', ')}`);
+    }
+
+    if (source.ignored.length > 0) {
+      lines.push(`    ignored: ${source.ignored.join(', ')}`);
+    }
+
+    lines.push('');
+  }
+
+  return lines;
 }
 
 export async function loadSourceState(homeDir = homedir(), name: string): Promise<SourceState | null> {

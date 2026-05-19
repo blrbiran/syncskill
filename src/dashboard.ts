@@ -11,7 +11,7 @@ export interface DashboardSummary {
   };
   servers: Array<{
     name: string;
-    status: 'in-sync' | 'pending' | 'error';
+    status: 'in-sync' | 'pending' | 'never-synced' | 'error';
     pending: number;
   }>;
   skills: {
@@ -46,6 +46,14 @@ export async function loadDashboardSummary(homeDir: string): Promise<DashboardSu
     trackedServers.map(async (name) => {
       try {
         const manifest = await loadServerManifest(homeDir, name);
+        const skillCount = Object.keys(manifest.skills).length;
+        if (skillCount === 0) {
+          return {
+            name,
+            status: 'never-synced',
+            pending: 0
+          } as const;
+        }
         const pending = Object.values(manifest.skills).filter((skill) => skill.status !== 'in-sync').length;
         return {
           name,
@@ -87,8 +95,10 @@ export function formatDashboardSummary(summary: DashboardSummary): string {
       server.status === 'in-sync'
         ? '✓ in-sync'
         : server.status === 'pending'
-          ? `⚠ ${server.pending} skills pending push`
-          : '✗ error';
+          ? `⚠ ${server.pending} skills pending`
+          : server.status === 'never-synced'
+            ? '? never synced'
+            : '✗ error';
     return `  ${server.name.padEnd(8)} ${statusText}`;
   });
   const healthText = summary.health.issues === 0 ? '✓ No issues' : `⚠ ${summary.health.issues} issue(s)`;
@@ -101,7 +111,7 @@ export function formatDashboardSummary(summary: DashboardSummary): string {
     `Sources:  ${sourceSummary}`,
     `Agents:   ${agentSummary}`,
     '',
-    'Servers:',
+    'Servers:  (based on cached manifests, no network requests)',
     ...serverLines,
     '',
     `Health:   ${healthText}`,

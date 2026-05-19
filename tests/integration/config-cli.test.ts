@@ -222,7 +222,7 @@ describe('config CLI', () => {
     expect(loggedOutput).toContain('Sources:  0 ()');
     expect(loggedOutput).toContain('Agents:   claude ✓');
     expect(loggedOutput).toContain('Servers:');
-    expect(loggedOutput).toContain('alpha    ⚠ 2 skills pending push');
+    expect(loggedOutput).toContain('alpha    ⚠ 2 skills pending');
     expect(loggedOutput).toContain('Health:   ✓ No issues');
     expect(loggedOutput).toContain('Quick actions:');
     expect(loggedOutput).toContain('Run `syncskill --help` for all commands.');
