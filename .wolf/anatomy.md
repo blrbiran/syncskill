@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-20T00:00:29.768Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-20T00:12:53.500Z
 > Files: 129 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -28,9 +28,9 @@
 
 - `config-guide.md` — Configuration Guide (~2704 tok)
 - `design-guide.md` — Design Guide (~2878 tok)
-- `e2e-test-guide.md` — E2E Test Writing Guide (~3922 tok)
+- `e2e-test-guide.md` — E2E Test Writing Guide (~3900 tok)
 - `README.md` — Project documentation (~401 tok)
-- `usage-guide.md` — Usage Guide (~3149 tok)
+- `usage-guide.md` — Usage Guide (~3153 tok)
 
 ## docs/superpowers/specs/
 

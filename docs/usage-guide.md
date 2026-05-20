@@ -9,7 +9,7 @@ syncskill init
 syncskill
 syncskill config show
 syncskill scan
-syncskill link --all
+syncskill link --apply
 ```
 
 After `init`, local state lives under `~/.syncskill/`, including the managed skill tree, manifests, and config file.
@@ -56,15 +56,15 @@ syncskill link welcome claude
 # Link skill to all agents
 syncskill link welcome --all
 
-# Link all configured skills
-syncskill link --all
+# Apply all configured links
+syncskill link --apply
 
 # Preview link changes without applying
-syncskill link --dry-run
+syncskill link --apply --dry-run
 syncskill link welcome --dry-run
 
 # Auto-confirm stale link removal
-syncskill link --all -y
+syncskill link --apply -y
 
 # Unlink a skill from all configured agents
 syncskill unlink welcome
@@ -95,7 +95,7 @@ Remove my-skill from hermes, qoder? (no longer in config) [Y/n] y
 For batch operations:
 
 ```bash
-$ syncskill link --all
+$ syncskill link --apply
 
 ✓ Linked 5 skills
 
@@ -250,7 +250,7 @@ Install options:
 
 1. Add or edit a skill under `~/.syncskill/skills/`
 2. Run `syncskill scan` to register newly discovered skills
-3. Run `syncskill link --all` or `syncskill link <skill>` to publish links into agent directories
+3. Run `syncskill link --apply` or `syncskill link <skill>` to publish links into agent directories
 4. Use `syncskill source add/update/list` to manage external sources
 
 ## Reconciliation Workflow
