@@ -42,23 +42,54 @@ export interface EnsureSharedDirResult {
   path: string;
 }
 
+const ENSURE_SHARED_DIR_TIMEOUT_MS = 2000;
+
 /**
  * Side-effect function: ensure ~/.agents/skills/ directory exists.
  * Creates it if missing and prints a message.
+ * Returns null if the operation times out (2 seconds).
  */
 export async function ensureSharedSkillsDirectory(
   homeDir: string
-): Promise<EnsureSharedDirResult> {
+): Promise<EnsureSharedDirResult | null> {
   const sharedDir = join(homeDir, '.agents', 'skills');
 
-  if (await pathExists(sharedDir)) {
-    return { created: false, path: sharedDir };
+  try {
+    const existsResult = await Promise.race([
+      pathExists(sharedDir),
+      new Promise<'timeout'>((resolve) =>
+        setTimeout(() => resolve('timeout'), ENSURE_SHARED_DIR_TIMEOUT_MS)
+      )
+    ]);
+
+    if (existsResult === 'timeout') {
+      console.warn('Warning: Checking ~/.agents/skills/ timed out after 2s');
+      return null;
+    }
+
+    if (existsResult === true) {
+      return { created: false, path: sharedDir };
+    }
+
+    const mkdirResult = await Promise.race([
+      mkdir(sharedDir, { recursive: true }).then(() => 'done' as const),
+      new Promise<'timeout'>((resolve) =>
+        setTimeout(() => resolve('timeout'), ENSURE_SHARED_DIR_TIMEOUT_MS)
+      )
+    ]);
+
+    if (mkdirResult === 'timeout') {
+      console.warn('Warning: Creating ~/.agents/skills/ timed out after 2s');
+      return null;
+    }
+
+    console.log('Created ~/.agents/skills/');
+    console.log('  This is the standard shared skills directory for agents that support it.');
+    console.log('  Skills linked here are available to: claude, windsurf, codex, ...');
+
+    return { created: true, path: sharedDir };
+  } catch {
+    console.warn('Warning: Failed to ensure ~/.agents/skills/ directory');
+    return null;
   }
-
-  await mkdir(sharedDir, { recursive: true });
-  console.log('Created ~/.agents/skills/');
-  console.log('  This is the standard shared skills directory for agents that support it.');
-  console.log('  Skills linked here are available to: claude, windsurf, codex, ...');
-
-  return { created: true, path: sharedDir };
 }

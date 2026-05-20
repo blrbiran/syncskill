@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-19T14:38:40.584Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-20T00:00:29.768Z
 > Files: 129 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
@@ -12,7 +12,7 @@
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
 - `package.json` — Node.js package manifest (~355 tok)
-- `README.md` — Project documentation (~1459 tok)
+- `README.md` — Project documentation (~1458 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
 
@@ -35,22 +35,22 @@
 ## docs/superpowers/specs/
 
 - `e2e-test-design.md` — E2E 测试框架设计 (~4850 tok)
-- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~16925 tok)
+- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~18063 tok)
 
 ## skills/syncskill/
 
-- `SKILL.md` — syncskill (~1484 tok)
+- `SKILL.md` — syncskill (~1491 tok)
 
 ## src/
 
-- `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1021 tok)
-- `index.ts` — Exports createProgram (~15633 tok)
+- `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1125 tok)
+- `index.ts` — Exports createProgram (~15880 tok)
 - `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~890 tok)
 - `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4780 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
 - `source-restore.ts` — Exports RestoreResult, restoreSource (~1318 tok)
-- `source.ts` — Git only: Convert source from git to local, keep path directory (~22010 tok)
+- `source.ts` — Git only: Convert source from git to local, keep path directory (~22472 tok)
 
 ## src/config/
 
@@ -64,7 +64,7 @@
 
 - `conflict.ts` — 3-way conflict detection and resolution (~1129 tok)
 - `manifest.ts` — Hash computation and manifest management (~3316 tok)
-- `private-agents.ts` — Pure function: compute default link targets based on config. (~505 tok)
+- `private-agents.ts` — Pure function: compute default link targets based on config. (~770 tok)
 - `server.ts` — Server config formatting (~440 tok)
 - `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 12 more (~2187 tok)
 - `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 3 more (~5424 tok)
@@ -142,18 +142,18 @@
 
 ## tests/integration/
 
-- `config-cli.test.ts` — Declares homeDir (~3721 tok)
+- `config-cli.test.ts` — Declares homeDir (~3719 tok)
 - `config-ui.test.ts` — Declares PromptStub (~4890 tok)
 - `discover.test.ts` — Declares tempDirs (~3929 tok)
 - `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1228 tok)
 - `help-output.test.ts` — Declares help (~973 tok)
 - `install-cli.test.ts` — Declares execFileAsync (~1144 tok)
 - `README.md` — Project documentation (~37 tok)
-- `reconciliation-cli.test.ts` — Declares actual (~8469 tok)
+- `reconciliation-cli.test.ts` — Declares actual (~8543 tok)
 - `remote-refresh.test.ts` — Declares tempDirs (~669 tok)
 - `repo.test.ts` — Declares pathExists (~1967 tok)
 - `server-cli.test.ts` — Declares tempDirs (~1061 tok)
-- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6533 tok)
+- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6574 tok)
 - `source-remove.test.ts` — Declares SourceConfig (~3048 tok)
 - `source-restore.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~1867 tok)
 - `source-update-dry-run.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~1103 tok)
@@ -169,7 +169,7 @@
 - `config-doctor.test.ts` — Declares DiagnosticItem (~5859 tok)
 - `config.test.ts` — Declares tempDirs (~2059 tok)
 - `conflict.test.ts` — Declares ServerManifest (~2429 tok)
-- `dashboard.test.ts` — Declares ServerManifest (~1422 tok)
+- `dashboard.test.ts` — Declares ServerManifest (~1435 tok)
 - `docs.test.ts` — Declares rootDir (~1320 tok)
 - `e2e-cleanup.test.ts` — tests/unit/e2e-cleanup.test.ts (~495 tok)
 - `e2e-context.test.ts` — tests/unit/e2e-context.test.ts (~1744 tok)
