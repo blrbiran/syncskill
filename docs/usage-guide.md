@@ -9,10 +9,10 @@ syncskill init
 syncskill
 syncskill config show
 syncskill scan
-syncskill link --apply
+syncskill link apply
 ```
 
-After `init`, local state lives under `~/.syncskill/`, including the managed skill tree, manifests, and config file.
+After `init`, local state lives under `~/.syncskill/`, including the managed skill tree, manifests, and `config.json`.
 
 ### Init Options
 
@@ -33,7 +33,7 @@ Use the local workflow when curating skills on one machine.
 syncskill scan
 
 # Scan and migrate unmanaged skills from agent directories
-syncskill scan --migrate
+syncskill scan --migrate-unmanaged
 
 # Preview scan results without making changes
 syncskill scan --dry-run
@@ -41,50 +41,93 @@ syncskill scan --dry-run
 # Show link status
 syncskill link list
 syncskill link ls
-syncskill link --list
 syncskill link list -v    # verbose text output
 
-# Open matrix editor
-syncskill link
+# Open the full matrix editor
+syncskill link edit
 
-# Link a specific skill (opens single-skill editor)
-syncskill link welcome
+# Open the single-skill editor
+syncskill link edit welcome
 
-# Append link to specific agent
-syncskill link welcome claude
+# Set the full agent list for a skill (replaces existing links)
+syncskill link set welcome claude cursor
 
-# Link skill to all agents
-syncskill link welcome --all
+# Append one agent link
+syncskill link add welcome claude
 
-# Apply all configured links
-syncskill link --apply
+# Remove one agent link
+syncskill link remove welcome claude
 
-# Preview link changes without applying
-syncskill link --apply --dry-run
-syncskill link welcome --dry-run
-
-# Auto-confirm stale link removal
-syncskill link --apply -y
-
-# Unlink a skill from all configured agents
+# Clear all links for a skill
+syncskill link clear welcome
 syncskill unlink welcome
 
-# Preview unlink without applying
+# Apply all configured links
+syncskill link apply
+
+# Preview link changes without applying
+syncskill link apply --dry-run
+syncskill link set welcome claude cursor --dry-run
 syncskill unlink welcome --dry-run
+
+# Auto-confirm stale link removal
+syncskill link apply -y
 ```
+
+Use `link edit` for interactive workflows and `link set` / `link add` / `link remove` / `link clear` for explicit non-interactive updates.
+
+`unlink <skill>` is an alias for `link clear <skill>`.
+
+`link set` is idempotent and replaces the full configured agent list for the skill. `link add` and `link remove` make incremental changes.
+
+All link commands also support the global `--no-interactive` flag when you want commands to fail instead of prompting.
+
+```bash
+# Safe for automation
+syncskill --no-interactive link apply
+syncskill --json link list
+```
+
+When you use `--json`, `link list` returns machine-readable status output instead of the symbol matrix.
+
+Link subcommands:
+
+| Command | Description |
+|--------|-------------|
+| `link list` | Show link status for all managed skills |
+| `link edit [skill]` | Open the interactive matrix editor |
+| `link set <skill> <agents...>` | Replace the configured agents for one skill |
+| `link add <skill> <agent>` | Add one configured agent for one skill |
+| `link remove <skill> <agent>` | Remove one configured agent for one skill |
+| `link clear <skill>` | Remove all configured agents for one skill |
+| `link apply` | Materialize configured links into agent directories |
+| `unlink <skill>` | Alias for `link clear <skill>` |
+
+Link command options:
+
+| Option | Applies to | Description |
+|--------|------------|-------------|
+| `-y, --yes` | `link set`, `link add`, `link clear`, `link apply`, `unlink` | Auto-confirm stale link removal or clear confirmation |
+| `--dry-run` | `link set`, `link add`, `link remove`, `link clear`, `link apply`, `unlink` | Preview what would change |
+| `-v, --verbose` | `link list` | Show text status instead of symbols |
+| `--no-interactive` | global | Disable prompts for automation |
+| `--json` | global | Emit JSON output for script-friendly commands |
+```
+
+Note: `link edit` requires an interactive terminal. If you pass `--no-interactive`, use `link set`, `link add`, or `link remove` instead.
 
 ### Stale Link Reconciliation
 
-The `link` command automatically detects and offers to remove stale links. Stale links occur when:
+The `link` workflow automatically detects and offers to remove stale links. Stale links occur when:
 
-- You remove a skill from an agent in the matrix editor
-- You unlink a skill but symlinks remain from a previous session
+- You remove a skill from an agent in `link edit`
+- You clear a skill's links but symlinks remain from a previous session
 - Configuration changes leave orphaned symlinks in agent directories
 
-When linking, syncskill checks for symlinks that point to managed skills but are no longer in the current configuration:
+When applying link changes, syncskill checks for symlinks that point to managed skills but are no longer in the current configuration:
 
 ```bash
-$ syncskill link my-skill
+$ syncskill link add my-skill claude
 
 ✓ Linked my-skill to: claude
 
@@ -95,7 +138,7 @@ Remove my-skill from hermes, qoder? (no longer in config) [Y/n] y
 For batch operations:
 
 ```bash
-$ syncskill link --apply
+$ syncskill link apply
 
 ✓ Linked 5 skills
 
@@ -129,44 +172,24 @@ Link status symbols:
 ### Managing Sources
 
 ```bash
-# Add a git source (auto-parses GitHub URLs)
-syncskill source add https://github.com/org/skills-repo
-
-# Add with specific branch
-syncskill source add https://github.com/org/repo/tree/develop
-
-# Add with explicit options
-syncskill source add https://github.com/org/repo --name my-skills --branch main
-
-# Add a local directory
-syncskill source add my-local --type local --path /path/to/skills
-
-# Add with skill subdirectory
-syncskill source add https://github.com/org/repo --skill-subdir skills/
-
-# Skip confirmation and select all skills
-syncskill source add https://github.com/org/repo -y
-
 # List configured sources
 syncskill source list
 syncskill source ls
 
-# Update all sources
-syncskill source update
+# Update all configured sources
 syncskill source update --all
 
 # Update a specific source
 syncskill source update vendor-docs
 
-# Update with yes to all confirmations (skips dirty sources)
+# Skip confirmations (dirty sources are still skipped unless --force)
 syncskill source update --all -y
 
-# Force update (overwrites dirty sources after backup)
+# Force update after backup
 syncskill source update --all --force
 
-# Top-level alias for source update
-syncskill update
-syncskill update --all --force
+# Preview source updates without changing anything
+syncskill source update --all --dry-run
 
 # Remove a source (interactive)
 syncskill source remove vendor-docs
@@ -175,45 +198,19 @@ syncskill source remove vendor-docs
 syncskill source remove vendor-docs --force
 ```
 
-Source add options:
-
-| Option | Description |
-|--------|-------------|
-| `--name <name>` | Source name (defaults to repo/directory name) |
-| `--type <type>` | Source type: `git`, `http`, or `local` |
-| `--path <path>` | Subdirectory containing skills (use `.` for repo root) |
-| `--skill-subdir <dir>` | Alias for `--path` |
-| `--branch <branch>` | Git branch or tag |
-| `-y, --yes` | Skip confirmation, select all skills |
-
-Run `syncskill source update` with no name to update every configured source, or pass a source name to update just one.
-
 Source update options:
 
 | Option | Description |
 |--------|-------------|
 | `[name]` | Update specific source (interactive selection if omitted) |
 | `--all` | Update all updatable sources |
-| `-y, --yes` | Skip confirmations (skips dirty sources unless --force) |
+| `-y, --yes` | Skip confirmations (skips dirty sources unless `--force`) |
 | `--force` | Force update dirty sources (backs up modified skills first) |
 | `--dry-run` | Preview dirty detection and pending updates without changing files |
 
 **Dirty source handling**: When a source has local modifications (`git status` shows changes, or HTTP source hash differs from last update), the update is skipped by default. Use `--force` to overwrite after automatic backup to `~/.syncskill/backups/`.
 
-When `--force` overwrites a dirty source, syncskill writes recovery metadata to `~/.syncskill/update-history.json`. Use `syncskill source restore <name>` to recover the saved git stash or HTTP backup.
-
-```bash
-# Preview source updates without changing anything
-syncskill source update --all --dry-run
-
-# Restore a source that was overwritten by --force
-syncskill source restore vendor-docs
-```
-
-The restore command is interactive and uses the matching recovery record from `update-history.json`.
-
-- Git sources can restore the saved stash created before overwrite.
-- HTTP sources can restore files from the recorded backup directory.
+`source add` and `source restore` were removed in v2. Install new sources with `syncskill install <url-or-path>`, then use `source list`, `source update`, and `source remove` to maintain them.
 
 ### Installing Skills
 
@@ -250,8 +247,8 @@ Install options:
 
 1. Add or edit a skill under `~/.syncskill/skills/`
 2. Run `syncskill scan` to register newly discovered skills
-3. Run `syncskill link --apply` or `syncskill link <skill>` to publish links into agent directories
-4. Use `syncskill source add/update/list` to manage external sources
+3. Run `syncskill link apply` or `syncskill link set <skill> <agents...>` to publish links into agent directories
+4. Use `syncskill install`, `syncskill source list`, and `syncskill source update` to manage external sources
 
 ## Reconciliation Workflow
 
@@ -299,9 +296,6 @@ syncskill server list
 # Show server configuration
 syncskill server show alpha
 
-# Probe server connectivity and receiver status
-syncskill server probe alpha
-
 # Refresh remote manifest without pulling content
 syncskill refresh --remote --status alpha
 ```
@@ -310,9 +304,19 @@ Recommended flow:
 
 1. Run `syncskill server list` to see configured remote targets
 2. Run `syncskill server show alpha` to inspect `host`, `user`, `port`, `identity_file`, and `remote_agents` paths
-3. Run `syncskill server probe alpha` before the first sync or after changing remote paths
-4. Run `syncskill refresh --remote --status alpha` when you want reconciliation to reflect the real remote skill tree without pulling skill contents into the local repository
-5. Run `syncskill pull alpha` when you want to materialize remote skill contents locally.
+3. Run `syncskill refresh --remote --status alpha` when you want reconciliation to reflect the real remote skill tree without pulling skill contents into the local repository
+4. Run `syncskill pull alpha` when you want to materialize remote skill contents locally.
+
+Note: `server probe` was removed in v2.
+
+If you need to validate connectivity, use your normal SSH command path first, then run `refresh`, `pull`, or `push` from syncskill.
+
+```bash
+ssh -i ~/.ssh/id_ed25519 user@example.com
+syncskill refresh --remote --status alpha
+```
+
+Expected configuration now lives in `~/.syncskill/config.json`.
 
 ## Remote Sync Workflow
 
@@ -374,8 +378,8 @@ syncskill sync --dry-run
 
 Typical remote flow:
 
-1. Configure servers in `~/.syncskill/config.yaml`
-2. Run `syncskill server probe alpha` to verify connectivity
+1. Configure servers in `~/.syncskill/config.json`
+2. Optionally validate SSH access outside syncskill
 3. Run `syncskill refresh --remote --status alpha` to update remote manifest state
 4. Run `syncskill push alpha` to publish local changes
 5. Run `syncskill pull alpha` to fetch remote changes
@@ -397,8 +401,7 @@ syncskill config set conflict_resolution keep-local
 syncskill config set --show-paths
 
 # Edit skill -> agent links (matrix editor)
-syncskill link
-syncskill config link  # deprecated, use 'link' instead
+syncskill link edit
 
 # Edit skill -> server sync mapping (matrix editor)
 syncskill remote
@@ -438,9 +441,19 @@ The doctor command checks for:
 
 | Option | Description |
 |--------|-------------|
+| `--json` | Output machine-readable JSON for supported commands |
+| `--no-interactive` | Disable interactive prompts and fail on interactive-only commands |
 | `--no-refresh` | Skip automatic manifest refresh before commands |
 | `-y, --yes` | Skip confirmation prompts |
 | `--dry-run` | Preview changes without executing |
+
+Common automation examples:
+
+```bash
+syncskill --json status
+syncskill --no-interactive link apply
+syncskill --json link list
+```
 
 ## Install from Source
 

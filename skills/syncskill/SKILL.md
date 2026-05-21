@@ -20,10 +20,10 @@ Use this skill when:
 
 | Command | Description |
 |---------|-------------|
-| `init [--skip-scan] [--skip-skill] [-y]` | Initialize ~/.syncskill/ directory |
+| `init [--skip-scan] [--skip-skill] [-y]` | Initialize `~/.syncskill/` and create `config.json` |
 | `install` / `i` | In TTY, open an interactive install menu; in non-TTY, show install help |
 | `install --self` / `install self` | Install built-in syncskill skill |
-| `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path (= source add + auto-link) |
+| `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path and register it as a managed source |
 
 Install options: `--name`, `--path` (source storage path), `--skill-subdir`, `--branch`, `-y`
 
@@ -31,37 +31,37 @@ Install options: `--name`, `--path` (source storage path), `--skill-subdir`, `--
 
 | Command | Description |
 |---------|-------------|
-| `link` | Interactive matrix editor for skill→agent mapping |
-| `link list` / `ls` / `--list` | Show link status matrix |
+| `link` | Open the interactive matrix editor when running in a TTY; otherwise show help |
+| `link list` / `link ls` | Show link status matrix |
 | `link list -v` | Show verbose text status |
-| `link <skill>` | Open single-skill editor |
-| `link <skill> <agent>` | Append link to specific agent |
-| `link <skill> --all` | Link that skill to all configured agents |
-| `link --apply` | Apply config for all configured skills + reconcile stale links |
-| `link --dry-run` | Preview link changes |
-| `unlink <skill> [-y] [--dry-run]` | Remove all links for a skill |
+| `link edit [skill]` | Open the human-oriented matrix editor |
+| `link set <skill> <agents...>` | Declaratively replace a skill's target agents; idempotent and AI-friendly |
+| `link add <skill> <agent>` | Add one target agent without replacing existing targets |
+| `link remove <skill> <agent>` | Remove one target agent |
+| `link clear <skill>` | Remove all links for a skill |
+| `link apply` | Reconcile symlinks to match config for all configured skills |
+| `unlink <skill>` | Alias for `link clear <skill>` |
 
-**Reconcile behavior**: `link` and `link --apply` automatically clean up stale symlinks (links pointing to skills no longer in config or to non-existent paths).
+For AI agents, prefer `link set ...` followed by `link apply` when making declarative changes, or use `link add/remove/clear` for small incremental edits.
+
+**Reconcile behavior**: `link apply` and the mutating `link` subcommands reconcile stale symlinks (links pointing to skills no longer in config or to non-existent paths).
 
 ### Source Management
 
 | Command | Description |
 |---------|-------------|
-| `source add <url-or-path>` | Add external source (GitHub URL, local archive, local path) |
-| `source list` / `ls` | List configured sources |
-| `source update [name] [--all] [--force] [--dry-run] [-y]` | Update sources (git pull / re-download) |
-| `source restore <name>` | Restore a source overwritten by `source update --force` |
-| `source remove <name> [--force]` | Remove source (interactive or force-remove all) |
-| `update [name] [--all] [--force] [--dry-run] [-y]` | Top-level alias for `source update` |
+| `source list` / `source ls` | List configured sources |
+| `source remove <name> [--force]` | Remove a configured source |
+| `update [name] [--all] [--force] [--dry-run] [-y]` | Update source(s) from their recorded origin |
 
-Source add options: `--name`, `--type git|http|local`, `--path` (skill subdirectory), `--skill-subdir` (alias), `--branch`, `-y`
+In v2, `source add`, `source update`, and `source restore` are removed. Use `install <url-or-path>` to add/register sources, and use top-level `update` to refresh them.
 
 ### Scanning
 
 | Command | Description |
 |---------|-------------|
-| `scan` | Scan sources for new skills + detect unmanaged skills in agent dirs |
-| `scan --migrate` | Migrate unmanaged skills to ~/.syncskill/skills/ |
+| `scan` | Scan sources for new skills and detect unmanaged skills in agent directories |
+| `scan --migrate-unmanaged` | Migrate unmanaged skills to `~/.syncskill/skills/` |
 | `scan --dry-run` | Preview scan results |
 
 ### Server Management
@@ -69,9 +69,10 @@ Source add options: `--name`, `--type git|http|local`, `--path` (skill subdirect
 | Command | Description |
 |---------|-------------|
 | `server` | Open server management menu |
-| `server list` / `ls` | List configured servers |
+| `server list` / `server ls` | List configured servers |
 | `server show <name>` | Show server configuration |
-| `server probe <name>` | Diagnose connectivity (SSH, Node version, receiver status) |
+
+In v2, `server probe` is removed.
 
 ### Sync Operations
 
@@ -90,7 +91,7 @@ Source add options: `--name`, `--type git|http|local`, `--path` (skill subdirect
 | Command | Description |
 |---------|-------------|
 | `config` | Interactive config editor |
-| `config show` | Print current config (JSON) |
+| `config show` | Print current config as JSON |
 | `config set <key> <value>` | Set config value |
 | `config set --show-paths` | Show all configurable paths |
 | `config server` | Server management menu |
@@ -98,9 +99,9 @@ Source add options: `--name`, `--type git|http|local`, `--path` (skill subdirect
 | `remote` | Shortcut for `config remote` |
 | `doctor` | Diagnose config issues (agents, links, sources, registry) |
 | `doctor --fix [-y]` | Interactive repair of config issues |
-| `doctor --rebuild-registry` | Rebuild skills-registry.json from scratch |
+| `doctor --rebuild-registry` | Rebuild `skills-registry.json` from scratch |
 
-**Doctor checks**: missing agent directories, orphaned links, invalid sources, registry inconsistencies.
+**Config format**: v2 is JSON-only. Runtime state lives under `~/.syncskill/`, and the main config file is `~/.syncskill/config.json`. Older `config.yaml` files are legacy format and are migrated on config writes.
 
 **`private_agents`**: agents that need dedicated per-agent links instead of the shared `~/.agents/skills/` target. Current defaults are `claude`, `codex`, `gemini`, `cursor`, `kiro`, `augment`, `cline`, and `hermes`. Setting `private_agents` in config fully overrides the default list.
 
@@ -108,36 +109,47 @@ Source add options: `--name`, `--type git|http|local`, `--path` (skill subdirect
 
 | Option | Description |
 |--------|-------------|
+| `--json` | Emit machine-readable JSON output when supported; prefer this for agent automation |
+| `--no-interactive` | Disable interactive prompts; commands that require TTY input fail fast instead of prompting |
 | `--no-refresh` | Skip automatic manifest refresh |
 | `-y, --yes` | Skip confirmation prompts |
 | `--dry-run` | Preview changes without executing |
-| `--force` | Force operation (e.g., update dirty sources) |
+| `--force` | Force operation (for example, updating dirty sources) |
+
+For automation, prefer `--json --no-interactive` together with declarative commands such as `config show`, `link set`, `link apply`, `status`, `diff`, `push`, `pull`, and `sync`.
 
 ## Usage Examples
 
 ```bash
-# Initialize and set up
+# Initialize and inspect JSON config
 syncskill init
-syncskill install
+syncskill config show
 
-# Install skills from GitHub
+# Install a source-backed skill set
 syncskill i https://github.com/user/skills-repo
 
-# Manage links (includes stale link cleanup)
-syncskill link list
-syncskill link --apply
-syncskill unlink my-skill
+# AI-friendly declarative linking
+syncskill --no-interactive link set welcome claude hermes
+syncskill --no-interactive link apply
+syncskill --json link list
 
-# Update sources
+# Incremental link edits
+syncskill link add welcome cursor
+syncskill link remove welcome hermes
+syncskill unlink welcome
+
+# Scan and migrate unmanaged skills
+syncskill scan --migrate-unmanaged --dry-run
+
+# Update configured sources
 syncskill update --all --dry-run
 syncskill update --all --force
-syncskill source restore my-source
 
 # Diagnose and fix config issues
 syncskill doctor --fix
 
 # Sync with remote servers
-syncskill status
+syncskill --json status
 syncskill sync --all --timeout 60
 
 # Resolve conflicts

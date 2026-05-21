@@ -6,7 +6,7 @@
 
 - **Multi-agent support**: Manage skills across Claude, Hermes, Qoder, and other AI agents
 - **Source management**: Import skills from git repositories, HTTP archives, or local directories
-- **Dirty source recovery**: Preview updates with `source update --dry-run`, overwrite safely with `--force`, and recover with `source restore`
+- **Declarative linking**: Manage skill links with `link set`, `link add`, `link remove`, `link clear`, and `link apply`
 - **Remote sync**: Push and pull skills to/from remote servers via SSH/rsync, with optional `--timeout` control
 - **Conflict resolution**: Three-way merge with manual or automatic resolution
 - **Cross-platform**: Works on macOS, Linux, and Windows
@@ -42,11 +42,11 @@ syncskill install --self
 syncskill install
 
 # Link skills to agent directories
-syncskill link my-skill claude    # Link specific skill to agent
-syncskill link my-skill --all     # Link to all configured agents
 syncskill link                    # Open matrix editor
-syncskill link --apply            # Apply all configured links and clean stale symlinks
-syncskill unlink my-skill         # Remove all links for a skill
+syncskill link add my-skill claude
+syncskill link set my-skill claude cursor
+syncskill link apply              # Apply configured links and clean stale symlinks
+syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 ```
 
 ## Commands Overview
@@ -59,37 +59,32 @@ syncskill unlink my-skill         # Remove all links for a skill
 | `syncskill install` / `i` | Open interactive install menu in TTY, otherwise show help; also install from URL/path |
 | `syncskill install --self` | Install built-in syncskill skill |
 | `syncskill config` | Open interactive configuration menu |
-| `syncskill config show` | Print current configuration |
-| `syncskill config set <key> <value>` | Set a configuration value |
-| `syncskill scan [--migrate] [--dry-run]` | Scan for new skills, optionally migrate unmanaged skills |
+| `syncskill config show` | Print current JSON configuration |
+| `syncskill config set <key> <value>` | Set a configuration value in `config.json` |
+| `syncskill scan [--migrate-unmanaged] [--dry-run]` | Scan for new skills, optionally migrate unmanaged skills |
 
 ### Skill Linking
 
 | Command | Description |
 |---------|-------------|
 | `syncskill link` | Open matrix editor for skill-to-agent links |
-| `syncskill link <skill>` | Open single-skill editor |
-| `syncskill link <skill> <agent>` | Append link to specific agent |
-| `syncskill link <skill> --all` | Link skill to all configured agents |
-| `syncskill link --apply` | Apply all configured links (auto-cleans stale symlinks) |
+| `syncskill link edit <skill>` | Open single-skill editor |
+| `syncskill link set <skill> <agents...>` | Replace a skill's linked agents declaratively |
+| `syncskill link add <skill> <agent>` | Add one agent link for a skill |
+| `syncskill link remove <skill> <agent>` | Remove one agent link for a skill |
+| `syncskill link clear <skill>` | Remove all links for a skill |
+| `syncskill link apply` | Apply all configured links (auto-cleans stale symlinks) |
 | `syncskill link list` / `ls` | Show link status |
 | `syncskill link list -v` | Show link status with verbose text |
-| `syncskill link --dry-run` | Preview link changes |
-| `syncskill unlink <skill>` | Remove all links for a skill |
+| `syncskill unlink <skill>` | Alias for `syncskill link clear <skill>` |
 
 ### Source Management
 
 | Command | Description |
 |---------|-------------|
-| `syncskill source add <url>` | Add a source (git, http, or local) |
 | `syncskill source list` / `ls` | List configured sources |
-| `syncskill source update [name]` | Update one or all sources |
-| `syncskill source update --all` | Update all sources |
-| `syncskill source update --dry-run` | Preview updates without changing files |
-| `syncskill source update --force` | Force update, overwriting dirty sources |
-| `syncskill source restore <name>` | Restore a source overwritten by `--force` |
 | `syncskill source remove <name>` | Remove a source (interactive) |
-| `syncskill update [name]` | Top-level alias for `source update` |
+| `syncskill install <url-or-path>` | Install and register a source from git, HTTP archive, local directory, or archive file |
 
 ### Reconciliation
 
@@ -107,7 +102,6 @@ syncskill unlink my-skill         # Remove all links for a skill
 | `syncskill server` | Open server management menu |
 | `syncskill server list` / `ls` | List configured servers |
 | `syncskill server show <name>` | Show server configuration |
-| `syncskill server probe <name>` | Test server connectivity |
 | `syncskill remote` | Open skill → server matrix editor |
 
 ### Remote Sync
@@ -129,13 +123,35 @@ syncskill unlink my-skill         # Remove all links for a skill
 
 ### Global Options
 
+- `--json` - Output command results in JSON format
+- `--no-interactive` - Disable interactive prompts and TUI flows
 - `--no-refresh` - Skip automatic manifest refresh
 - `-y, --yes` - Skip confirmation prompts
 - `--dry-run` - Preview changes without executing
 
 Use `refresh --remote --status` when you want reconciliation to reflect the real remote skill tree without pulling remote skill contents into the local repository.
 Use `pull` when you want to copy remote skill contents into the local repository.
-Use `server show` and `server probe` to inspect the configured `host`, `user`, `port`, `identity_file`, and `remote_agents` paths before mutating sync operations.
+Use `server show` to inspect the configured `host`, `user`, `port`, `identity_file`, and `remote_agents` paths before mutating sync operations.
+For v2 migrations: `server probe` was removed; use `server show` plus sync/refresh commands to validate server configuration.
+
+## Configuration Notes
+
+- Runtime config is stored in `~/.syncskill/config.json`.
+- Older `config.yaml` references in previous docs/examples should be treated as `config.json` in v2.
+- Sources can still be updated and restored after installation; the deprecated `source add`, `source update`, and `source restore` command forms were removed from the v2 top-level command reference.
+
+## Verification
+
+```bash
+npm run build
+npm test
+```
+
+## Docs
+
+- [Usage Guide](docs/usage-guide.md) - CLI commands and workflows
+- [Configuration Guide](docs/config-guide.md) - config.json reference
+- [Design Guide](docs/design-guide.md) - Architecture and module responsibilities
 
 ## Verification
 
@@ -147,5 +163,5 @@ npm run build
 ## Docs
 
 - [Usage Guide](docs/usage-guide.md) - CLI commands and workflows
-- [Configuration Guide](docs/config-guide.md) - config.yaml reference
+- [Configuration Guide](docs/config-guide.md) - config.json reference
 - [Design Guide](docs/design-guide.md) - Architecture and module responsibilities
