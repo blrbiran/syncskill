@@ -6,6 +6,9 @@ import { join, resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 
 import { checkbox, select, confirm, input } from '@inquirer/prompts';
+import { createOutput, setGlobalOutput, getGlobalOutput } from './cli/index.js';
+import { loadEnvConfig, mergeWithFlags } from './cli/env.js';
+import { ExitCode } from './cli/exit-codes.js';
 
 interface SelectServersOptions {
   all?: boolean;
@@ -155,9 +158,21 @@ function formatSkillRows(action: 'pull' | 'push', result: PullResult | PushResul
   return action === 'pull' ? formatPullRows(result as PullResult) : formatPushRows(result as PushResult);
 }
 
-function failForNoInteractive(): never {
-  console.error('Error: This command requires interactive input. Use --no-interactive only with non-interactive commands.');
-  process.exit(4);
+function failForNoInteractive(hint?: string): never {
+  try {
+    const output = getGlobalOutput();
+    const exitCode = output.error(
+      'E_NEEDS_INPUT',
+      'This command requires interactive input',
+      { hint: hint ?? 'Use non-interactive flags or remove --no-interactive' }
+    );
+    output.result(false, { error: 'E_NEEDS_INPUT' });
+    process.exit(exitCode);
+  } catch {
+    console.error('Error: This command requires interactive input');
+    if (hint) console.error(`Hint: ${hint}`);
+    process.exit(ExitCode.NEEDS_INPUT);
+  }
 }
 
 function parseInteger(value: string): number {
@@ -173,15 +188,38 @@ export function createProgram(homeDir?: string): Command {
   const program = new Command()
     .name('syncskill')
     .description('Multi-device AI Agent Skill sync tool. No args: show local dashboard summary')
-    .option('--json', 'Output in JSON format')
+    .option('--json', 'Output in JSONL format for machine consumption')
     .option('--no-interactive', 'Disable interactive prompts')
+    .option('--sync-dir <path>', 'Override ~/.syncskill directory')
+    .option('--config <path>', 'Override config file path')
     .option('--no-refresh', 'Skip automatic manifest refresh before commands')
-    .hook('preAction', async (_thisCommand, actionCommand) => {
+    .hook('preAction', async (thisCommand, actionCommand) => {
+      const envConfig = loadEnvConfig();
+      const opts = thisCommand.opts<{
+        json?: boolean;
+        noInteractive?: boolean;
+        syncDir?: string;
+        config?: string;
+        refresh?: boolean;
+      }>();
+      const mergedConfig = mergeWithFlags(envConfig, {
+        json: opts.json,
+        noInteractive: opts.noInteractive,
+        syncDir: opts.syncDir,
+        configPath: opts.config,
+      });
+      const output = createOutput({
+        json: mergedConfig.json,
+        noColor: mergedConfig.noColor,
+      });
+      output.setCommand(actionCommand.name());
+      setGlobalOutput(output);
+
       if (shouldSkipAutoRefresh(actionCommand)) {
         return;
       }
 
-      await autoRefreshManifests(resolvedHomeDir, program.opts<{ refresh: boolean }>().refresh);
+      await autoRefreshManifests(resolvedHomeDir, opts.refresh !== false);
     });
 
   program
