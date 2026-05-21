@@ -9,7 +9,6 @@ import { saveConfig, loadConfig, getSyncPaths, createDefaultConfig } from '../..
 import { updateSource, materializeSource } from '../../src/source.js';
 import { hashSkillDirectory } from '../../src/core/manifest.js';
 import { loadSkillsRegistry, saveSkillsRegistry } from '../../src/core/skills-registry.js';
-import { getSourceHistory } from '../../src/core/update-history.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -99,7 +98,7 @@ describe('source update --force', () => {
       expect(localContent).toContain('MODIFIED LOCALLY');
     });
 
-    it('stashes dirty git skills before force update and records restore metadata', async () => {
+    it('stashes dirty git skills before force update', async () => {
       const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
 
       // Create initial skill
@@ -128,27 +127,14 @@ describe('source update --force', () => {
       const checkoutSkillFile = join(checkoutDir, 'skills', 'my-skill', 'SKILL.md');
       const localModification = '# My Skill v1 - LOCAL CHANGES\n';
       await writeFile(checkoutSkillFile, localModification);
-      const { stdout: beforeCommit } = await execFileAsync('git', ['-C', checkoutDir, 'rev-parse', 'HEAD']);
 
       // Update remote
       await writeFile(join(skillsDir, 'my-skill', 'SKILL.md'), '# My Skill v2\n');
       await commitAll(workRepoDir, 'update to v2');
       await git(['push', 'origin', 'main'], workRepoDir);
-      const { stdout: remoteCommit } = await execFileAsync('git', ['-C', workRepoDir, 'rev-parse', 'HEAD']);
 
       // Force update should stash and update
       await updateSource(homeDir, 'git-source', { force: true });
-
-      const { stdout: stashCommit } = await execFileAsync('git', ['-C', checkoutDir, 'rev-parse', 'stash@{0}']);
-      const history = await getSourceHistory(homeDir, 'git-source');
-
-      expect(history).toEqual({
-        type: 'git',
-        before_commit: beforeCommit.trim(),
-        after_commit: remoteCommit.trim(),
-        stash_commit: stashCommit.trim(),
-        timestamp: expect.any(String)
-      });
 
       const stashShow = await execFileAsync('git', ['-C', checkoutDir, 'stash', 'show', '-p', 'stash@{0}']);
       expect(stashShow.stdout).toContain('LOCAL CHANGES');
@@ -271,10 +257,6 @@ describe('source update --force', () => {
       // --force should stash and update
       await updateSource(homeDir, 'git-source', { force: true });
 
-      const history = await getSourceHistory(homeDir, 'git-source');
-      expect(history?.type).toBe('git');
-      expect(history?.stash_commit).toBeDefined();
-
       const stashShow = await execFileAsync('git', ['-C', join(syncDir, '.sources', 'git-source', 'checkout'), 'stash', 'show', '-p', 'stash@{0}']);
       expect(stashShow.stdout).toContain('local edits');
 
@@ -315,10 +297,6 @@ describe('source update --force', () => {
 
       // Both flags: --force takes precedence over --yes for dirty handling
       await updateSource(homeDir, 'git-source', { force: true, yes: true });
-
-      const history = await getSourceHistory(homeDir, 'git-source');
-      expect(history?.type).toBe('git');
-      expect(history?.stash_commit).toBeDefined();
 
       const updatedContent = await readFile(join(syncDir, 'skills', 'my-skill', 'SKILL.md'), 'utf8');
       expect(updatedContent).toContain('v2');
@@ -362,7 +340,6 @@ describe('source update --force', () => {
       const { syncDir } = getSyncPaths(homeDir);
       const backupsDir = join(syncDir, 'backups', 'git-source');
       await expect(access(backupsDir)).rejects.toThrow();
-      await expect(getSourceHistory(homeDir, 'git-source')).resolves.toBeNull();
 
       // Skill should be updated
       const content = await readFile(join(syncDir, 'skills', 'my-skill', 'SKILL.md'), 'utf8');
@@ -371,7 +348,7 @@ describe('source update --force', () => {
   });
 
   describe('overwrite metadata', () => {
-    it('records git overwrite history with stash metadata', async () => {
+    it('stashes dirty changes for multiple skills', async () => {
       const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
 
       const skillsDir = join(workRepoDir, 'skills');
@@ -410,18 +387,12 @@ describe('source update --force', () => {
       // Force update
       await updateSource(homeDir, 'git-source', { force: true });
 
-      const history = await getSourceHistory(homeDir, 'git-source');
-
-      expect(history).toMatchObject({
-        type: 'git',
-        before_commit: expect.any(String),
-        after_commit: expect.any(String),
-        stash_commit: expect.any(String),
-        timestamp: expect.any(String)
-      });
+      const stashShow = await execFileAsync('git', ['-C', join(syncDir, '.sources', 'git-source', 'checkout'), 'stash', 'show', '-p', 'stash@{0}']);
+      expect(stashShow.stdout).toContain('A v1 - edited');
+      expect(stashShow.stdout).toContain('B v1 - edited');
     });
 
-    it('records http overwrite history with backup metadata and clears it after a clean update', async () => {
+    it('backs up dirty http skills and keeps clean updates working', async () => {
       const { syncDir, skillsDir } = getSyncPaths(homeDir);
       const sourceDir = join(homeDir, 'http-source-fixture');
       const archiveFile = join(homeDir, 'http-source.tar.gz');
@@ -527,14 +498,8 @@ describe('source update --force', () => {
 
         await updateSource(homeDir, 'http-source', { force: true });
 
-        const history = await getSourceHistory(homeDir, 'http-source');
-        expect(history).toEqual({
-          type: 'http',
-          backup_path: join(syncDir, 'backups', 'http-source'),
-          dirty_skills: ['http-skill'],
-          timestamp: expect.any(String)
-        });
-        await expect(readFile(join(syncDir, 'backups', 'http-source', 'http-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# HTTP local edit\n');
+        const backupDir = join(syncDir, 'skills', 'http-source.syncskill-pre-update-backup');
+        await expect(readFile(join(backupDir, 'http-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# HTTP local edit\n');
         await expect(readFile(join(skillsDir, 'http-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# HTTP v2\n');
 
         const cleanArchiveFile = join(homeDir, 'http-source-v3.tar.gz');
@@ -577,7 +542,6 @@ describe('source update --force', () => {
         await saveConfig(cleanConfig, homeDir);
 
         await updateSource(homeDir, 'http-source', {});
-        await expect(getSourceHistory(homeDir, 'http-source')).resolves.toBeNull();
         await cleanServer.close();
       } finally {
         await server.close();
