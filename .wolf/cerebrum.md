@@ -45,3 +45,6 @@
 - **[2026-05-16]** 无参数 `syncskill` 显示仪表盘摘要（不触发网络请求）；health=本地 `diagnoseConfig()` 的 errors+warnings，server 状态仅读 `~/.syncskill/manifests/*.json`，skills 统计来自 `loadSkillsRegistry()`，其中 active=linked、ignored=ignored
 - **[2026-05-17]** Dashboard spec 输出要求固定格式：标题+分隔线、`Skills: total (linked, ignored)`、`Sources: count (names)`、agent 存在性符号、server 基于 manifest 非 `in-sync` 项计为 pending、底部 quick actions 与 help 提示都需要精确覆盖到测试
 - **[2026-05-16]** 支持 `--force --dry-run` 组合预览强制更新的影响
+- **[2026-05-21]** v2 spec 删除所有 deprecated CLI 形态（link 旧形态、source add/update、scan --migrate），因为 syncskill 未正式发布，无向后兼容负担
+- **[2026-05-21]** Config 格式改为 JSON-only（原 YAML）：任何 config 写操作自动迁移 YAML → JSON。AI agent 处理 JSON 更可靠（无缩进歧义）
+- **[2026-05-21]** Link 命令双轨设计：人类用 verb（edit/add/remove/clear），AI agent 用 declarative（set + apply）。`set` 幂等可重放，避免多 agent 并发覆盖
