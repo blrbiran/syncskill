@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-20T00:12:53.500Z
-> Files: 129 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-21T16:49:23.044Z
+> Files: 149 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -12,7 +12,7 @@
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
 - `package.json` — Node.js package manifest (~355 tok)
-- `README.md` — Project documentation (~1458 tok)
+- `README.md` — Project documentation (~1594 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
 
@@ -26,39 +26,58 @@
 
 ## docs/
 
-- `config-guide.md` — Configuration Guide (~2704 tok)
+- `config-guide.md` — Configuration Guide (~2886 tok)
 - `design-guide.md` — Design Guide (~2878 tok)
 - `e2e-test-guide.md` — E2E Test Writing Guide (~3900 tok)
 - `README.md` — Project documentation (~401 tok)
-- `usage-guide.md` — Usage Guide (~3153 tok)
+- `usage-guide.md` — Usage Guide (~3390 tok)
+
+## docs/superpowers/plans/
+
+- `2026-05-21-syncskill-core-infrastructure.md` — Syncskill Core Infrastructure Implementation Plan (~8382 tok)
+- `2026-05-21-syncskill-deprecated-removal.md` — Syncskill Deprecated Feature Removal Plan (~3105 tok)
+- `2026-05-21-syncskill-plan-execute-protocol.md` — Syncskill Plan-then-Execute Protocol Plan (~5932 tok)
+- `2026-05-21-syncskill-project-restructure.md` — Syncskill Project Restructure Plan (~5808 tok)
+- `2026-05-21-syncskill-registry-v2.md` — Syncskill Registry v2 Migration Plan (~5385 tok)
+- `2026-05-21-syncskill-tests-docs.md` — Syncskill Tests and Documentation Plan (~3574 tok)
+- `2026-05-21-syncskill-v2-overhaul.md` — Syncskill v2 Overhaul Implementation Plan (~8762 tok)
 
 ## docs/superpowers/specs/
 
 - `e2e-test-design.md` — E2E 测试框架设计 (~4850 tok)
-- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~18063 tok)
+- `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~20347 tok)
 
 ## skills/syncskill/
 
-- `SKILL.md` — syncskill (~1491 tok)
+- `SKILL.md` — syncskill (~1705 tok)
 
 ## src/
 
 - `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1125 tok)
-- `index.ts` — Exports createProgram (~15880 tok)
+- `index.ts` — Build CLI introspection data for --help --json. (~16344 tok)
 - `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~890 tok)
 - `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4780 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
-- `source-restore.ts` — Exports RestoreResult, restoreSource (~1318 tok)
-- `source.ts` — Git only: Convert source from git to local, keep path directory (~22472 tok)
+- `source.ts` — Git only: Convert source from git to local, keep path directory (~22073 tok)
+
+## src/cli/
+
+- `env.ts` — Environment variable handling for syncskill CLI. (~525 tok)
+- `env.ts` — Environment variable loading and flag precedence merging for CLI config. (~340 tok)
+- `exit-codes.ts` — Documented exit codes for syncskill CLI. (~539 tok)
+- `index.ts` — Barrel export for CLI types, exit codes, env, and output modules. (~40 tok)
+- `index.ts` — src/cli/index.ts (~40 tok)
+- `output.ts` — Output controller that handles both JSONL and text output modes. (~1490 tok)
+- `types.ts` — JSONL event types for --json mode output. (~386 tok)
 
 ## src/config/
 
 - `config-doctor.ts` — Config diagnosis and repair (~3986 tok)
 - `config-ui.ts` — Interactive TUI config editing (~5956 tok)
-- `config.ts` — Resolve an agent path, expanding ~ to the actual home directory. (~2263 tok)
+- `config.ts` — Resolve an agent path, expanding ~ to the actual home directory. (~2476 tok)
 - `matrix-editor.ts` — 2D matrix editor component (~2264 tok)
-- `types.ts` — TypeScript type definitions for syncskill configuration (~274 tok)
+- `types.ts` — TypeScript type definitions for syncskill configuration (~267 tok)
 
 ## src/core/
 
@@ -69,7 +88,6 @@
 - `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 12 more (~2187 tok)
 - `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 3 more (~5424 tok)
 - `transport.ts` — Exports ServerProbeResult, TransportRuntime, withTimeout, createTransportRuntime + 9 more (~4328 tok)
-- `update-history.ts` — Exports GitUpdateRecord, HttpUpdateRecord, UpdateRecord, UpdateHistory + 6 more (~667 tok)
 
 ## src/receiver/
 
@@ -79,7 +97,7 @@
 ## src/utils/
 
 - `archive.ts` — Exports ArchiveType, ArchiveFormat, detectArchiveFormat, parseContentDisposition + 2 more (~955 tok)
-- `backup.ts` — Exports BackupMetaEntry, BackupMeta, getBackupDir, loadBackupMeta + 6 more (~772 tok)
+- `backup.ts` — Exports getSidecarBackupDir, BackupSkillToSidecarOptions, backupSkillToSidecar, BackupDirtySkillsToS (~442 tok)
 - `utils.ts` — Exports execFileAsync, isNotFoundError, readJsonOrDefault, readFileOrDefault, pathExists (~438 tok)
 
 ## tests/end2end/
@@ -89,7 +107,7 @@
 
 ## tests/end2end/cases/install/
 
-- `install-local-archive.test.ts` — E2E tests for installing local archive files (.zip, .tar.gz). (~1539 tok)
+- `install-local-archive.test.ts` — E2E tests for installing local archive files (.zip, .tar.gz). (~1224 tok)
 
 ## tests/end2end/cases/link/
 
@@ -118,12 +136,12 @@
 ## tests/end2end/framework/
 
 - `cleanup.ts` — Prefix for all E2E temp directories. (~387 tok)
-- `context.ts` — Agent name to skills directory path mapping. (~5752 tok)
+- `context.ts` — Agent name to skills directory path mapping. (~5740 tok)
 - `e2e-test.ts` — e2eTest() wrapper for vitest it() with E2E options (timeout, network, skip). (~372 tok)
 - `guard.ts` — Error thrown when E2E test attempts to access protected paths. (~593 tok)
 - `index.ts` — Barrel export for all public E2E framework APIs. (~162 tok)
 - `runner.ts` — Result of running a command. (~910 tok)
-- `scenario.ts` — E2EScenario builder for declarative test setup with fluent API. (~2146 tok)
+- `scenario.ts` — Agent name to skills directory path mapping. (~2127 tok)
 - `setup.ts` — Global beforeAll/afterEach hooks for E2E tests (cleanup, diagnostics). (~168 tok)
 
 ## tests/end2end/framework/fixtures/
@@ -142,22 +160,22 @@
 
 ## tests/integration/
 
-- `config-cli.test.ts` — Declares homeDir (~3719 tok)
+- `cli-introspection.test.ts` — Declares program (~493 tok)
+- `config-cli.test.ts` — Declares homeDir (~3730 tok)
 - `config-ui.test.ts` — Declares PromptStub (~4890 tok)
-- `discover.test.ts` — Declares tempDirs (~3929 tok)
-- `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1228 tok)
-- `help-output.test.ts` — Declares help (~973 tok)
-- `install-cli.test.ts` — Declares execFileAsync (~1144 tok)
+- `discover.test.ts` — Declares tempDirs (~3937 tok)
+- `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1231 tok)
+- `help-output.test.ts` — Declares execAsync (~1206 tok)
+- `install-cli.test.ts` — Declares execFileAsync (~1214 tok)
 - `README.md` — Project documentation (~37 tok)
-- `reconciliation-cli.test.ts` — Declares actual (~8543 tok)
+- `reconciliation-cli.test.ts` — Declares actual (~8729 tok)
 - `remote-refresh.test.ts` — Declares tempDirs (~669 tok)
-- `repo.test.ts` — Declares pathExists (~1967 tok)
-- `server-cli.test.ts` — Declares tempDirs (~1061 tok)
-- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6574 tok)
-- `source-remove.test.ts` — Declares SourceConfig (~3048 tok)
-- `source-restore.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~1867 tok)
-- `source-update-dry-run.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~1103 tok)
-- `source-update-force.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6910 tok)
+- `repo.test.ts` — Declares pathExists (~1983 tok)
+- `server-cli.test.ts` — Declares tempDirs (~678 tok)
+- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~2080 tok)
+- `source-remove.test.ts` — Declares SourceConfig (~3129 tok)
+- `source-update-dry-run.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~968 tok)
+- `source-update-force.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6483 tok)
 - `sync-cli.test.ts` — Declares tempDirs (~4296 tok)
 - `sync-engine.test.ts` — TransportRuntime: createRuntime (~7558 tok)
 - `sync-timeout.test.ts` — Declares program (~273 tok)
@@ -165,12 +183,16 @@
 
 ## tests/unit/
 
-- `backup.test.ts` — Declares result (~1339 tok)
+- `backup.test.ts` — Exports x (~792 tok)
+- `cli-env.test.ts` — tests/unit/cli-env.test.ts (~1157 tok)
+- `cli-env.test.ts` — Unit tests for CLI env var parsing and flag-over-env precedence. (~910 tok)
+- `cli-output.test.ts` — tests/unit/cli-output.test.ts (~1592 tok)
+- `cli-types.test.ts` — tests/unit/cli-types.test.ts (~502 tok)
 - `config-doctor.test.ts` — Declares DiagnosticItem (~5859 tok)
-- `config.test.ts` — Declares tempDirs (~2059 tok)
+- `config.test.ts` — Declares paths (~2961 tok)
 - `conflict.test.ts` — Declares ServerManifest (~2429 tok)
 - `dashboard.test.ts` — Declares ServerManifest (~1435 tok)
-- `docs.test.ts` — Declares rootDir (~1320 tok)
+- `docs.test.ts` — Declares rootDir (~1013 tok)
 - `e2e-cleanup.test.ts` — tests/unit/e2e-cleanup.test.ts (~495 tok)
 - `e2e-context.test.ts` — tests/unit/e2e-context.test.ts (~1744 tok)
 - `e2e-fixtures-archive.test.ts` — tests/unit/e2e-fixtures-archive.test.ts (~588 tok)
@@ -181,19 +203,19 @@
 - `e2e-fixtures-stale.test.ts` — Declares tempDirs (~535 tok)
 - `e2e-guard.test.ts` — tests/unit/e2e-guard.test.ts (~376 tok)
 - `e2e-runner.test.ts` — tests/unit/e2e-runner.test.ts (~540 tok)
-- `e2e-scenario.test.ts` — Unit tests for E2EScenario builder class. (~931 tok)
-- `install.test.ts` — Declares path (~1694 tok)
+- `e2e-scenario.test.ts` — tests/unit/e2e-scenario.test.ts (~931 tok)
+- `exit-codes.test.ts` — tests/unit/exit-codes.test.ts (~660 tok)
+- `install.test.ts` — Declares path (~1813 tok)
 - `linker.test.ts` — Declares SyncSkillConfig (~7055 tok)
 - `manifest.test.ts` — Declares tempDirs (~2630 tok)
 - `matrix-editor.test.ts` — Declares config (~2288 tok)
 - `package.test.ts` — Declares rootDir (~597 tok)
 - `private-agents.test.ts` — Declares tempDirs (~716 tok)
 - `README.md` — Project documentation (~35 tok)
-- `refresh.test.ts` — Declares tempDirs (~5658 tok)
+- `refresh.test.ts` — Declares tempDirs (~5675 tok)
 - `server.test.ts` (~406 tok)
 - `skills-registry.test.ts` — Declares registry (~3690 tok)
 - `source-github-url.test.ts` — Declares result (~1291 tok)
 - `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~27843 tok)
 - `test-tiers.test.ts` — Declares rootDir (~382 tok)
 - `transport.test.ts` — TransportRuntime: createRuntime (~1383 tok)
-- `update-history.test.ts` — Declares UpdateHistory (~1397 tok)
