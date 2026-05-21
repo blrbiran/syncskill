@@ -183,6 +183,40 @@ function parseInteger(value: string): number {
   return parsed;
 }
 
+/**
+ * Build CLI introspection data for --help --json.
+ * See spec §11.10 for schema.
+ */
+function buildCliIntrospection(program: Command): object {
+  return {
+    name: program.name(),
+    version: program.version(),
+    description: program.description(),
+    commands: program.commands.map(cmd => ({
+      name: cmd.name(),
+      aliases: cmd.aliases(),
+      description: cmd.description(),
+      arguments: cmd.registeredArguments.map(arg => ({
+        name: arg.name(),
+        required: arg.required,
+        description: arg.description,
+      })),
+      options: cmd.options.map(opt => ({
+        flags: opt.flags,
+        description: opt.description,
+        required: opt.required,
+        defaultValue: opt.defaultValue ?? null,
+      })),
+    })),
+    globalOptions: program.options.map(opt => ({
+      flags: opt.flags,
+      description: opt.description,
+      required: opt.required,
+      defaultValue: opt.defaultValue ?? null,
+    })),
+  };
+}
+
 export function createProgram(homeDir?: string): Command {
   const resolvedHomeDir = homeDir ?? process.env.HOME ?? '';
   const program = new Command()
@@ -193,6 +227,18 @@ export function createProgram(homeDir?: string): Command {
     .option('--sync-dir <path>', 'Override ~/.syncskill directory')
     .option('--config <path>', 'Override config file path')
     .option('--no-refresh', 'Skip automatic manifest refresh before commands')
+    .configureHelp({
+      formatHelp: (cmd, helper) => {
+        const rootOpts = cmd.parent?.opts() ?? cmd.opts();
+        if (rootOpts.json) {
+          const introspection = buildCliIntrospection(cmd.parent ?? cmd);
+          return JSON.stringify(introspection, null, 2);
+        }
+
+        const formatter = Object.getPrototypeOf(helper).formatHelp as (this: object, cmd: Command, helper: object) => string;
+        return formatter.call(helper, cmd, helper);
+      }
+    })
     .hook('preAction', async (thisCommand, actionCommand) => {
       const envConfig = loadEnvConfig();
       const opts = thisCommand.opts<{
