@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import {
   loadSkillsRegistry,
   saveSkillsRegistry,
+  loadSkillsRegistryV2,
+  saveSkillsRegistryV2,
   normalizeSkillsRegistry,
   getSkillsRegistryPath,
   isSkillIgnored,
@@ -195,6 +197,96 @@ describe('skills-registry v2 types', () => {
     expect(registry.version).toBe(2);
     expect(registry.ignored['old-skill'].reason).toBe('user-choice');
     expect(registry.http_baselines['my-skill'].hash).toBe('abc123');
+  });
+});
+
+describe('loadSkillsRegistryV2', () => {
+  it('loads v2 registry', async () => {
+    const tempDir = join(tmpdir(), `registry-test-${Date.now()}`);
+    await mkdir(join(tempDir, '.syncskill'), { recursive: true });
+
+    const registryPath = join(tempDir, '.syncskill', 'skills-registry.json');
+    await writeFile(registryPath, JSON.stringify({
+      version: 2,
+      ignored: { 'skill-a': { reason: 'user-choice', ignored_at: '2026-05-21T00:00:00Z' } },
+      http_baselines: { 'skill-b': { hash: 'abc', source: 'src1' } }
+    }));
+
+    const registry = await loadSkillsRegistryV2(tempDir);
+
+    expect(registry.version).toBe(2);
+    expect(registry.ignored['skill-a'].reason).toBe('user-choice');
+    expect(registry.http_baselines['skill-b'].hash).toBe('abc');
+
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('returns empty v2 registry when file not found', async () => {
+    const tempDir = join(tmpdir(), `registry-test-${Date.now()}`);
+
+    const registry = await loadSkillsRegistryV2(tempDir);
+
+    expect(registry.version).toBe(2);
+    expect(registry.ignored).toEqual({});
+    expect(registry.http_baselines).toEqual({});
+  });
+
+  it('migrates v1 registry to v2', async () => {
+    const tempDir = join(tmpdir(), `registry-test-${Date.now()}`);
+    await mkdir(join(tempDir, '.syncskill'), { recursive: true });
+
+    const registryPath = join(tempDir, '.syncskill', 'skills-registry.json');
+    await writeFile(registryPath, JSON.stringify({
+      version: 1,
+      skills: {
+        'active-skill': {
+          path: '/path/to/skill',
+          origin: 'my-source',
+          type: 'http',
+          status: 'active',
+          last_update_hash: 'hash123'
+        },
+        'ignored-skill': {
+          path: '/path/to/skill2',
+          origin: 'git-source',
+          type: 'git',
+          status: 'ignored',
+          ignored_reason: 'user-choice',
+          ignored_at: '2026-05-21T00:00:00Z'
+        }
+      }
+    }));
+
+    const registry = await loadSkillsRegistryV2(tempDir);
+
+    expect(registry.version).toBe(2);
+    expect(registry.http_baselines['active-skill']).toEqual({
+      hash: 'hash123',
+      source: 'my-source'
+    });
+    expect(registry.ignored['ignored-skill'].reason).toBe('user-choice');
+
+    await rm(tempDir, { recursive: true, force: true });
+  });
+});
+
+describe('saveSkillsRegistryV2', () => {
+  it('saves v2 registry', async () => {
+    const tempDir = join(tmpdir(), `registry-test-${Date.now()}`);
+    await mkdir(join(tempDir, '.syncskill'), { recursive: true });
+
+    const registry: SkillsRegistryV2 = {
+      version: 2,
+      ignored: { 'skill-a': { reason: 'user-choice', ignored_at: '2026-05-21T00:00:00Z' } },
+      http_baselines: { 'skill-b': { hash: 'xyz', source: 'src1' } }
+    };
+
+    await saveSkillsRegistryV2(tempDir, registry);
+
+    const loaded = await loadSkillsRegistryV2(tempDir);
+    expect(loaded).toEqual(registry);
+
+    await rm(tempDir, { recursive: true, force: true });
   });
 });
 

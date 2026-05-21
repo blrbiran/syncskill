@@ -81,6 +81,85 @@ export async function saveSkillsRegistry(homeDir: string, registry: SkillsRegist
   await writeFile(path, JSON.stringify(registry, null, 2) + '\n', 'utf8');
 }
 
+export function createEmptyRegistryV2(): SkillsRegistryV2 {
+  return { version: 2, ignored: {}, http_baselines: {} };
+}
+
+export async function loadSkillsRegistryV2(homeDir: string): Promise<SkillsRegistryV2> {
+  const path = getSkillsRegistryPath(homeDir);
+
+  try {
+    const content = await readFile(path, 'utf8');
+    const parsed = JSON.parse(content);
+
+    if (parsed.version === 2) {
+      return normalizeRegistryV2(parsed);
+    }
+
+    if (parsed.version === 1) {
+      return migrateV1ToV2(normalizeSkillsRegistry(parsed));
+    }
+
+    return createEmptyRegistryV2();
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return createEmptyRegistryV2();
+    }
+    throw error;
+  }
+}
+
+function normalizeRegistryV2(value: unknown): SkillsRegistryV2 {
+  if (typeof value !== 'object' || value === null) {
+    return createEmptyRegistryV2();
+  }
+
+  const obj = value as Record<string, unknown>;
+  if (obj.version !== 2) {
+    return createEmptyRegistryV2();
+  }
+
+  return {
+    version: 2,
+    ignored: typeof obj.ignored === 'object' && obj.ignored !== null
+      ? obj.ignored as Record<string, IgnoredSkillEntry>
+      : {},
+    http_baselines: typeof obj.http_baselines === 'object' && obj.http_baselines !== null
+      ? obj.http_baselines as Record<string, HttpBaseline>
+      : {}
+  };
+}
+
+function migrateV1ToV2(v1: SkillsRegistry): SkillsRegistryV2 {
+  const v2 = createEmptyRegistryV2();
+
+  for (const [skillName, entry] of Object.entries(v1.skills)) {
+    if (entry.status === 'ignored' && entry.ignored_reason) {
+      v2.ignored[skillName] = {
+        reason: entry.ignored_reason,
+        ignored_at: entry.ignored_at ?? new Date().toISOString(),
+        ...(entry.kept_by && { kept_by: entry.kept_by })
+      };
+    }
+
+    if (entry.type === 'http' && entry.last_update_hash) {
+      v2.http_baselines[skillName] = {
+        hash: entry.last_update_hash,
+        source: entry.origin
+      };
+    }
+  }
+
+  return v2;
+}
+
+export async function saveSkillsRegistryV2(homeDir: string, registry: SkillsRegistryV2): Promise<void> {
+  const { syncDir } = getSyncPaths(homeDir);
+  await mkdir(syncDir, { recursive: true });
+  const path = getSkillsRegistryPath(homeDir);
+  await writeFile(path, JSON.stringify(registry, null, 2) + '\n', 'utf8');
+}
+
 export function isSkillIgnored(registry: SkillsRegistry, skillName: string): boolean {
   const entry = registry.skills[skillName];
   return entry !== undefined && entry.status === 'ignored';
