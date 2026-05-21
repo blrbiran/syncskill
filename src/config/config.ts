@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -140,9 +140,20 @@ export async function loadConfig(homeDir = homedir()): Promise<SyncSkillConfig> 
 }
 
 export async function saveConfig(config: SyncSkillConfig, homeDir = homedir()): Promise<void> {
-  const { syncDir, configFile } = getSyncPaths(homeDir);
+  const { syncDir } = getSyncPaths(homeDir);
+  const jsonPath = join(syncDir, 'config.json');
+  const yamlPath = join(syncDir, 'config.yaml');
+
   await mkdir(syncDir, { recursive: true });
-  await writeFile(configFile, YAML.stringify(config), 'utf8');
+  await writeFile(jsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+
+  try {
+    await rm(yamlPath);
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+  }
 }
 
 export function parseConfigValue(raw: string): unknown {

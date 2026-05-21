@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -138,6 +138,42 @@ describe('config persistence', () => {
     expect(loaded.version).toBe(1);
 
     await rm(tempDir, { recursive: true });
+  });
+
+  describe('saveConfig', () => {
+    it('should save config as JSON', async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), 'syncskill-'));
+      const syncDir = join(tempDir, '.syncskill');
+      await mkdir(syncDir, { recursive: true });
+
+      const config = createDefaultConfig(tempDir, {});
+      await saveConfig(config, tempDir);
+
+      const jsonPath = join(syncDir, 'config.json');
+      const content = await readFile(jsonPath, 'utf8');
+      expect(JSON.parse(content).version).toBe(1);
+
+      await rm(tempDir, { recursive: true });
+    });
+
+    it('should migrate YAML to JSON on save', async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), 'syncskill-'));
+      const syncDir = join(tempDir, '.syncskill');
+      await mkdir(syncDir, { recursive: true });
+
+      const yamlPath = join(syncDir, 'config.yaml');
+      await writeFile(yamlPath, YAML.stringify({ version: 1, agents: {}, links: {} }));
+
+      const config = await loadConfig(tempDir);
+      await saveConfig(config, tempDir);
+
+      const jsonPath = join(syncDir, 'config.json');
+      await expect(access(yamlPath)).rejects.toThrow();
+      const content = await readFile(jsonPath, 'utf8');
+      expect(JSON.parse(content).version).toBe(1);
+
+      await rm(tempDir, { recursive: true });
+    });
   });
 });
 
