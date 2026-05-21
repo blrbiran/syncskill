@@ -774,7 +774,7 @@ describe('reconciliation CLI', () => {
     });
   });
 
-  it('link <skill> opens single-skill editor and reconciles selected agents', async () => {
+  it('link edit <skill> opens single-skill editor and reconciles selected agents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-editor-'));
     tempDirs.push(homeDir);
 
@@ -815,7 +815,7 @@ describe('reconciliation CLI', () => {
     Object.defineProperty(process.stdout, 'isTTY', { value: true, writable: true });
 
     try {
-      await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'my-skill'], { from: 'node' });
+      await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'edit', 'my-skill'], { from: 'node' });
     } finally {
       Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
     }
@@ -839,7 +839,7 @@ describe('reconciliation CLI', () => {
     expect(consoleLog).toHaveBeenCalledWith('✓ Updated my-skill: linked to cursor, unlinked from hermes');
   });
 
-  it('link <skill> <agent> appends one agent and creates the symlink', async () => {
+  it('link add <skill> <agent> appends one agent and creates the symlink', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-append-'));
     tempDirs.push(homeDir);
 
@@ -871,7 +871,7 @@ describe('reconciliation CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'my-skill', 'cursor'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'add', 'my-skill', 'cursor'], { from: 'node' });
 
     await expect(loadConfig(homeDir)).resolves.toMatchObject({
       links: {
@@ -879,10 +879,10 @@ describe('reconciliation CLI', () => {
       }
     });
     await expect(readlink(join(cursorDir, 'my-skill'))).resolves.toBe(skillDir);
-    expect(consoleLog).toHaveBeenCalledWith('✓ Linked my-skill to cursor');
+    expect(consoleLog).toHaveBeenCalledWith('✓ Linked my-skill to: claude, cursor');
   });
 
-  it('link <skill> <agent> rejects unknown agents', async () => {
+  it('link add <skill> <agent> rejects unknown agents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-append-'));
     tempDirs.push(homeDir);
 
@@ -915,7 +915,7 @@ describe('reconciliation CLI', () => {
     }) as never);
 
     await expect(
-      createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'my-skill', 'cursor'], { from: 'node' })
+      createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'add', 'my-skill', 'cursor'], { from: 'node' })
     ).rejects.toThrow('process.exit:1');
 
     expect(consoleError).toHaveBeenCalledWith("Error: Agent 'cursor' not configured");
@@ -927,7 +927,7 @@ describe('reconciliation CLI', () => {
     });
   });
 
-  it('link <skill> --all sets wildcard links and links all configured agents', async () => {
+  it('link set <skill> * sets wildcard links and links all configured agents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-apply-'));
     tempDirs.push(homeDir);
 
@@ -960,7 +960,7 @@ describe('reconciliation CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'my-skill', '--all'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'set', 'my-skill', '*'], { from: 'node' });
 
     await expect(loadConfig(homeDir)).resolves.toMatchObject({
       links: {
@@ -970,6 +970,6 @@ describe('reconciliation CLI', () => {
     await expect(readlink(join(claudeDir, 'my-skill'))).resolves.toBe(skillDir);
     await expect(readlink(join(cursorDir, 'my-skill'))).resolves.toBe(skillDir);
     await expect(readlink(join(hermesDir, 'my-skill'))).resolves.toBe(skillDir);
-    expect(consoleLog).toHaveBeenCalledWith('✓ Linked my-skill to all 3 agents');
+    expect(consoleLog).toHaveBeenCalledWith('✓ Linked my-skill to: claude, cursor, hermes');
   });
 });

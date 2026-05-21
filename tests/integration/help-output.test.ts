@@ -1,6 +1,11 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
 import { describe, expect, it } from 'vitest';
 
 import { createProgram } from '../../src/index.js';
+
+const execAsync = promisify(execFile);
 
 describe('help output', () => {
   it('describes the shipped commands in install-facing language', () => {
@@ -53,6 +58,20 @@ describe('help output', () => {
     const options = linkCmd?.options.map(o => o.long);
 
     expect(options).not.toContain('--list');
+  });
+
+  it('should show subcommands: edit, set, add, remove, clear, apply, list', async () => {
+    const { stdout } = await execAsync('node', ['dist/index.js', 'link', '--help'], {
+      cwd: '/Users/biran/code/skills/syncskill'
+    });
+
+    expect(stdout).toContain('edit');
+    expect(stdout).toContain('set');
+    expect(stdout).toContain('add');
+    expect(stdout).toContain('remove');
+    expect(stdout).toContain('clear');
+    expect(stdout).toContain('apply');
+    expect(stdout).toContain('list');
   });
 
   it('describes update-flow commands and options clearly', () => {

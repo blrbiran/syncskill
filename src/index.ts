@@ -445,167 +445,283 @@ export function createProgram(homeDir?: string): Command {
       }
     });
 
-  program
-    .command('link [skillOrSubcommand] [agentName]')
-    .description('Manage skill-to-agent links (auto-cleans stale links). No args: matrix editor; list/ls: show status')
-    .option('--apply', 'Apply config: create/remove links to match config')
-    .option('--all', 'Link skill to all configured agents (writes ["*"] to config)')
+  async function ensureLinkCommandReady(): Promise<SyncSkillConfig> {
+    const config = await loadConfig(resolvedHomeDir);
+    const { skillsDir } = getSyncPaths(resolvedHomeDir);
+    await autoDiagnoseConfig(config, skillsDir);
+    return config;
+  }
+
+  function validateTargetAgents(config: SyncSkillConfig, targets: string[]): void {
+    for (const agent of targets) {
+      if (agent === '*') {
+        continue;
+      }
+
+      if (!config.agents[agent]) {
+        console.error(`Error: Agent '${agent}' not configured`);
+        process.exit(1);
+        return;
+      }
+    }
+  }
+
+  function normalizeSkillTargets(config: SyncSkillConfig, targets: string[]): string[] {
+    if (targets.includes('*')) {
+      return ['*'];
+    }
+
+    validateTargetAgents(config, targets);
+    return [...new Set(targets)].sort();
+  }
+
+  async function saveSkillTargets(skill: string, targets: string[]): Promise<SyncSkillConfig> {
+    const config = await ensureLinkCommandReady();
+    config.links[skill] = normalizeSkillTargets(config, targets);
+    await saveConfig(config, resolvedHomeDir);
+    return config;
+  }
+
+  async function applySkillLinks(skill: string, options: { dryRun?: boolean; yes?: boolean }): Promise<void> {
+    if (options.dryRun) {
+      console.log(`[dry-run] Would link ${skill}`);
+      const staleBySkill = await findStaleLinks(resolvedHomeDir, [skill]);
+      await displayStaleLinksPreview(staleBySkill);
+      return;
+    }
+
+    const results = await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skill });
+    const agents = results.map((result) => result.agent);
+    if (agents.length > 0) {
+      console.log(`✓ Linked ${skill} to: ${agents.join(', ')}`);
+    }
+    await handleStaleLinksReconciliation(resolvedHomeDir, [skill], options);
+  }
+
+  const linkCommand = program
+    .command('link')
+    .description('Manage skill-to-agent links')
+    .action(async () => {
+      await ensureLinkCommandReady();
+
+      if (!process.stdout.isTTY) {
+        linkCommand.outputHelp();
+        return;
+      }
+
+      await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'link' });
+    });
+
+  linkCommand
+    .command('list')
+    .alias('ls')
+    .description('Show link status matrix')
     .option('-v, --verbose', 'Show text status instead of symbols')
+    .action(async (options: { verbose?: boolean }) => {
+      const config = await ensureLinkCommandReady();
+      const statuses = await collectLinkStatus(resolvedHomeDir);
+      console.log(formatLinkStatusMatrix(statuses, options.verbose ?? false, config.private_agents));
+    });
+
+  linkCommand
+    .command('edit [skill]')
+    .description('Open matrix editor for humans')
+    .action(async (skill: string | undefined) => {
+      const config = await ensureLinkCommandReady();
+
+      if (!process.stdout.isTTY) {
+        console.error('Error: link edit requires an interactive terminal.');
+        console.error('Use `syncskill link set <skill> <agents...>` or `syncskill link add <skill> <agent>` instead.');
+        process.exit(1);
+        return;
+      }
+
+      if (!skill) {
+        await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'link' });
+        return;
+      }
+
+      const allAgents = Object.keys(config.agents).sort();
+      const currentTargets = config.links[skill] ?? [];
+      const selectedAgents = await checkbox({
+        message: `${skill} is currently linked to:\n`,
+        choices: allAgents.map((agent) => ({
+          name: agent,
+          value: agent,
+          checked: currentTargets.includes('*') || currentTargets.includes(agent)
+        }))
+      });
+
+      const previousAgents = new Set(currentTargets.includes('*') ? allAgents : currentTargets);
+      const nextAgents = [...selectedAgents].sort();
+      config.links[skill] = nextAgents;
+      await saveConfig(config, resolvedHomeDir);
+      await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skill });
+      await handleStaleLinksReconciliation(resolvedHomeDir, [skill], {});
+
+      const linkedAgents = nextAgents.filter((agent) => !previousAgents.has(agent));
+      const unlinkedAgents = [...previousAgents].filter((agent) => !nextAgents.includes(agent)).sort();
+      const changes: string[] = [];
+      if (linkedAgents.length > 0) {
+        changes.push(`linked to ${linkedAgents.join(', ')}`);
+      }
+      if (unlinkedAgents.length > 0) {
+        changes.push(`unlinked from ${unlinkedAgents.join(', ')}`);
+      }
+      console.log(`✓ Updated ${skill}${changes.length > 0 ? `: ${changes.join(', ')}` : ''}`);
+    });
+
+  linkCommand
+    .command('set <skill> <agents...>')
+    .description('Set skill targets declaratively')
     .option('--dry-run', 'Preview changes without applying')
     .option('-y, --yes', 'Auto-confirm stale link removal')
-    .action(async (skillOrSubcommand: string | undefined, agentName: string | undefined, options: { apply?: boolean; all?: boolean; verbose?: boolean; dryRun?: boolean; yes?: boolean }) => {
-      // Auto-check config health
+    .action(async (skill: string, agents: string[], options: { dryRun?: boolean; yes?: boolean }) => {
+      const config = await ensureLinkCommandReady();
+      const nextTargets = normalizeSkillTargets(config, agents);
+
+      if (options.dryRun) {
+        console.log(`[dry-run] Would set ${skill} targets to ${nextTargets.join(', ')}`);
+        return;
+      }
+
+      config.links[skill] = nextTargets;
+      await saveConfig(config, resolvedHomeDir);
+      await applySkillLinks(skill, options);
+    });
+
+  linkCommand
+    .command('add <skill> <agent>')
+    .description('Add agent to skill targets')
+    .option('--dry-run', 'Preview changes without applying')
+    .option('-y, --yes', 'Auto-confirm stale link removal')
+    .action(async (skill: string, agent: string, options: { dryRun?: boolean; yes?: boolean }) => {
+      const config = await ensureLinkCommandReady();
+      validateTargetAgents(config, [agent]);
+
+      const currentTargets = config.links[skill] ?? [];
+      const nextTargets = currentTargets.includes('*') || currentTargets.includes(agent)
+        ? currentTargets
+        : [...currentTargets, agent].sort();
+
+      if (options.dryRun) {
+        console.log(`[dry-run] Would link ${skill} to ${agent}`);
+        const staleBySkill = await findStaleLinks(resolvedHomeDir, [skill]);
+        await displayStaleLinksPreview(staleBySkill);
+        return;
+      }
+
+      config.links[skill] = nextTargets;
+      await saveConfig(config, resolvedHomeDir);
+      await applySkillLinks(skill, options);
+    });
+
+  linkCommand
+    .command('remove <skill> <agent>')
+    .description('Remove agent from skill targets')
+    .option('--dry-run', 'Preview changes without applying')
+    .action(async (skill: string, agent: string, options: { dryRun?: boolean }) => {
+      const config = await ensureLinkCommandReady();
+      validateTargetAgents(config, [agent]);
+
+      const currentTargets = expandTargetAgents(config, config.links[skill] ?? []);
+      const nextTargets = currentTargets.filter((target) => target !== agent);
+
+      if (options.dryRun) {
+        console.log(`[dry-run] Would remove ${agent} from ${skill}`);
+        return;
+      }
+
+      config.links[skill] = nextTargets;
+      await saveConfig(config, resolvedHomeDir);
+      await unlinkSkillFromAgent(resolvedHomeDir, skill, agent);
+      console.log(`✓ Removed ${agent} from ${skill}`);
+    });
+
+  linkCommand
+    .command('clear <skill>')
+    .description('Remove all links for a skill')
+    .option('-y, --yes', 'Skip confirmation')
+    .option('--dry-run', 'Preview changes without applying')
+    .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean }) => {
+      const config = await ensureLinkCommandReady();
+      const agents = [...new Set(expandTargetAgents(config, config.links[skill] ?? []))].sort();
+
+      if (options.dryRun) {
+        console.log(`[dry-run] Would unlink ${skill} from all agents (${agents.join(', ')})`);
+        return;
+      }
+
+      if (!options.yes) {
+        const confirmed = await confirm({
+          message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
+          default: false,
+        });
+        if (!confirmed) {
+          console.log('Cancelled.');
+          return;
+        }
+      }
+
+      await unlinkSkill(resolvedHomeDir, skill);
+      config.links[skill] = [];
+      await saveConfig(config, resolvedHomeDir);
+      console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
+    });
+
+  linkCommand
+    .command('apply')
+    .description('Reconcile symlinks to match config')
+    .option('--dry-run', 'Preview changes without applying')
+    .option('-y, --yes', 'Auto-confirm stale link removal')
+    .action(async (options: { dryRun?: boolean; yes?: boolean }) => {
+      await ensureLinkCommandReady();
+
+      if (options.dryRun) {
+        console.log('[dry-run] Would link all configured skills');
+        const staleBySkill = await findStaleLinks(resolvedHomeDir);
+        await displayStaleLinksPreview(staleBySkill);
+        return;
+      }
+
+      const results = await linkConfiguredSkills(resolvedHomeDir, { all: true });
+      const skillCount = new Set(results.map(r => r.skill)).size;
+      console.log(`✓ Linked ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
+      await handleStaleLinksReconciliation(resolvedHomeDir, undefined, options);
+    });
+
+  program
+    .command('unlink <skill>')
+    .description('Remove all skill links for this skill')
+    .option('-y, --yes', 'Skip confirmation')
+    .option('--dry-run', 'Preview changes')
+    .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean; apply?: boolean }) => {
       const config = await loadConfig(resolvedHomeDir);
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
       await autoDiagnoseConfig(config, skillsDir);
 
-      // Check if argument is 'list' or 'ls' subcommand
-      const isListSubcommand = skillOrSubcommand === 'list' || skillOrSubcommand === 'ls';
+      const agents = [...new Set(expandTargetAgents(config, config.links[skill] ?? []))].sort();
 
-      if (isListSubcommand) {
-        // If it looks like a subcommand, check if a skill with that name exists
-        if (isListSubcommand) {
-          const skills = await listLocalSkills(resolvedHomeDir);
-          if (skills.includes(skillOrSubcommand!)) {
-            // Skill exists with this name - link it instead of showing status
-            if (options.dryRun) {
-              console.log(`[dry-run] Would link skill "${skillOrSubcommand}"`);
-              return;
-            }
-            const results = await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skillOrSubcommand });
-            const agents = results.map(r => r.agent);
-            if (agents.length > 0) {
-              console.log(`✓ Linked ${skillOrSubcommand} to: ${agents.join(', ')}`);
-            }
-            // Reconcile stale links for this skill
-            await handleStaleLinksReconciliation(resolvedHomeDir, [skillOrSubcommand!], options);
-            return;
-          }
-        }
-
-        // Show link status
-        const statuses = await collectLinkStatus(resolvedHomeDir);
-        console.log(formatLinkStatusMatrix(statuses, options.verbose ?? false, config.private_agents));
+      if (options.dryRun) {
+        console.log(`[dry-run] Would unlink ${skill} from all agents (${agents.join(', ')})`);
         return;
       }
 
-      if (typeof skillOrSubcommand === 'string') {
-        // link <skill> --all: link to all agents with wildcard
-        if (options.all) {
-          config.links[skillOrSubcommand] = ['*'];
-          await saveConfig(config, resolvedHomeDir);
-
-          if (options.dryRun) {
-            console.log(`[dry-run] Would link ${skillOrSubcommand} to all ${Object.keys(config.agents).length} agents`);
-            const staleBySkill = await findStaleLinks(resolvedHomeDir, [skillOrSubcommand]);
-            await displayStaleLinksPreview(staleBySkill);
-            return;
-          }
-
-          await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skillOrSubcommand });
-          console.log(`✓ Linked ${skillOrSubcommand} to all ${Object.keys(config.agents).length} agents`);
-          await handleStaleLinksReconciliation(resolvedHomeDir, [skillOrSubcommand], options);
-          return;
-        }
-
-        // link <skill> <agent>: add specific agent
-        if (agentName) {
-          if (!config.agents[agentName]) {
-            console.error(`Error: Agent '${agentName}' not configured`);
-            process.exit(1);
-            return;
-          }
-
-          const currentTargets = config.links[skillOrSubcommand] ?? [];
-          const nextTargets = currentTargets.includes('*') || currentTargets.includes(agentName)
-            ? currentTargets
-            : [...currentTargets, agentName].sort();
-          config.links[skillOrSubcommand] = nextTargets;
-          await saveConfig(config, resolvedHomeDir);
-
-          if (options.dryRun) {
-            console.log(`[dry-run] Would link ${skillOrSubcommand} to ${agentName}`);
-            const staleBySkill = await findStaleLinks(resolvedHomeDir, [skillOrSubcommand]);
-            await displayStaleLinksPreview(staleBySkill);
-            return;
-          }
-
-          await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skillOrSubcommand });
-          console.log(`✓ Linked ${skillOrSubcommand} to ${agentName}`);
-          await handleStaleLinksReconciliation(resolvedHomeDir, [skillOrSubcommand], options);
-          return;
-        }
-
-        // link <skill> (interactive mode): requires TTY, does not support --dry-run
-        if (options.dryRun) {
-          console.error('Error: link <skill> does not support --dry-run (interactive editor).');
-          console.error('Use `link <skill> --all --dry-run` or `link --apply --dry-run` instead.');
-          process.exit(1);
-          return;
-        }
-
-        if (!process.stdout.isTTY) {
-          console.error('Error: link <skill> requires an interactive terminal.');
-          console.error('Use `link <skill> <agent>` or `link <skill> --all` instead.');
-          process.exit(1);
-          return;
-        }
-
-        const allAgents = Object.keys(config.agents).sort();
-        const currentTargets = config.links[skillOrSubcommand] ?? [];
-        const selectedAgents = await checkbox({
-          message: `${skillOrSubcommand} is currently linked to:\n`,
-          choices: allAgents.map((agent) => ({
-            name: agent,
-            value: agent,
-            checked: currentTargets.includes('*') || currentTargets.includes(agent)
-          }))
+      if (!options.yes) {
+        const confirmed = await confirm({
+          message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
+          default: false,
         });
-
-        const previousAgents = new Set(currentTargets.includes('*') ? allAgents : currentTargets);
-        const nextAgents = [...selectedAgents].sort();
-        config.links[skillOrSubcommand] = nextAgents;
-        await saveConfig(config, resolvedHomeDir);
-
-        if (options.dryRun) {
-          console.log(`[dry-run] Would update ${skillOrSubcommand}`);
-          const staleBySkill = await findStaleLinks(resolvedHomeDir, [skillOrSubcommand]);
-          await displayStaleLinksPreview(staleBySkill);
+        if (!confirmed) {
+          console.log('Cancelled.');
           return;
         }
-
-        await linkConfiguredSkills(resolvedHomeDir, { all: false, skillName: skillOrSubcommand });
-        await handleStaleLinksReconciliation(resolvedHomeDir, [skillOrSubcommand], options);
-
-        const linkedAgents = nextAgents.filter((agent) => !previousAgents.has(agent));
-        const unlinkedAgents = [...previousAgents].filter((agent) => !nextAgents.includes(agent)).sort();
-        const changes: string[] = [];
-        if (linkedAgents.length > 0) {
-          changes.push(`linked to ${linkedAgents.join(', ')}`);
-        }
-        if (unlinkedAgents.length > 0) {
-          changes.push(`unlinked from ${unlinkedAgents.join(', ')}`);
-        }
-        console.log(`✓ Updated ${skillOrSubcommand}${changes.length > 0 ? `: ${changes.join(', ')}` : ''}`);
-        return;
       }
 
-      if (options.apply) {
-        if (options.dryRun) {
-          console.log('[dry-run] Would link all configured skills');
-          const staleBySkill = await findStaleLinks(resolvedHomeDir);
-          await displayStaleLinksPreview(staleBySkill);
-          return;
-        }
-        const results = await linkConfiguredSkills(resolvedHomeDir, { all: true });
-        const skillCount = new Set(results.map(r => r.skill)).size;
-        console.log(`✓ Linked ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
-        await handleStaleLinksReconciliation(resolvedHomeDir, undefined, options);
-        return;
-      }
-
-      // No args: open matrix editor
-      await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'link' });
+      await unlinkSkill(resolvedHomeDir, skill);
+      config.links[skill] = [];
+      await saveConfig(config, resolvedHomeDir);
+      console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
     });
 
   /**
@@ -703,39 +819,6 @@ export function createProgram(homeDir?: string): Command {
     }
   }
 
-  program
-    .command('unlink <skill>')
-    .description('Remove all skill links for this skill')
-    .option('-y, --yes', 'Skip confirmation')
-    .option('--dry-run', 'Preview changes')
-    .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean; apply?: boolean }) => {
-      const config = await loadConfig(resolvedHomeDir);
-      const { skillsDir } = getSyncPaths(resolvedHomeDir);
-      await autoDiagnoseConfig(config, skillsDir);
-
-      const agents = [...new Set(expandTargetAgents(config, config.links[skill] ?? []))].sort();
-
-      if (options.dryRun) {
-        console.log(`[dry-run] Would unlink ${skill} from all agents (${agents.join(', ')})`);
-        return;
-      }
-
-      if (!options.yes) {
-        const confirmed = await confirm({
-          message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
-          default: false,
-        });
-        if (!confirmed) {
-          console.log('Cancelled.');
-          return;
-        }
-      }
-
-      await unlinkSkill(resolvedHomeDir, skill);
-      config.links[skill] = [];
-      await saveConfig(config, resolvedHomeDir);
-      console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
-    });
   const sourceCommand = program.command('source').description('Manage external skill sources and source recovery');
 
   sourceCommand

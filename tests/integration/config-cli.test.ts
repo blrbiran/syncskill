@@ -25,7 +25,7 @@ describe('config CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply'], { from: 'node' });
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'list'], { from: 'node' });
 
     // Check that the matrix format output was logged (contains skill name and linked symbol)
@@ -46,7 +46,7 @@ describe('config CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply'], { from: 'node' });
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'list', '-v'], { from: 'node' });
 
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
@@ -66,7 +66,7 @@ describe('config CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply', '--dry-run'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply', '--dry-run'], { from: 'node' });
 
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
     expect(loggedOutput).toContain('[dry-run]');
@@ -100,7 +100,7 @@ describe('config CLI', () => {
       sources: {}
     }, homeDir);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply'], { from: 'node' });
 
     await expect(readlink(join(homeDir, '.claude', 'skills', 'unlink-test'))).resolves.toBeDefined();
     await expect(readlink(join(homeDir, '.cursor', 'skills', 'unlink-test'))).resolves.toBeDefined();
@@ -145,7 +145,7 @@ describe('config CLI', () => {
       sources: {}
     }, homeDir);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply'], { from: 'node' });
 
     await expect(readlink(join(homeDir, '.claude', 'skills', 'to-unlink'))).resolves.toBeDefined();
     await expect(readlink(join(homeDir, '.cursor', 'skills', 'to-unlink'))).resolves.toBeDefined();

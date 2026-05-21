@@ -425,8 +425,8 @@ describe('skills-registry generation', () => {
       })
     );
 
-    // Run link --apply
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', '--apply'], { from: 'node' });
+    // Run link apply
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply'], { from: 'node' });
 
     // Check skills-registry.json was created
     const registryPath = join(syncDir, 'skills-registry.json');
