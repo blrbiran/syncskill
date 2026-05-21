@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 import YAML from 'yaml';
 
+import { isNotFoundError } from '../utils/utils.js';
+
 // Re-export types from types.ts
 export type { SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer, SourceConfig } from './types.js';
 import type { SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer } from './types.js';
@@ -112,10 +114,29 @@ export function validateConfig(value: unknown): SyncSkillConfig {
 }
 
 export async function loadConfig(homeDir = homedir()): Promise<SyncSkillConfig> {
-  const { configFile } = getSyncPaths(homeDir);
-  const raw = await readFile(configFile, 'utf8');
+  const { syncDir } = getSyncPaths(homeDir);
+  const jsonPath = join(syncDir, 'config.json');
+  const yamlPath = join(syncDir, 'config.yaml');
 
-  return validateConfig(YAML.parse(raw));
+  try {
+    const raw = await readFile(jsonPath, 'utf8');
+    return validateConfig(JSON.parse(raw));
+  } catch (jsonError) {
+    if (!isNotFoundError(jsonError) && !(jsonError instanceof SyntaxError)) {
+      throw jsonError;
+    }
+  }
+
+  try {
+    const raw = await readFile(yamlPath, 'utf8');
+    return validateConfig(YAML.parse(raw));
+  } catch (yamlError) {
+    if (isNotFoundError(yamlError)) {
+      throw new Error('Config not found. Run `syncskill init` first.');
+    }
+
+    throw yamlError;
+  }
 }
 
 export async function saveConfig(config: SyncSkillConfig, homeDir = homedir()): Promise<void> {

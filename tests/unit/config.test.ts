@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import YAML from 'yaml';
 
 import {
   createDefaultConfig,
@@ -94,6 +95,49 @@ describe('config persistence', () => {
     await saveConfig(config, homeDir);
 
     await expect(loadConfig(homeDir)).resolves.toEqual(config);
+  });
+
+  it('should load config from JSON file', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'syncskill-'));
+    const syncDir = join(tempDir, '.syncskill');
+    await mkdir(syncDir, { recursive: true });
+
+    const config = { version: 1, agents: {}, links: {}, servers: {}, sources: {} };
+    await writeFile(join(syncDir, 'config.json'), JSON.stringify(config));
+
+    const loaded = await loadConfig(tempDir);
+    expect(loaded.version).toBe(1);
+
+    await rm(tempDir, { recursive: true });
+  });
+
+  it('should fall back to YAML if JSON not found', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'syncskill-'));
+    const syncDir = join(tempDir, '.syncskill');
+    await mkdir(syncDir, { recursive: true });
+
+    const config = { version: 1, agents: {}, links: {}, servers: {}, sources: {} };
+    await writeFile(join(syncDir, 'config.yaml'), YAML.stringify(config));
+
+    const loaded = await loadConfig(tempDir);
+    expect(loaded.version).toBe(1);
+
+    await rm(tempDir, { recursive: true });
+  });
+
+  it('should fall back to YAML if config.json contains YAML content from migration period', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'syncskill-'));
+    const syncDir = join(tempDir, '.syncskill');
+    await mkdir(syncDir, { recursive: true });
+
+    const config = { version: 1, agents: {}, links: {}, servers: {}, sources: {} };
+    await writeFile(join(syncDir, 'config.json'), YAML.stringify(config));
+    await writeFile(join(syncDir, 'config.yaml'), YAML.stringify(config));
+
+    const loaded = await loadConfig(tempDir);
+    expect(loaded.version).toBe(1);
+
+    await rm(tempDir, { recursive: true });
   });
 });
 
