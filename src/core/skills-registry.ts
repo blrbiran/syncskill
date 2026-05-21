@@ -16,9 +16,26 @@ export interface SkillRegistryEntry {
   last_update_hash?: string;  // Only for HTTP sources, used for dirty detection
 }
 
+export interface IgnoredSkillEntry {
+  reason: 'duplicate' | 'user-choice' | 'conflict';
+  ignored_at: string;
+  kept_by?: string;
+}
+
+export interface HttpBaseline {
+  hash: string;
+  source: string;
+}
+
 export interface SkillsRegistry {
-  version: 1;
+  version: number;
   skills: Record<string, SkillRegistryEntry>;
+}
+
+export interface SkillsRegistryV2 {
+  version: 2;
+  ignored: Record<string, IgnoredSkillEntry>;
+  http_baselines: Record<string, HttpBaseline>;
 }
 
 export function getSkillsRegistryPath(homeDir: string): string {

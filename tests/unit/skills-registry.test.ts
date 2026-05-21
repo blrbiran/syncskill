@@ -18,6 +18,7 @@ import {
   ignoreSkill,
   rebuildSkillsRegistry,
 } from '../../src/core/skills-registry.js';
+import type { SkillsRegistryV2 } from '../../src/core/skills-registry.js';
 
 describe('skills-registry', () => {
   let tempDir: string;
@@ -170,6 +171,30 @@ describe('skills-registry', () => {
     expect(isSkillActive(loaded, 'test-skill')).toBe(true);
 
     await rm(newTempDir, { recursive: true, force: true });
+  });
+});
+
+describe('skills-registry v2 types', () => {
+  it('accepts valid v2 registry', () => {
+    const registry: SkillsRegistryV2 = {
+      version: 2,
+      ignored: {
+        'old-skill': {
+          reason: 'user-choice',
+          ignored_at: '2026-05-21T00:00:00.000Z'
+        }
+      },
+      http_baselines: {
+        'my-skill': {
+          hash: 'abc123',
+          source: 'my-http-source'
+        }
+      }
+    };
+
+    expect(registry.version).toBe(2);
+    expect(registry.ignored['old-skill'].reason).toBe('user-choice');
+    expect(registry.http_baselines['my-skill'].hash).toBe('abc123');
   });
 });
 
