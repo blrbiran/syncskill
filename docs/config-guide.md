@@ -1,10 +1,42 @@
 # Configuration Guide
 
-`syncskill` stores its runtime state under `~/.syncskill/`. The main configuration file is `~/.syncskill/config.json`.
+`syncskill` stores its runtime state under `~/.syncskill/` by default. The main configuration file is `~/.syncskill/config.json`.
+
+You can override these locations with environment variables:
+
+- `SYNCSKILL_DIR` - override the runtime directory root
+- `SYNCSKILL_CONFIG` - override the config file path
 
 Note: v2 uses JSON-only config. If you still have an older `config.yaml`, any config write operation automatically migrates it to `config.json` and removes the legacy YAML file.
 
+## AI Agent Integration
+
+For automation and agent handoff workflows, combine the JSON config format with the v2 global execution flags:
+
+```bash
+# Stream machine-readable events
+syncskill --json status
+
+# Refuse prompts in CI or agent runs
+syncskill --no-interactive link apply
+
+# Generate a plan, save it, and execute it
+syncskill --plan-file /tmp/syncskill.plan.json install --self
+
+# Execute a saved plan later
+syncskill --apply /tmp/syncskill.plan.json
+```
+
+Use `--resolutions <path>` when a generated plan contains unresolved items that should be answered by another agent or approval step.
+
+Environment variables also support automation:
+
+- `SYNCSKILL_JSON` - enable JSONL output mode
+- `SYNCSKILL_NO_INTERACTIVE` - disable prompts
+
 ## Directory Structure
+
+Default layout:
 
 ```
 ~/.syncskill/
@@ -21,6 +53,8 @@ Note: v2 uses JSON-only config. If you still have an older `config.yaml`, any co
 │       └── _meta.json             # Backup metadata
 └── .tmp/                          # Temporary files (auto-cleaned)
 ```
+
+If `SYNCSKILL_DIR` is set, the same structure is created under that directory instead.
 
 ## Configuration Shape
 
@@ -259,6 +293,8 @@ Remote lifecycle notes:
 
 Defines external skill sources that can materialize content into the local sync repository.
 
+In v2, new sources are added with `syncskill install <url-or-path>`. The old `source add` and `source restore` commands were removed.
+
 Supported source types:
 
 | Type | Description |
@@ -377,6 +413,22 @@ The `recorded_hash` serves as a 3-way merge base:
 - Both differ → Conflict
 
 This design handles external operations (like `git checkout`) correctly: even if local files are reverted, `recorded_hash` remains unchanged, so the system detects the local change.
+
+## Exit Codes
+
+CLI commands use the following exit codes:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | General error |
+| `2` | Invalid arguments |
+| `3` | Config or registry corruption |
+| `4` | Permission error |
+| `5` | Sync conflict |
+| `6` | Source dirty |
+| `7` | Network error |
+| `8` | User abort |
 
 ## Install from Source
 
