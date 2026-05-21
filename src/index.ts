@@ -692,18 +692,21 @@ export function createProgram(homeDir?: string): Command {
 
   program
     .command('unlink <skill>')
-    .description('Remove all skill links for this skill')
+    .description('Remove all skill links (alias for "link clear")')
     .option('-y, --yes', 'Skip confirmation')
-    .option('--dry-run', 'Preview changes')
-    .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean; apply?: boolean }) => {
-      const config = await loadConfig(resolvedHomeDir);
-      const { skillsDir } = getSyncPaths(resolvedHomeDir);
-      await autoDiagnoseConfig(config, skillsDir);
-
+    .option('--dry-run', 'Preview changes without applying')
+    .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean }) => {
+      const config = await ensureLinkCommandReady();
       const agents = [...new Set(expandTargetAgents(config, config.links[skill] ?? []))].sort();
+
+      if (agents.length === 0) {
+        console.log(`No links found for "${skill}".`);
+        return;
+      }
 
       if (options.dryRun) {
         console.log(`[dry-run] Would unlink ${skill} from all agents (${agents.join(', ')})`);
+        console.log(`[dry-run] Would remove "${skill}" from config links.`);
         return;
       }
 
@@ -719,9 +722,10 @@ export function createProgram(homeDir?: string): Command {
       }
 
       await unlinkSkill(resolvedHomeDir, skill);
-      config.links[skill] = [];
+      delete config.links[skill];
       await saveConfig(config, resolvedHomeDir);
-      console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
+      console.log(`✓ Unlinked ${skill} from all agents`);
+      console.log(`✓ Removed "${skill}" from config links.`);
     });
 
   /**
