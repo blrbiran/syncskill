@@ -130,22 +130,4 @@ describe('source restore', () => {
     expect(await getSourceHistory(homeDir, 'skill-pack')).toBeNull();
     void syncDir;
   });
-
-  it('prints no-history message when restore metadata is missing', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-restore-'));
-    tempDirs.push(homeDir);
-
-    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null | undefined) => {
-      throw new Error(`process.exit:${code ?? ''}`);
-    }) as never);
-
-    await expect(
-      createProgram(homeDir).parseAsync(['node', 'syncskill', 'source', 'restore', 'unknown'], { from: 'node' })
-    ).rejects.toThrow('process.exit:1');
-
-    expect(logSpy).toHaveBeenCalledWith('No restore history for "unknown".');
-    expect(exitSpy).toHaveBeenCalledWith(1);
-  });
 });

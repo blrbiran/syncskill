@@ -155,13 +155,12 @@ describe('config CLI', () => {
 
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
     expect(loggedOutput).toContain('✓ Unlinked to-unlink from all agents (claude, cursor)');
+    expect(loggedOutput).toContain('✓ Removed "to-unlink" from config links.');
 
     await expect(readlink(join(homeDir, '.claude', 'skills', 'to-unlink'))).rejects.toThrow();
     await expect(readlink(join(homeDir, '.cursor', 'skills', 'to-unlink'))).rejects.toThrow();
     await expect(loadConfig(homeDir)).resolves.toMatchObject({
-      links: {
-        'to-unlink': []
-      }
+      links: {}
     });
   });
 

@@ -7,7 +7,6 @@ import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config/config.js';
 import { createProgram } from '../../src/index.js';
-import * as serverModule from '../../src/core/server.js';
 
 describe('server CLI', () => {
   const tempDirs = useTempDirs();
@@ -82,41 +81,4 @@ describe('server CLI', () => {
     ]);
   });
 
-  it('server probe prints one row per probe check and preserves failure rows', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
-    tempDirs.push(homeDir);
-
-    await saveConfig(
-      {
-        version: 1,
-        conflict_resolution: 'manual',
-        agents: {},
-        links: {},
-        servers: {
-          alpha: { host: 'alpha.example.com', remote_agents: { claude: '/srv/skills' } }
-        },
-        sources: {}
-      },
-      homeDir
-    );
-
-    vi.spyOn(serverModule, 'probeServer').mockResolvedValue([
-      { check: 'transport', ok: true, detail: 'ssh ok' },
-      { check: 'receiver', ok: true, detail: 'receiver ok' },
-      { check: 'remote_agent:claude', ok: false, detail: 'missing: /srv/skills' }
-    ]);
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-
-    await expect(
-      createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'server', 'probe', 'alpha'], {
-        from: 'node'
-      })
-    ).rejects.toThrow('Server probe failed: alpha');
-
-    expect(consoleLog.mock.calls).toEqual([
-      ['transport\tok\tssh ok'],
-      ['receiver\tok\treceiver ok'],
-      ['remote_agent:claude\tfail\tmissing: /srv/skills']
-    ]);
-  });
 });

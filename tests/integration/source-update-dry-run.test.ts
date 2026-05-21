@@ -31,7 +31,7 @@ async function createGitSourceFixture(homeDir: string): Promise<{ bareRepoDir: s
   return { bareRepoDir, workRepoDir };
 }
 
-describe('source update --dry-run', () => {
+describe('update --dry-run', () => {
   let homeDir: string;
 
   afterEach(async () => {
@@ -39,15 +39,6 @@ describe('source update --dry-run', () => {
     if (homeDir) {
       await rm(homeDir, { recursive: true, force: true });
     }
-  });
-
-  it('is exposed on the source update command', () => {
-    const program = createProgram('/tmp');
-    const sourceCmd = program.commands.find(c => c.name() === 'source');
-    const updateCmd = sourceCmd?.commands.find(c => c.name() === 'update');
-    const options = updateCmd?.options.map(o => o.long);
-
-    expect(options).toContain('--dry-run');
   });
 
   it('previews updates without modifying files and prints dry-run output', async () => {
@@ -59,12 +50,10 @@ describe('source update --dry-run', () => {
     await commitAll(workRepoDir, 'initial source');
     await git(['push', '-u', 'origin', 'main'], workRepoDir);
 
-    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
-    await createProgram(homeDir).parseAsync(
-      ['node', 'syncskill', 'source', 'add', 'team', '--type', 'git', '--url', bareRepoDir, '--path', 'skills', '--branch', 'main'],
-      { from: 'node' }
-    );
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'source', 'update', 'team'], { from: 'node' });
+    const config = createDefaultConfig(homeDir, {});
+    config.sources.team = { type: 'git', url: bareRepoDir, path: 'skills', branch: 'main' };
+    await saveConfig(config, homeDir);
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'update', 'team'], { from: 'node' });
 
     const skillPath = join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md');
     const checkoutPath = join(homeDir, '.syncskill', '.sources', 'team', 'checkout', 'skills', 'alpha', 'SKILL.md');
@@ -76,7 +65,7 @@ describe('source update --dry-run', () => {
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'source', 'update', '--all', '--dry-run'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'update', '--all', '--dry-run'], { from: 'node' });
 
     expect(await readFile(skillPath, 'utf8')).toBe('# alpha v1\n');
     expect(await readFile(checkoutPath, 'utf8')).toBe('# alpha local edit\n');

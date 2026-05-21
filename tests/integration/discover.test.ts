@@ -321,7 +321,7 @@ describe('findUnmanagedSkills', () => {
 describe('scan CLI command', () => {
   const tempDirs = useTempDirs();
 
-  it('scan without --migrate shows hint but does not migrate', async () => {
+  it('scan without --migrate-unmanaged shows hint but does not migrate', async () => {
     const { vi } = await import('vitest');
     const { createProgram } = await import('../../src/index.js');
 
@@ -352,9 +352,9 @@ describe('scan CLI command', () => {
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
 
-    // Should show hint to use --migrate
+    // Should show hint to use --migrate-unmanaged
     const allOutput = consoleLog.mock.calls.flat().join('\n');
-    expect(allOutput).toContain('Use `syncskill scan --migrate` to migrate unmanaged skills.');
+    expect(allOutput).toContain('Use `syncskill scan --migrate-unmanaged` to migrate unmanaged skills.');
 
     // Unmanaged skill should NOT be migrated
     const entries = await readdir(skillsDir);

@@ -72,7 +72,7 @@ import { expandTargetAgents, getConfigPaths, getSyncPaths, loadConfig, parseConf
 import { createPromptApi, runConfigUi } from './config/config-ui.js';
 import { collectLinkStatus, discoverSkills, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
 import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './core/manifest.js';
-import { formatProbeLines, formatServerListLines, formatServerShowLines, listServers, probeServer, showServer } from './core/server.js';
+import { formatServerListLines, formatServerShowLines, listServers, showServer } from './core/server.js';
 import { initializeRepo } from './repo.js';
 import { pathExists } from './utils/utils.js';
 import {
@@ -354,9 +354,9 @@ export function createProgram(homeDir?: string): Command {
   program
     .command('scan')
     .description('Scan for new skills in sources and ~/.syncskill/skills/, check for unmanaged agent skills')
-    .option('--migrate', 'Migrate unmanaged skills from agent directories to ~/.syncskill/skills/')
+    .option('--migrate-unmanaged', 'Migrate unmanaged skills from agent directories to ~/.syncskill/skills/')
     .option('--dry-run', 'Preview scan results without making changes')
-    .action(async (options: { migrate?: boolean; dryRun?: boolean }) => {
+    .action(async (options: { migrateUnmanaged?: boolean; dryRun?: boolean }) => {
       const config = await loadConfig(resolvedHomeDir);
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
       await autoDiagnoseConfig(config, skillsDir);
@@ -400,10 +400,10 @@ export function createProgram(homeDir?: string): Command {
         }
 
         if (isDryRun) {
-          if (options.migrate) {
+          if (options.migrateUnmanaged) {
             console.log(`\n[dry-run] Would migrate ${unmanaged.length} skill(s) to ~/.syncskill/skills/`);
           }
-        } else if (options.migrate) {
+        } else if (options.migrateUnmanaged) {
           const confirmed = await confirm({
             message: `Migrate ${unmanaged.length} skill(s) to ~/.syncskill/skills/?`,
             default: true
@@ -434,7 +434,7 @@ export function createProgram(homeDir?: string): Command {
             });
           }
         } else {
-          console.log('\nUse `syncskill scan --migrate` to migrate unmanaged skills.');
+          console.log('\nUse `syncskill scan --migrate-unmanaged` to migrate unmanaged skills.');
         }
       }
 
@@ -724,7 +724,7 @@ export function createProgram(homeDir?: string): Command {
       await unlinkSkill(resolvedHomeDir, skill);
       delete config.links[skill];
       await saveConfig(config, resolvedHomeDir);
-      console.log(`✓ Unlinked ${skill} from all agents`);
+      console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
       console.log(`✓ Removed "${skill}" from config links.`);
     });
 
@@ -921,8 +921,8 @@ export function createProgram(homeDir?: string): Command {
       if (result.sameRepoMatch) {
         console.log(`\nA source already exists for this repository: ${result.sameRepoMatch.name}`);
         console.log(`Existing path: ${result.sameRepoMatch.source.path}`);
-        console.log(`\nTo add a skill from a different path in this repo, use:`);
-        console.log(`  syncskill source add <skill-name> --url ${result.sameRepoMatch.source.url} --skill-subdir <path>`);
+        console.log(`\nTo add a skill from a different path in this repo, use install with --skill-subdir:`);
+        console.log(`  syncskill install ${result.sameRepoMatch.source.url} --skill-subdir <path>`);
         return;
       }
 
@@ -939,33 +939,6 @@ export function createProgram(homeDir?: string): Command {
       }
     });
 
-  sourceCommand
-    .command('update [name]')
-    .description('Update one source or all configured sources, with preview support for dirty-source handling')
-    .option('--all', 'Update all configured sources')
-    .option('-y, --yes', 'Skip confirmation prompts, auto-skip dirty sources')
-    .option('--force', 'Force update dirty sources (backs up first)')
-    .option('--dry-run', 'Preview update actions, including dirty-source decisions, without making changes')
-    .action(async (name: string | undefined, options: { all?: boolean; yes?: boolean; force?: boolean; dryRun?: boolean }) => {
-      if (options.all || name === undefined) {
-        await updateAllSources(resolvedHomeDir, undefined, { yes: options.yes, force: options.force, dryRun: options.dryRun });
-        return;
-      }
-
-      await updateSource(resolvedHomeDir, name, { yes: options.yes, force: options.force, dryRun: options.dryRun });
-    });
-
-  sourceCommand
-    .command('restore <name>')
-    .description('Restore a source from the most recent force-update backup')
-    .action(async (name: string) => {
-      const { restoreSource } = await import('./source-restore.js');
-      const result = await restoreSource(resolvedHomeDir, name);
-      console.log(result.message);
-      if (!result.success) {
-        process.exit(1);
-      }
-    });
 
   // Top-level alias for 'source update'
   program
@@ -1110,20 +1083,6 @@ export function createProgram(homeDir?: string): Command {
       }
     });
 
-  serverCommand
-    .command('probe <name>')
-    .description('Probe remote access for one configured server')
-    .action(async (name: string) => {
-      const results = await probeServer(resolvedHomeDir, name);
-
-      for (const line of formatProbeLines(results)) {
-        console.log(line);
-      }
-
-      if (results.some((result) => !result.ok)) {
-        throw new Error(`Server probe failed: ${name}`);
-      }
-    });
 
   program
     .command('remote')

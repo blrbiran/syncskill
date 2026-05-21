@@ -77,16 +77,16 @@ describe('help output', () => {
   it('describes update-flow commands and options clearly', () => {
     const program = createProgram('/tmp');
     const sourceCmd = program.commands.find(c => c.name() === 'source');
-    const sourceUpdateCmd = sourceCmd?.commands.find(c => c.name() === 'update');
-    const sourceRestoreCmd = sourceCmd?.commands.find(c => c.name() === 'restore');
     const pushCmd = program.commands.find(c => c.name() === 'push');
     const pullCmd = program.commands.find(c => c.name() === 'pull');
     const syncCmd = program.commands.find(c => c.name() === 'sync');
+    const scanCmd = program.commands.find(c => c.name() === 'scan');
 
     expect(sourceCmd?.description()).toBe('Manage external skill sources and source recovery');
-    expect(sourceUpdateCmd?.description()).toBe('Update one source or all configured sources, with preview support for dirty-source handling');
-    expect(sourceUpdateCmd?.options.find(o => o.long === '--dry-run')?.description).toBe('Preview update actions, including dirty-source decisions, without making changes');
-    expect(sourceRestoreCmd?.description()).toBe('Restore a source from the most recent force-update backup');
+    expect(sourceCmd?.commands.find(c => c.name() === 'update')).toBeUndefined();
+    expect(sourceCmd?.commands.find(c => c.name() === 'restore')).toBeUndefined();
+    expect(scanCmd?.options.map(o => o.long)).toContain('--migrate-unmanaged');
+    expect(scanCmd?.options.map(o => o.long)).not.toContain('--migrate');
     expect(pushCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
     expect(pullCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
     expect(syncCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
