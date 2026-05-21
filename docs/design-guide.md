@@ -17,9 +17,13 @@ The system is split so each layer has one primary concern:
 | Sources | `src/source.ts` | External source management (git/http/local) |
 | Transport | `src/core/transport.ts` | SSH/rsync primitives, receiver deployment |
 | Sync | `src/core/sync_engine.ts` | Push/pull/sync orchestration across servers |
-| Registry | `src/core/skills-registry.ts` | Unified skills registry (origin mapping + ignore status) |
+| Registry | `src/core/skills-registry.ts` | Unified skills registry (v2: ignored + http_baselines) |
 | Archive | `src/utils/archive.ts` | Archive format detection and extraction |
-| Backup | `src/utils/backup.ts` | Backup management for --force updates |
+| Backup | `src/utils/backup.ts` | Sidecar backup for dirty skills during updates |
+| CLI Output | `src/cli/output.ts` | JSONL event system for AI agent integration |
+| CLI Env | `src/cli/env.ts` | Environment variable handling |
+| Exit Codes | `src/cli/exit-codes.ts` | Structured exit codes |
+| Plan | `src/cli/plan.ts` | Plan-then-execute protocol types |
 
 ## Module Boundaries
 
@@ -173,7 +177,16 @@ Owns archive format detection and extraction. Supports `.tar.gz`, `.tgz`, `.tar.
 
 ### `src/utils/backup.ts`
 
-Owns backup management for `--force` updates. Backs up dirty skills to `~/.syncskill/backups/<source>/<skill>/` with metadata in `_meta.json`.
+Owns sidecar backup for dirty skills during `source update --force`. Backups are stored next to the source directory (not in a centralized location):
+
+```
+~/.syncskill/sources/my-source/
+~/.syncskill/sources/my-source.syncskill-pre-update-backup/
+  └── skill-name/
+      └── (backed up files)
+```
+
+This sidecar pattern keeps backups close to their source and avoids accumulating stale backups in a centralized directory.
 
 ### `src/receiver/`
 
@@ -268,3 +281,80 @@ The push operation follows these steps:
 | SSH | `child_process.exec('ssh')` |
 | Git | `child_process.exec('git')` |
 | Symlinks | `fs.symlink()` -> junction -> `fs.cp()` |
+
+## v2 CLI Architecture
+
+### JSONL Event System
+
+Commands output structured JSONL events when `--json` flag is set or `SYNCSKILL_JSON=1`. Each line is a JSON object with a `type` field:
+
+| Event Type | Purpose | Key Fields |
+|------------|---------|------------|
+| `progress` | Operation progress | `message`, `current`, `total` |
+| `info` | Informational message | `message` |
+| `change` | File/skill modification | `op`, `entity`, `name`, `path` |
+| `warning` | Non-fatal warning | `message` |
+| `error` | Error details | `code`, `message`, `hint` |
+| `prompt` | Interactive prompt (AI agents) | `kind`, `question`, `options` |
+| `result` | Final operation result | `success`, `exit_code`, `summary` |
+
+### Exit Codes
+
+| Code | Constant | Meaning |
+|------|----------|---------|
+| 0 | `EXIT_SUCCESS` | Success |
+| 1 | `EXIT_GENERAL_ERROR` | General error |
+| 2 | `EXIT_INVALID_ARGS` | Invalid arguments |
+| 3 | `EXIT_DOCTOR_CORRUPT` | Config/registry corrupt |
+| 4 | `EXIT_PERMISSION_ERROR` | Permission denied |
+| 5 | `EXIT_SYNC_CONFLICT` | Unresolved sync conflict |
+| 6 | `EXIT_SOURCE_DIRTY` | Source has uncommitted changes |
+| 7 | `EXIT_NETWORK_ERROR` | Network/SSH error |
+| 8 | `EXIT_USER_ABORT` | User cancelled operation |
+
+### Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `SYNCSKILL_DIR` | Override `~/.syncskill` directory |
+| `SYNCSKILL_CONFIG` | Override config file path |
+| `SYNCSKILL_JSON` | Enable JSON mode (`1`, `true`, `yes`) |
+| `SYNCSKILL_NO_INTERACTIVE` | Disable interactive prompts |
+
+### Plan-then-Execute Protocol
+
+Commands that modify state support a plan-then-execute workflow:
+
+1. **Plan phase**: `--plan` outputs a JSON plan without executing
+2. **Resolution phase**: For unresolved items, provide `--resolutions <file>`
+3. **Execute phase**: `--apply <plan.json>` executes a pre-generated plan
+
+```typescript
+interface Plan {
+  version: 1;
+  command: string;
+  generated_at: string;
+  actions: PlanAction[];
+  unresolved: UnresolvedItem[];
+  warnings: string[];
+}
+```
+
+This enables AI agents to preview changes, generate plans, and execute with pre-provided resolutions.
+
+### Registry v2 Schema
+
+The skills registry v2 stores only deviation data:
+
+```typescript
+interface SkillsRegistryV2 {
+  version: 2;
+  ignored: Record<string, IgnoredSkillEntry>;
+  http_baselines: Record<string, HttpBaseline>;
+}
+```
+
+- `ignored`: Skills marked as ignored (duplicate, user-choice, conflict)
+- `http_baselines`: Hash baselines for HTTP sources (dirty detection)
+
+Active skills are derived from filesystem state, not stored in registry.
