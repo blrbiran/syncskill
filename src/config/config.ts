@@ -39,7 +39,7 @@ export function getSyncPaths(homeDir = homedir()): SyncPaths {
 
   return {
     syncDir,
-    configFile: join(syncDir, 'config.yaml'),
+    configFile: join(syncDir, 'config.json'),
     skillsDir: join(syncDir, 'skills'),
     manifestsDir: join(syncDir, 'manifests'),
     tempDir: join(syncDir, '.tmp'),

@@ -25,13 +25,18 @@ describe('config path helpers', () => {
   it('returns all sync paths for a home directory', () => {
     expect(getSyncPaths('/tmp/demo-home')).toEqual({
       syncDir: '/tmp/demo-home/.syncskill',
-      configFile: '/tmp/demo-home/.syncskill/config.yaml',
+      configFile: '/tmp/demo-home/.syncskill/config.json',
       skillsDir: '/tmp/demo-home/.syncskill/skills',
       manifestsDir: '/tmp/demo-home/.syncskill/manifests',
       tempDir: '/tmp/demo-home/.syncskill/.tmp',
       historyFile: '/tmp/demo-home/.syncskill/manifest_history.json',
       backupsDir: '/tmp/demo-home/.syncskill/backups'
     });
+  });
+
+  it('should return config.json as configFile', () => {
+    const paths = getSyncPaths('/home/test');
+    expect(paths.configFile).toBe('/home/test/.syncskill/config.json');
   });
 });
 
