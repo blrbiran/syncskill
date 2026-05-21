@@ -160,6 +160,61 @@ export async function saveSkillsRegistryV2(homeDir: string, registry: SkillsRegi
   await writeFile(path, JSON.stringify(registry, null, 2) + '\n', 'utf8');
 }
 
+export function isSkillIgnoredV2(registry: SkillsRegistryV2, skillName: string): boolean {
+  return skillName in registry.ignored;
+}
+
+export function ignoreSkillV2(
+  registry: SkillsRegistryV2,
+  skillName: string,
+  reason: 'duplicate' | 'user-choice' | 'conflict',
+  keptBy?: string
+): SkillsRegistryV2 {
+  return {
+    ...registry,
+    ignored: {
+      ...registry.ignored,
+      [skillName]: {
+        reason,
+        ignored_at: new Date().toISOString(),
+        ...(keptBy && { kept_by: keptBy })
+      }
+    }
+  };
+}
+
+export function unignoreSkillV2(registry: SkillsRegistryV2, skillName: string): SkillsRegistryV2 {
+  const { [skillName]: _, ...rest } = registry.ignored;
+  return { ...registry, ignored: rest };
+}
+
+export function setHttpBaselineV2(
+  registry: SkillsRegistryV2,
+  skillName: string,
+  hash: string,
+  source: string
+): SkillsRegistryV2 {
+  return {
+    ...registry,
+    http_baselines: {
+      ...registry.http_baselines,
+      [skillName]: { hash, source }
+    }
+  };
+}
+
+export function getHttpBaselineV2(
+  registry: SkillsRegistryV2,
+  skillName: string
+): HttpBaseline | null {
+  return registry.http_baselines[skillName] ?? null;
+}
+
+export function removeHttpBaselineV2(registry: SkillsRegistryV2, skillName: string): SkillsRegistryV2 {
+  const { [skillName]: _, ...rest } = registry.http_baselines;
+  return { ...registry, http_baselines: rest };
+}
+
 export function isSkillIgnored(registry: SkillsRegistry, skillName: string): boolean {
   const entry = registry.skills[skillName];
   return entry !== undefined && entry.status === 'ignored';

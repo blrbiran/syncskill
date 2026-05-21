@@ -19,6 +19,13 @@ import {
   activateSkill,
   ignoreSkill,
   rebuildSkillsRegistry,
+  createEmptyRegistryV2,
+  isSkillIgnoredV2,
+  ignoreSkillV2,
+  unignoreSkillV2,
+  setHttpBaselineV2,
+  getHttpBaselineV2,
+  removeHttpBaselineV2,
 } from '../../src/core/skills-registry.js';
 import type { SkillsRegistryV2 } from '../../src/core/skills-registry.js';
 
@@ -197,6 +204,68 @@ describe('skills-registry v2 types', () => {
     expect(registry.version).toBe(2);
     expect(registry.ignored['old-skill'].reason).toBe('user-choice');
     expect(registry.http_baselines['my-skill'].hash).toBe('abc123');
+  });
+});
+
+describe('v2 registry helpers', () => {
+  it('isSkillIgnoredV2 returns true for ignored skills', () => {
+    const registry: SkillsRegistryV2 = {
+      version: 2,
+      ignored: { 'skill-a': { reason: 'user-choice', ignored_at: '2026-05-21T00:00:00Z' } },
+      http_baselines: {}
+    };
+
+    expect(isSkillIgnoredV2(registry, 'skill-a')).toBe(true);
+    expect(isSkillIgnoredV2(registry, 'skill-b')).toBe(false);
+  });
+
+  it('ignoreSkillV2 adds skill to ignored', () => {
+    const registry = createEmptyRegistryV2();
+    const updated = ignoreSkillV2(registry, 'skill-a', 'user-choice');
+
+    expect(updated.ignored['skill-a'].reason).toBe('user-choice');
+    expect(updated.ignored['skill-a'].ignored_at).toBeDefined();
+  });
+
+  it('unignoreSkillV2 removes skill from ignored', () => {
+    const registry: SkillsRegistryV2 = {
+      version: 2,
+      ignored: { 'skill-a': { reason: 'user-choice', ignored_at: '2026-05-21T00:00:00Z' } },
+      http_baselines: {}
+    };
+
+    const updated = unignoreSkillV2(registry, 'skill-a');
+    expect(updated.ignored['skill-a']).toBeUndefined();
+  });
+
+  it('setHttpBaselineV2 sets baseline hash', () => {
+    const registry = createEmptyRegistryV2();
+    const updated = setHttpBaselineV2(registry, 'skill-a', 'abc123', 'my-source');
+
+    expect(updated.http_baselines['skill-a'].hash).toBe('abc123');
+    expect(updated.http_baselines['skill-a'].source).toBe('my-source');
+  });
+
+  it('getHttpBaselineV2 returns baseline or null', () => {
+    const registry: SkillsRegistryV2 = {
+      version: 2,
+      ignored: {},
+      http_baselines: { 'skill-a': { hash: 'abc', source: 'src1' } }
+    };
+
+    expect(getHttpBaselineV2(registry, 'skill-a')).toEqual({ hash: 'abc', source: 'src1' });
+    expect(getHttpBaselineV2(registry, 'skill-b')).toBeNull();
+  });
+
+  it('removeHttpBaselineV2 removes baseline', () => {
+    const registry: SkillsRegistryV2 = {
+      version: 2,
+      ignored: {},
+      http_baselines: { 'skill-a': { hash: 'abc', source: 'src1' } }
+    };
+
+    const updated = removeHttpBaselineV2(registry, 'skill-a');
+    expect(updated.http_baselines['skill-a']).toBeUndefined();
   });
 });
 
