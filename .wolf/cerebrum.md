@@ -8,8 +8,16 @@
 
 <!-- How the user likes things done. Code style, tools, patterns, communication. -->
 
+- **[2026-05-21]** 语言约定：
+  - 对话使用中文
+  - `docs/superpowers/specs/` 下的文档使用中文
+  - 其他文档（README.md, docs/*.md 等）使用英文
+  - 代码、注释、git commit message 使用英文
+
 ## Key Learnings
 
+- **[2026-05-22]** `tests/integration/source-update-force.test.ts` should verify stash/sidecar backup behavior only; persisted update history assertions must be removed because spec §3.8 no longer records history.
+- **[2026-05-21]** `docs/config-guide.md` should document v2 config as JSON-only, mention automatic YAML→JSON migration on write, and use `link apply|set|add|remove|clear|list` examples instead of legacy `link --apply`.
 - **Project:** syncskill
 - **Description:** Multi-device AI Agent Skill sync tool
 - **Main Spec:** `docs/superpowers/specs/syncskill-design.md` 是总设计文档，实现前先对比 spec 与当前代码，确定待实现部分
@@ -46,5 +54,6 @@
 - **[2026-05-17]** Dashboard spec 输出要求固定格式：标题+分隔线、`Skills: total (linked, ignored)`、`Sources: count (names)`、agent 存在性符号、server 基于 manifest 非 `in-sync` 项计为 pending、底部 quick actions 与 help 提示都需要精确覆盖到测试
 - **[2026-05-16]** 支持 `--force --dry-run` 组合预览强制更新的影响
 - **[2026-05-21]** v2 spec 删除所有 deprecated CLI 形态（link 旧形态、source add/update、scan --migrate），因为 syncskill 未正式发布，无向后兼容负担
-- **[2026-05-21]** Config 格式改为 JSON-only（原 YAML）：任何 config 写操作自动迁移 YAML → JSON。AI agent 处理 JSON 更可靠（无缩进歧义）
+- **[2026-05-21]** Config 格式改为 JSON-only（原 YAML）：任何 config 写操作自动迁移 YAML → JSON 并删除旧 `config.yaml`。AI agent 处理 JSON 更可靠（无缩进歧义）
 - **[2026-05-21]** Link 命令双轨设计：人类用 verb（edit/add/remove/clear），AI agent 用 declarative（set + apply）。`set` 幂等可重放，避免多 agent 并发覆盖
+- **[2026-05-21]** `installFromSource()` 直接复用 `addSourceFromUrl()`；当前 `install` 已覆盖 `source add` 的核心持久化入口（含 git/http/local/archive source 建档），删除 `source add` 不需要额外保留独立逻辑

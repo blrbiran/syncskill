@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-21T16:49:23.044Z
-> Files: 149 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-21T17:02:12.171Z
+> Files: 147 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -59,7 +59,7 @@
 - `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4780 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
-- `source.ts` — Git only: Convert source from git to local, keep path directory (~22073 tok)
+- `source.ts` — Git only: Convert source from git to local, keep path directory (~22151 tok)
 
 ## src/cli/
 
@@ -73,7 +73,7 @@
 
 ## src/config/
 
-- `config-doctor.ts` — Config diagnosis and repair (~3986 tok)
+- `config-doctor.ts` — Discover existing skills by scanning skillsDir and sources. (~4018 tok)
 - `config-ui.ts` — Interactive TUI config editing (~5956 tok)
 - `config.ts` — Resolve an agent path, expanding ~ to the actual home directory. (~2476 tok)
 - `matrix-editor.ts` — 2D matrix editor component (~2264 tok)
@@ -84,8 +84,9 @@
 - `conflict.ts` — 3-way conflict detection and resolution (~1129 tok)
 - `manifest.ts` — Hash computation and manifest management (~3316 tok)
 - `private-agents.ts` — Pure function: compute default link targets based on config. (~770 tok)
+- `registry-builder.ts` — Exports rebuildRegistryV2 (~475 tok)
 - `server.ts` — Server config formatting (~440 tok)
-- `skills-registry.ts` — Exports SkillRegistryEntry, SkillsRegistry, getSkillsRegistryPath, loadSkillsRegistry + 12 more (~2187 tok)
+- `skills-registry.ts` — Exports SkillRegistryEntry, IgnoredSkillEntry, HttpBaseline, SkillsRegistry + 24 more (~3639 tok)
 - `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullResult, SyncStepResult + 3 more (~5424 tok)
 - `transport.ts` — Exports ServerProbeResult, TransportRuntime, withTimeout, createTransportRuntime + 9 more (~4328 tok)
 
@@ -213,8 +214,9 @@
 - `private-agents.test.ts` — Declares tempDirs (~716 tok)
 - `README.md` — Project documentation (~35 tok)
 - `refresh.test.ts` — Declares tempDirs (~5675 tok)
+- `registry-builder.test.ts` — Exports x (~960 tok)
 - `server.test.ts` (~406 tok)
-- `skills-registry.test.ts` — Declares registry (~3690 tok)
+- `skills-registry.test.ts` — Declares registry (~5407 tok)
 - `source-github-url.test.ts` — Declares result (~1291 tok)
 - `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~27843 tok)
 - `test-tiers.test.ts` — Declares rootDir (~382 tok)
