@@ -12,7 +12,27 @@ syncskill scan
 syncskill link apply
 ```
 
-After `init`, local state lives under `~/.syncskill/`, including the managed skill tree, manifests, and `config.json`.
+After `init`, local state lives under `~/.syncskill/` by default, including the managed skill tree, manifests, and `config.json`. Set `SYNCSKILL_DIR` to relocate the runtime directory, or `SYNCSKILL_CONFIG` to point at a specific config file.
+
+## AI Agent Integration
+
+v2 adds automation-friendly global flags and environment variables so AI agents can separate planning from execution and avoid hanging on prompts.
+
+```bash
+# Preview the plan without changing files
+syncskill --plan install --self
+
+# Save the plan, then execute it
+syncskill --plan-file /tmp/install-self.plan.json install --self
+
+# Execute a previously generated plan
+syncskill --apply /tmp/install-self.plan.json
+
+# Non-interactive JSON mode for agents and scripts
+syncskill --json --no-interactive link list
+```
+
+Prefer `--json` for machine-readable output and `--no-interactive` when a command must fail instead of prompting. Use `--plan`, `--plan-file`, `--apply`, and `--resolutions <path>` when your workflow needs approval or handoff between one agent that plans and another that executes.
 
 ### Init Options
 
@@ -243,6 +263,8 @@ Install options:
 | `--branch <branch>` | Git branch or tag |
 | `-y, --yes` | Skip confirmation prompts |
 
+For v2 plan-then-execute workflows, `install --self` also supports the global `--plan`, `--plan-file`, `--apply`, and `--resolutions` flags. This is the supported way to preview or hand off built-in skill installation before making changes.
+
 ### Typical Loop
 
 1. Add or edit a skill under `~/.syncskill/skills/`
@@ -441,11 +463,24 @@ The doctor command checks for:
 
 | Option | Description |
 |--------|-------------|
-| `--json` | Output machine-readable JSON for supported commands |
-| `--no-interactive` | Disable interactive prompts and fail on interactive-only commands |
+| `--json` | Output JSONL events instead of human-readable text |
+| `--no-interactive` | Disable interactive prompts and fail if input is required |
+| `--plan` | Print a plan without executing it |
+| `--plan-file <path>` | Write the generated plan to a file, then execute it |
+| `--apply <path>` | Execute a previously generated plan file |
+| `--resolutions <path>` | Provide a resolutions file for unresolved plan items |
 | `--no-refresh` | Skip automatic manifest refresh before commands |
 | `-y, --yes` | Skip confirmation prompts |
 | `--dry-run` | Preview changes without executing |
+
+Global environment variable equivalents:
+
+| Variable | Description |
+|----------|-------------|
+| `SYNCSKILL_DIR` | Override the default `~/.syncskill` runtime directory |
+| `SYNCSKILL_CONFIG` | Override the config file path |
+| `SYNCSKILL_JSON` | Enable JSON mode (same as `--json`) |
+| `SYNCSKILL_NO_INTERACTIVE` | Disable interactive prompts |
 
 Common automation examples:
 
@@ -453,7 +488,24 @@ Common automation examples:
 syncskill --json status
 syncskill --no-interactive link apply
 syncskill --json link list
+SYNCSKILL_JSON=1 SYNCSKILL_NO_INTERACTIVE=1 syncskill status
 ```
+
+JSON mode emits JSONL events, which makes it easier to stream progress and parse command output incrementally.
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | General error |
+| `2` | Invalid arguments |
+| `3` | Config or registry corruption |
+| `4` | Permission error |
+| `5` | Sync conflict |
+| `6` | Source dirty |
+| `7` | Network error |
+| `8` | User abort |
 
 ## Install from Source
 
