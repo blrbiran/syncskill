@@ -43,6 +43,9 @@ export function getSkillsRegistryPath(homeDir: string): string {
   return join(syncDir, 'skills-registry.json');
 }
 
+/**
+ * @deprecated Use loadSkillsRegistryV2 instead. This function will be removed in v3.
+ */
 export async function loadSkillsRegistry(homeDir: string): Promise<SkillsRegistry> {
   const path = getSkillsRegistryPath(homeDir);
 
@@ -61,6 +64,9 @@ export async function loadSkillsRegistry(homeDir: string): Promise<SkillsRegistr
   }
 }
 
+/**
+ * @deprecated Use normalizeRegistryV2 instead. This function will be removed in v3.
+ */
 export function normalizeSkillsRegistry(value: unknown): SkillsRegistry {
   if (typeof value !== 'object' || value === null) {
     return { version: 1, skills: {} };
@@ -74,6 +80,9 @@ export function normalizeSkillsRegistry(value: unknown): SkillsRegistry {
   return value as SkillsRegistry;
 }
 
+/**
+ * @deprecated Use saveSkillsRegistryV2 instead. This function will be removed in v3.
+ */
 export async function saveSkillsRegistry(homeDir: string, registry: SkillsRegistry): Promise<void> {
   const { syncDir } = getSyncPaths(homeDir);
   await mkdir(syncDir, { recursive: true });
@@ -215,16 +224,25 @@ export function removeHttpBaselineV2(registry: SkillsRegistryV2, skillName: stri
   return { ...registry, http_baselines: rest };
 }
 
+/**
+ * @deprecated Use isSkillIgnoredV2 instead. This function will be removed in v3.
+ */
 export function isSkillIgnored(registry: SkillsRegistry, skillName: string): boolean {
   const entry = registry.skills[skillName];
   return entry !== undefined && entry.status === 'ignored';
 }
 
+/**
+ * @deprecated v2 registry does not track active status. Derive from filesystem instead.
+ */
 export function isSkillActive(registry: SkillsRegistry, skillName: string): boolean {
   const entry = registry.skills[skillName];
   return entry !== undefined && entry.status === 'active';
 }
 
+/**
+ * @deprecated v2 registry does not track active status. Derive from filesystem instead.
+ */
 export function getActiveSkills(registry: SkillsRegistry): Record<string, SkillRegistryEntry> {
   const active: Record<string, SkillRegistryEntry> = {};
   for (const [name, entry] of Object.entries(registry.skills)) {
@@ -235,6 +253,9 @@ export function getActiveSkills(registry: SkillsRegistry): Record<string, SkillR
   return active;
 }
 
+/**
+ * @deprecated Use SkillsRegistryV2.ignored instead.
+ */
 export function getIgnoredSkills(registry: SkillsRegistry): Record<string, SkillRegistryEntry> {
   const ignored: Record<string, SkillRegistryEntry> = {};
   for (const [name, entry] of Object.entries(registry.skills)) {
@@ -245,6 +266,9 @@ export function getIgnoredSkills(registry: SkillsRegistry): Record<string, Skill
   return ignored;
 }
 
+/**
+ * @deprecated v2 registry does not track active skills. Skills are active by default unless ignored.
+ */
 export function addActiveSkill(
   registry: SkillsRegistry,
   skillName: string,
@@ -262,6 +286,9 @@ export function addActiveSkill(
   };
 }
 
+/**
+ * @deprecated Use ignoreSkillV2 instead.
+ */
 export function addIgnoredSkill(
   registry: SkillsRegistry,
   skillName: string,
@@ -286,11 +313,17 @@ export function addIgnoredSkill(
   };
 }
 
+/**
+ * @deprecated v2 registry does not track skill existence. Use unignoreSkillV2 to restore ignored skills.
+ */
 export function removeSkill(registry: SkillsRegistry, skillName: string): SkillsRegistry {
   const { [skillName]: _, ...rest } = registry.skills;
   return { ...registry, skills: rest };
 }
 
+/**
+ * @deprecated Use unignoreSkillV2 instead.
+ */
 export function activateSkill(registry: SkillsRegistry, skillName: string): SkillsRegistry {
   const entry = registry.skills[skillName];
   if (!entry) return registry;
@@ -305,6 +338,9 @@ export function activateSkill(registry: SkillsRegistry, skillName: string): Skil
   };
 }
 
+/**
+ * @deprecated Use ignoreSkillV2 instead.
+ */
 export function ignoreSkill(
   registry: SkillsRegistry,
   skillName: string,
@@ -329,6 +365,9 @@ export function ignoreSkill(
   };
 }
 
+/**
+ * @deprecated Use rebuildRegistryV2 from registry-builder.ts instead.
+ */
 export async function rebuildSkillsRegistry(
   homeDir: string,
   config: SyncSkillConfig
