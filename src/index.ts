@@ -10,6 +10,7 @@ import { checkbox, select, confirm, input } from '@inquirer/prompts';
 interface SelectServersOptions {
   all?: boolean;
   yes?: boolean;
+  noInteractive?: boolean;
 }
 
 async function selectTargetServers(
@@ -34,6 +35,12 @@ async function selectTargetServers(
 
   if (allServers.length === 1 || options.yes) {
     return allServers;
+  }
+
+  if (options.noInteractive) {
+    console.error('Error: This command requires interactive input. Use --no-interactive only with non-interactive commands.');
+    process.exit(4);
+    return null;
   }
 
   const message = action === 'push' ? 'Select servers to push:' : 'Select servers to pull from:';
@@ -148,6 +155,11 @@ function formatSkillRows(action: 'pull' | 'push', result: PullResult | PushResul
   return action === 'pull' ? formatPullRows(result as PullResult) : formatPushRows(result as PushResult);
 }
 
+function failForNoInteractive(): never {
+  console.error('Error: This command requires interactive input. Use --no-interactive only with non-interactive commands.');
+  process.exit(4);
+}
+
 function parseInteger(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) {
@@ -161,6 +173,8 @@ export function createProgram(homeDir?: string): Command {
   const program = new Command()
     .name('syncskill')
     .description('Multi-device AI Agent Skill sync tool. No args: show local dashboard summary')
+    .option('--json', 'Output in JSON format')
+    .option('--no-interactive', 'Disable interactive prompts')
     .option('--no-refresh', 'Skip automatic manifest refresh before commands')
     .hook('preAction', async (_thisCommand, actionCommand) => {
       if (shouldSkipAutoRefresh(actionCommand)) {
@@ -204,6 +218,10 @@ export function createProgram(homeDir?: string): Command {
     }) => {
       if (!urlOrPath && !options.self) {
         if (process.stdout.isTTY) {
+          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+            failForNoInteractive();
+          }
+
           const choice = await select({
             message: 'What would you like to install?',
             choices: [
@@ -268,6 +286,10 @@ export function createProgram(homeDir?: string): Command {
 
           console.log(`\nFound ${skills.length} skill(s):\n`);
 
+          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+            failForNoInteractive();
+          }
+
           const selected = await checkbox({
             message: 'Select skills to install:',
             choices: available.map(s => ({
@@ -295,6 +317,10 @@ export function createProgram(homeDir?: string): Command {
   const configCommand = program.command('config').description('Manage syncskill config');
 
   configCommand.action(async () => {
+    if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+      failForNoInteractive();
+    }
+
     await runConfigUi(resolvedHomeDir);
   });
 
@@ -333,6 +359,10 @@ export function createProgram(homeDir?: string): Command {
     .command('link')
     .description('Edit skill → agent links (matrix editor) [deprecated: use "link" instead]')
     .action(async () => {
+      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+        failForNoInteractive();
+      }
+
       console.log('Note: "config link" is deprecated. Use "syncskill link" instead.');
       await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'link' });
     });
@@ -341,6 +371,10 @@ export function createProgram(homeDir?: string): Command {
     .command('server')
     .description('Manage remote servers')
     .action(async () => {
+      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+        failForNoInteractive();
+      }
+
       await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'server' });
     });
 
@@ -348,6 +382,10 @@ export function createProgram(homeDir?: string): Command {
     .command('remote')
     .description('Edit skill → server sync mapping (matrix editor)')
     .action(async () => {
+      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+        failForNoInteractive();
+      }
+
       await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'remote' });
     });
 
@@ -404,6 +442,10 @@ export function createProgram(homeDir?: string): Command {
             console.log(`\n[dry-run] Would migrate ${unmanaged.length} skill(s) to ~/.syncskill/skills/`);
           }
         } else if (options.migrateUnmanaged) {
+          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+            failForNoInteractive();
+          }
+
           const confirmed = await confirm({
             message: `Migrate ${unmanaged.length} skill(s) to ~/.syncskill/skills/?`,
             default: true
@@ -504,6 +546,10 @@ export function createProgram(homeDir?: string): Command {
     .action(async () => {
       await ensureLinkCommandReady();
 
+      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+        failForNoInteractive();
+      }
+
       if (!process.stdout.isTTY) {
         linkCommand.outputHelp();
         return;
@@ -534,6 +580,10 @@ export function createProgram(homeDir?: string): Command {
         console.error('Use `syncskill link set <skill> <agents...>` or `syncskill link add <skill> <agent>` instead.');
         process.exit(1);
         return;
+      }
+
+      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+        failForNoInteractive();
       }
 
       if (!skill) {
@@ -653,6 +703,10 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (!options.yes) {
+        if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+          failForNoInteractive();
+        }
+
         const confirmed = await confirm({
           message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
           default: false,
@@ -711,6 +765,10 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (!options.yes) {
+        if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+          failForNoInteractive();
+        }
+
         const confirmed = await confirm({
           message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
           default: false,
@@ -773,6 +831,10 @@ export function createProgram(homeDir?: string): Command {
 
       let shouldRemove = options.yes;
       if (!shouldRemove) {
+        if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+          failForNoInteractive();
+        }
+
         shouldRemove = await confirm({
           message: `Remove ${skillName} from ${agents}? (no longer in config)`,
           default: true
@@ -805,6 +867,10 @@ export function createProgram(homeDir?: string): Command {
 
     let shouldRemove = options.yes;
     if (!shouldRemove) {
+      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+        failForNoInteractive();
+      }
+
       shouldRemove = await confirm({
         message: `Remove ${allStale.length} link${allStale.length !== 1 ? 's' : ''}?`,
         default: true
@@ -984,6 +1050,10 @@ export function createProgram(homeDir?: string): Command {
     .command('remote')
     .description('Edit skill → server sync mapping (matrix editor)')
     .action(async () => {
+      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+        failForNoInteractive();
+      }
+
       await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'remote' });
     });
 
@@ -1084,6 +1154,10 @@ export function createProgram(homeDir?: string): Command {
 
         // If no options at all, enter interactive mode
         if (!side && !options.diff) {
+          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+            failForNoInteractive();
+          }
+
           const answer = await select({
             message: `How to resolve "${skill}"?`,
             choices: [
@@ -1148,6 +1222,10 @@ export function createProgram(homeDir?: string): Command {
 
         // If user chose "Show diff first" in interactive mode, ask again after showing diff
         if (showDiffThenAsk && resolved && !side) {
+          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+            failForNoInteractive();
+          }
+
           const answer = await select({
             message: `Now choose how to resolve "${skill}":`,
             choices: [
@@ -1365,10 +1443,16 @@ export function createProgram(homeDir?: string): Command {
       let registryChanged = false;
 
       for (const item of allItems) {
-        const shouldFix = options.yes || (await confirm({
-          message: `${item.suggestion ?? `Fix ${item.path}`}?`,
-          default: true
-        }));
+        const shouldFix = options.yes || (await (async () => {
+          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+            failForNoInteractive();
+          }
+
+          return confirm({
+            message: `${item.suggestion ?? `Fix ${item.path}`}?`,
+            default: true
+          });
+        })());
 
         if (shouldFix) {
           if (isRegistryDiagnostic(item.code)) {

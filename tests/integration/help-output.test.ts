@@ -28,6 +28,15 @@ describe('help output', () => {
     expect(help).toContain('No args: show local dashboard summary');
   });
 
+  it('should show --json and --no-interactive in root help', async () => {
+    const { stdout } = await execAsync('node', ['dist/index.js', '--help'], {
+      cwd: '/Users/biran/code/skills/syncskill'
+    });
+
+    expect(stdout).toContain('--json');
+    expect(stdout).toContain('--no-interactive');
+  });
+
   it('source list has ls alias', () => {
     const program = createProgram('/tmp');
     const sourceCmd = program.commands.find(c => c.name() === 'source');
