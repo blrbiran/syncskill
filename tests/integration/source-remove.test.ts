@@ -4,7 +4,6 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
-import { parse, stringify } from 'yaml';
 
 import { createDefaultConfig, loadConfig, saveConfig, type SourceConfig, type SyncSkillConfig } from '../../src/config/config.js';
 import { listLocalSkillNames } from '../../src/core/manifest.js';
@@ -84,15 +83,19 @@ describe('removeSource with RemovalAction', () => {
     await mkdir(join(sourcesDir, 'checkout', 'skill-a'), { recursive: true });
     await writeFile(join(sourcesDir, 'checkout', 'skill-a', 'SKILL.md'), 'content');
     await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: { claude: '~/.claude/skills' },
-        links: { 'skill-a': ['*'] },
-        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', path: '.' } },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
+      join(syncDir, 'config.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          agents: { claude: '~/.claude/skills' },
+          links: { 'skill-a': ['*'] },
+          sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', path: '.' } },
+          servers: {},
+          conflict_resolution: 'manual',
+        },
+        null,
+        2
+      )
     );
     await writeFile(
       join(sourcesDir, 'state.json'),
@@ -106,7 +109,7 @@ describe('removeSource with RemovalAction', () => {
 
     await removeSource(homeDir, 'test-source', { action: RemovalAction.ConvertToLocal });
 
-    const config = parse(await readFile(join(syncDir, 'config.yaml'), 'utf-8')) as SyncSkillConfig;
+    const config = JSON.parse(await readFile(join(syncDir, 'config.json'), 'utf-8')) as SyncSkillConfig;
     const source = config.sources['test-source'] as SourceConfig;
     expect(source).toBeDefined();
     expect(source.type).toBe('local');
@@ -125,15 +128,19 @@ describe('removeSource with RemovalAction', () => {
     await mkdir(join(skillsDir, 'skill-a'), { recursive: true });
     await writeFile(join(skillsDir, 'skill-a', 'SKILL.md'), 'content');
     await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: { claude: '~/.claude/skills' },
-        links: { 'skill-a': ['*'] },
-        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', path: '.' } },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
+      join(syncDir, 'config.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          agents: { claude: '~/.claude/skills' },
+          links: { 'skill-a': ['*'] },
+          sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', path: '.' } },
+          servers: {},
+          conflict_resolution: 'manual',
+        },
+        null,
+        2
+      )
     );
     await writeFile(
       join(sourcesDir, 'state.json'),
@@ -146,7 +153,7 @@ describe('removeSource with RemovalAction', () => {
 
     await removeSource(homeDir, 'test-source', { action: RemovalAction.RemoveConfigKeepFiles });
 
-    const config = parse(await readFile(join(syncDir, 'config.yaml'), 'utf-8')) as SyncSkillConfig;
+    const config = JSON.parse(await readFile(join(syncDir, 'config.json'), 'utf-8')) as SyncSkillConfig;
     expect(config.sources['test-source']).toBeUndefined();
     expect(config.links['skill-a']).toBeUndefined();
     // Files should still exist
@@ -165,15 +172,19 @@ describe('removeSource with RemovalAction', () => {
     await mkdir(join(skillsDir, 'skill-a'), { recursive: true });
     await writeFile(join(skillsDir, 'skill-a', 'SKILL.md'), 'content');
     await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: { claude: '~/.claude/skills' },
-        links: { 'skill-a': ['*'] },
-        sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', path: '.' } },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
+      join(syncDir, 'config.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          agents: { claude: '~/.claude/skills' },
+          links: { 'skill-a': ['*'] },
+          sources: { 'test-source': { type: 'git', url: 'https://example.com/repo.git', path: '.' } },
+          servers: {},
+          conflict_resolution: 'manual',
+        },
+        null,
+        2
+      )
     );
     await writeFile(
       join(sourcesDir, 'state.json'),
@@ -186,7 +197,7 @@ describe('removeSource with RemovalAction', () => {
 
     await removeSource(homeDir, 'test-source', { action: RemovalAction.RemoveAll });
 
-    const config = parse(await readFile(join(syncDir, 'config.yaml'), 'utf-8')) as SyncSkillConfig;
+    const config = JSON.parse(await readFile(join(syncDir, 'config.json'), 'utf-8')) as SyncSkillConfig;
     expect(config.sources['test-source']).toBeUndefined();
     expect(config.links['skill-a']).toBeUndefined();
     // Files should be deleted
@@ -203,15 +214,19 @@ describe('removeSource with RemovalAction', () => {
 
     await mkdir(syncDir, { recursive: true });
     await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: { claude: '~/.claude/skills' },
-        links: {},
-        sources: { 'test-source': { type: 'local', url: '/some/path', path: '.' } },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
+      join(syncDir, 'config.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          agents: { claude: '~/.claude/skills' },
+          links: {},
+          sources: { 'test-source': { type: 'local', url: '/some/path', path: '.' } },
+          servers: {},
+          conflict_resolution: 'manual',
+        },
+        null,
+        2
+      )
     );
     await mkdir(join(syncDir, '.sources'), { recursive: true });
     await writeFile(
@@ -243,20 +258,24 @@ describe('findOrphanSkills integration', () => {
     await mkdir(join(syncDir, '.sources', 'test-source', 'materialized', 'manual-skill'), { recursive: true });
 
     await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: { claude: '~/.claude/skills' },
-        links: {
-          'skill-a': ['*'],
-          'manual-skill': ['*'],
+      join(syncDir, 'config.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          agents: { claude: '~/.claude/skills' },
+          links: {
+            'skill-a': ['*'],
+            'manual-skill': ['*'],
+          },
+          sources: {
+            'test-source': { type: 'git', url: 'https://example.com/repo.git' },
+          },
+          servers: {},
+          conflict_resolution: 'manual',
         },
-        sources: {
-          'test-source': { type: 'git', url: 'https://example.com/repo.git' },
-        },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
+        null,
+        2
+      )
     );
 
     await writeFile(

@@ -1,7 +1,6 @@
 // tests/end2end/framework/scenario.ts
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 
 import { createManagedTempDir } from './cleanup.js';
 import { E2EContext } from './context.js';
@@ -148,7 +147,7 @@ export class E2EScenario {
   }
 
   /**
-   * Override config.yaml values.
+   * Override config.json values.
    */
   withConfig(partial: Record<string, unknown>): this {
     Object.assign(this.configOverrides, partial);
@@ -251,15 +250,14 @@ export class E2EScenario {
 
     // Step 10: Apply config overrides and links
     if (Object.keys(this.configOverrides).length > 0 || Object.keys(this.linksConfig).length > 0) {
-      const configPath = join(homeDir, '.syncskill', 'config.yaml');
+      const configPath = join(homeDir, '.syncskill', 'config.json');
       let config: Record<string, unknown> = {};
 
       // Try to read existing config if init was run
       if (this.initOptions !== null) {
         try {
-          const existingContent = await ctx.readFile('.syncskill/config.yaml');
-          const { parse } = await import('yaml');
-          config = parse(existingContent) as Record<string, unknown>;
+          const existingContent = await ctx.readFile('.syncskill/config.json');
+          config = JSON.parse(existingContent) as Record<string, unknown>;
         } catch {
           // Config doesn't exist yet, start fresh
         }
@@ -273,7 +271,7 @@ export class E2EScenario {
         config.links = { ...(config.links as Record<string, string[]> | undefined), ...this.linksConfig };
       }
 
-      await writeFile(configPath, stringify(config), 'utf8');
+      await writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
     }
 
     return ctx;

@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import YAML from 'yaml';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,7 +14,7 @@ describe('syncskill doctor', () => {
   const homeDir = join(testDir, 'home');
   const syncDir = join(homeDir, '.syncskill');
   const skillsDir = join(syncDir, 'skills');
-  const configFile = join(syncDir, 'config.yaml');
+  const configFile = join(syncDir, 'config.json');
   const cliPath = join(process.cwd(), 'dist', 'index.js');
 
   beforeEach(async () => {
@@ -50,7 +49,7 @@ describe('syncskill doctor', () => {
       servers: {},
       sources: {}
     };
-    await writeFile(configFile, YAML.stringify(config));
+    await writeFile(configFile, JSON.stringify(config, null, 2));
 
     // Create empty skills registry for healthy state
     const registryFile = join(syncDir, 'skills-registry.json');
@@ -74,7 +73,7 @@ describe('syncskill doctor', () => {
       servers: {},
       sources: {}
     };
-    await writeFile(configFile, YAML.stringify(config));
+    await writeFile(configFile, JSON.stringify(config, null, 2));
 
     const { stdout, code } = await runDoctor();
 
@@ -96,7 +95,7 @@ describe('syncskill doctor', () => {
         servers: {},
         sources: {}
       };
-      await writeFile(configFile, YAML.stringify(config));
+      await writeFile(configFile, JSON.stringify(config, null, 2));
 
       const { stderr } = await execFileAsync('node', [cliPath, 'link', 'list'], {
         env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir }
@@ -114,7 +113,7 @@ describe('syncskill doctor', () => {
         servers: {},
         sources: {}
       };
-      await writeFile(configFile, YAML.stringify(config));
+      await writeFile(configFile, JSON.stringify(config, null, 2));
 
       try {
         await execFileAsync('node', [cliPath, 'link', 'list'], {

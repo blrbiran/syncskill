@@ -1,7 +1,6 @@
 // tests/end2end/framework/context.ts
 import { access, lstat, mkdir, readdir, readFile, readlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parse as parseYaml } from 'yaml';
 
 import { removeTempDir } from './cleanup.js';
 import type { GitSourceFixture, MockServer } from './fixtures/index.js';
@@ -278,11 +277,11 @@ export class E2EContext {
   }
 
   /**
-   * Read and parse config.yaml.
+   * Read and parse config.json.
    */
   async readConfig(): Promise<unknown> {
-    const content = await this.readFile('.syncskill/config.yaml');
-    return parseYaml(content);
+    const content = await this.readFile('.syncskill/config.json');
+    return JSON.parse(content);
   }
 
   /**

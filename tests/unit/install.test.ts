@@ -29,10 +29,20 @@ describe('install module', () => {
       homeDir = join(tempDir, 'home');
       await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
 
-      const configPath = join(homeDir, '.syncskill', 'config.yaml');
+      const configPath = join(homeDir, '.syncskill', 'config.json');
       await writeFile(
         configPath,
-        'version: 1\nagents:\n  claude: ~/.claude/skills\nlinks: {}\nservers: {}\nsources: {}\n'
+        JSON.stringify(
+          {
+            version: 1,
+            agents: { claude: '~/.claude/skills' },
+            links: {},
+            servers: {},
+            sources: {},
+          },
+          null,
+          2
+        )
       );
     });
 
@@ -94,17 +104,27 @@ describe('install module', () => {
 
       await installSyncskillSkill(homeDir);
 
-      const configPath = join(homeDir, '.syncskill', 'config.yaml');
+      const configPath = join(homeDir, '.syncskill', 'config.json');
       const configContent = await readFile(configPath, 'utf8');
       expect(configContent).toContain('syncskill');
     });
 
     it('should not update config if link already exists', async () => {
       // Pre-populate config with existing link
-      const configPath = join(homeDir, '.syncskill', 'config.yaml');
+      const configPath = join(homeDir, '.syncskill', 'config.json');
       await writeFile(
         configPath,
-        'version: 1\nagents:\n  claude: ~/.claude/skills\nlinks:\n  syncskill:\n    - claude\nservers: {}\nsources: {}\n'
+        JSON.stringify(
+          {
+            version: 1,
+            agents: { claude: '~/.claude/skills' },
+            links: { syncskill: ['claude'] },
+            servers: {},
+            sources: {},
+          },
+          null,
+          2
+        )
       );
 
       // Create existing skill
@@ -116,7 +136,7 @@ describe('install module', () => {
 
       // Config should be unchanged
       const configContent = await readFile(configPath, 'utf8');
-      expect(configContent).toContain('- claude');
+      expect(configContent).toContain('"claude"');
     });
 
     it('should throw error if embedded skill not found', async () => {
@@ -140,8 +160,18 @@ describe('install module', () => {
 
       await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
       await writeFile(
-        join(homeDir, '.syncskill', 'config.yaml'),
-        'version: 1\nagents:\n  claude: ~/.claude/skills\nlinks: {}\nservers: {}\nsources: {}\n'
+        join(homeDir, '.syncskill', 'config.json'),
+        JSON.stringify(
+          {
+            version: 1,
+            agents: { claude: '~/.claude/skills' },
+            links: {},
+            servers: {},
+            sources: {},
+          },
+          null,
+          2
+        )
       );
 
       try {

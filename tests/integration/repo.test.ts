@@ -29,7 +29,7 @@ describe('initializeRepo', () => {
 
     await initializeRepo(homeDir, { skipScan: true });
 
-    await expect(readFile(join(homeDir, '.syncskill', 'config.yaml'), 'utf8')).resolves.toContain('version: 1');
+    await expect(readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8')).resolves.toContain('"version": 1');
     await expect(readFile(join(homeDir, '.syncskill', 'config.example.yaml'), 'utf8')).resolves.toContain(
       'conflict_resolution:'
     );
@@ -99,18 +99,22 @@ describe('initializeRepo', () => {
     await mkdir(join(homeDir, '.agents', 'skills'), { recursive: true });
     await mkdir(join(homeDir, '.syncskill'), { recursive: true });
     await writeFile(
-      join(homeDir, '.syncskill', 'config.yaml'),
-      [
-        'version: 1',
-        'conflict_resolution: manual',
-        'agents:',
-        '  claude: /stale/claude/skills',
-        '  agents: /stale/agents/skills',
-        'links: {}',
-        'servers: {}',
-        'sources: {}',
-        ''
-      ].join('\n'),
+      join(homeDir, '.syncskill', 'config.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          conflict_resolution: 'manual',
+          agents: {
+            claude: '/stale/claude/skills',
+            agents: '/stale/agents/skills'
+          },
+          links: {},
+          servers: {},
+          sources: {}
+        },
+        null,
+        2
+      ),
       'utf8'
     );
 

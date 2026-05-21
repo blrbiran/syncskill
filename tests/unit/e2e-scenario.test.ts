@@ -59,7 +59,7 @@ describe('E2EScenario', () => {
       .setup();
     contexts.push(ctx);
 
-    await ctx.assertFileExists('.syncskill/config.yaml');
+    await ctx.assertFileExists('.syncskill/config.json');
   });
 
   it('withGitSource creates git repository', async () => {

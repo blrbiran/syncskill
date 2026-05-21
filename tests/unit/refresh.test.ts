@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { saveConfig } from '../../src/config/config.js';
+import { createDefaultConfig, saveConfig } from '../../src/config/config.js';
 import { getSyncPaths } from '../../src/config/config.js';
 import { createEmptyManifest, saveServerManifest } from '../../src/core/manifest.js';
 import {
@@ -425,6 +425,7 @@ describe('refresh orchestration', () => {
   it('autoRefreshManifests does nothing when disabled', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-refresh-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 

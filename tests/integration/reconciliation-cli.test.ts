@@ -41,6 +41,7 @@ describe('reconciliation CLI', () => {
   it('status prints one row per skill and server', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     await saveServerManifest(homeDir, {
       version: 1,
@@ -298,6 +299,7 @@ describe('reconciliation CLI', () => {
   it('diff <server> prints only pending rows for one server', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     await saveServerManifest(homeDir, {
       version: 1,
@@ -357,6 +359,7 @@ describe('reconciliation CLI', () => {
   it('resolve <skill> --local/--remote resolves only tracked conflicts across servers', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     await saveServerManifest(homeDir, {
       version: 1,
@@ -445,6 +448,7 @@ describe('reconciliation CLI', () => {
   it('resolve <skill> --local/--remote reconciles stale derived fields before resolving a real conflict', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     await saveServerManifest(homeDir, {
       version: 1,
@@ -512,6 +516,7 @@ describe('reconciliation CLI', () => {
   it('resolve <skill> --local resolves conflict with local version', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-local-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     await saveServerManifest(homeDir, {
       version: 1,
@@ -552,6 +557,7 @@ describe('reconciliation CLI', () => {
   it('resolve <skill> --remote resolves conflict with remote version', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-remote-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     await saveServerManifest(homeDir, {
       version: 1,
@@ -592,6 +598,7 @@ describe('reconciliation CLI', () => {
   it('resolve <skill> rejects both --local and --remote together', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-both-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     await saveServerManifest(homeDir, {
       version: 1,
@@ -618,6 +625,7 @@ describe('reconciliation CLI', () => {
   it('resolve <skill> --diff shows hash differences for conflict', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-diff-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     // Create a real conflict: local and remote both differ from recorded
     // local_hash != remote_hash != recorded_hash
@@ -654,6 +662,7 @@ describe('reconciliation CLI', () => {
   it('resolve <skill> --diff handles null local hash', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-diff-null-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     // A conflict where local is deleted but remote and recorded differ
     // This happens when: local=null, remote changed from recorded
@@ -684,6 +693,7 @@ describe('reconciliation CLI', () => {
   it('resolve <skill> --local --diff shows diff then resolves with local', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-diff-local-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     await saveServerManifest(homeDir, {
       version: 1,
@@ -725,6 +735,7 @@ describe('reconciliation CLI', () => {
   it('resolve <skill> --remote --diff shows diff then resolves with remote', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-resolve-diff-remote-'));
     tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
 
     await saveServerManifest(homeDir, {
       version: 1,

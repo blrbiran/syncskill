@@ -16,10 +16,20 @@ describe('install CLI command', () => {
     homeDir = join(tempDir, 'home');
     await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
 
-    const configPath = join(homeDir, '.syncskill', 'config.yaml');
+    const configPath = join(homeDir, '.syncskill', 'config.json');
     await writeFile(
       configPath,
-      'version: 1\nagents:\n  claude: ~/.claude/skills\nlinks: {}\nservers: {}\nsources: {}\n'
+      JSON.stringify(
+        {
+          version: 1,
+          agents: { claude: '~/.claude/skills' },
+          links: {},
+          servers: {},
+          sources: {},
+        },
+        null,
+        2
+      )
     );
   });
 

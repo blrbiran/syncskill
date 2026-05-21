@@ -11,7 +11,7 @@ describe('E2E Smoke Tests', () => {
     try {
       await ctx.run('syncskill', 'init', '-y', '--skip-skill');
 
-      await ctx.assertFileExists('.syncskill/config.yaml');
+      await ctx.assertFileExists('.syncskill/config.json');
       await ctx.assertFileExists('.syncskill/skills');
 
       const config = await ctx.readConfig() as { version: number; agents: Record<string, unknown> };
