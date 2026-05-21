@@ -300,6 +300,8 @@ export function createProgram(homeDir?: string): Command {
       branch?: string;
       yes?: boolean;
     }) => {
+      const output = getGlobalOutput();
+
       if (!urlOrPath && !options.self) {
         if (process.stdout.isTTY) {
           if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
@@ -335,14 +337,26 @@ export function createProgram(homeDir?: string): Command {
         const result = await installSyncskillSkill(resolvedHomeDir);
 
         if (result.alreadyInstalled) {
-          console.log('syncskill skill already installed');
+          output.info('syncskill skill already installed');
+          output.result(true, {
+            installed: false,
+            skill: 'syncskill',
+            alreadyInstalled: true,
+            linkedAgents: result.linkedAgents ?? []
+          });
           return;
         }
 
-        console.log(`✓ Installed syncskill skill to ${result.installedPath}`);
+        output.change('add', 'skill', 'syncskill', { target: result.installedPath });
         if (result.linkedAgents && result.linkedAgents.length > 0) {
-          console.log(`✓ Linked to: ${result.linkedAgents.join(', ')}`);
+          output.info(`Linked to: ${result.linkedAgents.join(', ')}`);
         }
+        output.result(true, {
+          installed: true,
+          skill: 'syncskill',
+          path: result.installedPath,
+          linkedAgents: result.linkedAgents ?? []
+        });
         return;
       }
 
@@ -360,7 +374,7 @@ export function createProgram(homeDir?: string): Command {
           const available = skills.filter(s => !existingSkills.has(s.name));
 
           if (available.length === 0) {
-            console.log('All skills from this source already exist.');
+            output.info('All skills from this source already exist.');
             return [];
           }
 

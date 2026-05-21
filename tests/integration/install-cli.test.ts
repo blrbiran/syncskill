@@ -85,7 +85,8 @@ describe('install CLI command', () => {
       env: { ...process.env, HOME: homeDir }
     });
 
-    expect(stdout).toContain('Installed syncskill skill to');
+    expect(stdout).toContain('syncskill');
+    expect(stdout).toContain(join(homeDir, '.syncskill', 'skills', 'syncskill'));
     const installedSkills = await readdir(join(homeDir, '.syncskill', 'skills'));
     expect(installedSkills).toContain('syncskill');
   });
@@ -96,7 +97,8 @@ describe('install CLI command', () => {
       env: { ...process.env, HOME: homeDir }
     });
 
-    expect(stdout).toContain('Installed syncskill skill to');
+    expect(stdout).toContain('syncskill');
+    expect(stdout).toContain(join(homeDir, '.syncskill', 'skills', 'syncskill'));
     const installedSkills = await readdir(join(homeDir, '.syncskill', 'skills'));
     expect(installedSkills).toContain('syncskill');
   });
