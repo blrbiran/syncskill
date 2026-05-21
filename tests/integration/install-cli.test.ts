@@ -117,4 +117,18 @@ describe('install CLI command', () => {
       await rm(join(import.meta.dirname, '../../self'), { recursive: true, force: true });
     }
   });
+
+  it('outputs plan JSON with --plan install --self', async () => {
+    const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', '--plan', 'install', '--self'], {
+      cwd: join(import.meta.dirname, '../..'),
+      env: { ...process.env, HOME: homeDir }
+    });
+
+    const plan = JSON.parse(stdout);
+    expect(plan.version).toBe(1);
+    expect(plan.command).toBe('install');
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0].op).toBe('install-self');
+    expect(plan.actions[0].to).toContain('.syncskill/skills/syncskill');
+  });
 });
