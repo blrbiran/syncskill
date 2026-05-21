@@ -45,80 +45,37 @@ describe('source CLI', () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-cli-'));
     tempDirs.push(homeDir);
 
-    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
-    await mkdir(join(homeDir, 'source-zeta', 'skills'), { recursive: true });
-    await mkdir(join(homeDir, 'source-alpha', 'bundle'), { recursive: true });
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, {}),
+        sources: {
+          'local-zeta': {
+            type: 'local',
+            url: join(homeDir, 'source-zeta'),
+            path: 'skills'
+          },
+          'local-alpha': {
+            type: 'local',
+            url: join(homeDir, 'source-alpha'),
+            path: 'bundle'
+          },
+          zeta: {
+            type: 'git',
+            url: 'https://example.com/zeta.git',
+            path: 'skills',
+            branch: 'main'
+          },
+          alpha: {
+            type: 'http',
+            url: 'https://example.com/alpha.zip',
+            path: 'bundle'
+          }
+        }
+      },
+      homeDir
+    );
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-
-    await createProgram(homeDir).parseAsync(
-      [
-        'node',
-        'syncskill',
-        'source',
-        'add',
-        'local-zeta',
-        '--type',
-        'local',
-        '--url',
-        join(homeDir, 'source-zeta'),
-        '--path',
-        'skills'
-      ],
-      { from: 'node' }
-    );
-    await createProgram(homeDir).parseAsync(
-      [
-        'node',
-        'syncskill',
-        'source',
-        'add',
-        'local-alpha',
-        '--type',
-        'local',
-        '--url',
-        join(homeDir, 'source-alpha'),
-        '--path',
-        'bundle'
-      ],
-      { from: 'node' }
-    );
-    await createProgram(homeDir).parseAsync(
-      [
-        'node',
-        'syncskill',
-        'source',
-        'add',
-        'zeta',
-        '--type',
-        'git',
-        '--url',
-        'https://example.com/zeta.git',
-        '--path',
-        'skills',
-        '--branch',
-        'main'
-      ],
-      { from: 'node' }
-    );
-    await createProgram(homeDir).parseAsync(
-      [
-        'node',
-        'syncskill',
-        'source',
-        'add',
-        'alpha',
-        '--type',
-        'http',
-        '--url',
-        'https://example.com/alpha.zip',
-        '--path',
-        'bundle'
-      ],
-      { from: 'node' }
-    );
-
-    consoleLog.mockClear();
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'source', 'list'], { from: 'node' });
 
@@ -130,6 +87,15 @@ describe('source CLI', () => {
     expect(output).toContain('local-zeta (local)');
     expect(output).toContain('zeta (git)');
     expect(output).toContain('url:     https://example.com/zeta.git');
+  });
+});
+
+describe('source add compatibility removal', () => {
+  it('source add is no longer available', async () => {
+    const help = createProgram('/tmp');
+    const sourceCmd = help.commands.find(c => c.name() === 'source');
+
+    expect(sourceCmd?.commands.find(c => c.name() === 'add')).toBeUndefined();
   });
 });
 
@@ -249,108 +215,6 @@ describe('same-repo merge detection', () => {
     expect(match?.name).toBe('repo-skill1');
   });
 
-  it('CLI shows sameRepoMatch message when source already exists', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-same-repo-msg-'));
-    tempDirs.push(homeDir);
-    const syncDir = join(homeDir, '.syncskill');
-
-    // Create config with existing source
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: { skill1: ['*'] },
-        sources: {
-          'repo-skill1': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'skills/skill1',
-          },
-        },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
-
-    // Mock console.log to capture output
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (...args: unknown[]) => logs.push(args.join(' '));
-
-    try {
-      // Try to add source with same repo URL
-      await createProgram(homeDir).parseAsync(
-        ['node', 'syncskill', 'source', 'add', 'skill2', '--type', 'git', '--url', 'https://github.com/org/repo.git', '--path', 'skills/skill2'],
-        { from: 'node' }
-      );
-
-      // Verify sameRepoMatch message was shown
-      const output = logs.join('\n');
-      expect(output).toContain('A source already exists for this repository');
-      expect(output).toContain('repo-skill1');
-    } finally {
-      console.log = originalLog;
-    }
-  });
 });
 
 
-describe('source add --path auto-detect local type', () => {
-  const tempDirs = useTempDirs();
-
-  afterEach(async () => {
-    vi.restoreAllMocks();
-  });
-
-  it('auto-detects local type when --path is provided without --type', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-path-auto-'));
-    tempDirs.push(homeDir);
-    const pathDir = join(homeDir, 'local-skills');
-
-    // Create a skill in pathDir
-    await mkdir(join(pathDir, 'my-skill'), { recursive: true });
-    await writeFile(join(pathDir, 'my-skill', 'SKILL.md'), '# My Skill');
-
-    // Create minimal config
-    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
-
-    // Run source add with --path but NO --type
-    await createProgram(homeDir).parseAsync(
-      ['node', 'syncskill', 'source', 'add', 'local-src', '--path', pathDir],
-      { from: 'node' }
-    );
-
-    // Verify local type was auto-detected
-    const config = await loadConfig(homeDir);
-    const source = config.sources['local-src'] as Record<string, unknown>;
-    expect(source.type).toBe('local');
-    expect(source.url).toBe(pathDir);
-    expect(source.path).toBe('.');
-
-    // Verify skill was materialized
-    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'my-skill'))).resolves.toBe(join(pathDir, 'my-skill'));
-  });
-
-  it('--type takes precedence over --path auto-detection', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-path-explicit-'));
-    tempDirs.push(homeDir);
-
-    // Create minimal config
-    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
-
-    // When --type git is explicit, --path should not force local type
-    // Git sources don't materialize immediately, they just save config
-    await createProgram(homeDir).parseAsync(
-      ['node', 'syncskill', 'source', 'add', 'my-source', '--type', 'git', '--url', 'https://example.com/repo.git', '--path', '/some/path', '--path', 'skills'],
-      { from: 'node' }
-    );
-
-    // Verify type is git (not local, even though --path was provided)
-    const config = await loadConfig(homeDir);
-    const source = config.sources['my-source'] as Record<string, unknown>;
-    expect(source.type).toBe('git');
-    expect(source.url).toBe('https://example.com/repo.git');
-  });
-});

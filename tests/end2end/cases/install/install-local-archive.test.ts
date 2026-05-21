@@ -65,38 +65,6 @@ describe('install local archive', () => {
     }
   });
 
-  e2eTest('source add local archive equivalent to install', async () => {
-    const ctx = await new E2EScenario()
-      .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
-      .withArchive('other-skills.zip', {
-        skills: ['tool-one', 'tool-two'],
-        format: 'zip',
-      })
-      .setup();
-
-    try {
-      const archivePath = ctx.getArchivePath('other-skills.zip');
-      const result = await ctx.run('syncskill', 'source', 'add', archivePath, '-y');
-
-      expect(result.success).toBe(true);
-
-      // Verify same extraction as install
-      await ctx.assertFileExists('.syncskill/.sources/other-skills/checkout/tool-one/SKILL.md');
-      await ctx.assertFileExists('.syncskill/.sources/other-skills/checkout/tool-two/SKILL.md');
-
-      // Verify config structure
-      const config = (await ctx.readConfig()) as {
-        sources?: Record<string, { type: string }>;
-      };
-      const source = config.sources?.['other-skills'];
-      expect(source).toBeDefined();
-      expect(source?.type).toBe('local');
-    } finally {
-      await ctx.cleanup();
-    }
-  });
-
   e2eTest('install archive with complex filename works', async () => {
     // Simulates downloading archive with URL parameters stripped
     const ctx = await new E2EScenario()

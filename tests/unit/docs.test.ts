@@ -24,7 +24,6 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('docs/usage-guide.md');
     expect(readme).toContain('docs/design-guide.md');
     expect(readme).toContain('syncskill init');
-    expect(readme).toContain('source add');
     expect(readme).toContain('push');
     expect(readme).toContain('pull');
     expect(readme).toContain('sync');
