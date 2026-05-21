@@ -45,8 +45,7 @@ export function getSyncPaths(homeDir = homedir()): SyncPaths {
     skillsDir: join(syncDir, 'skills'),
     manifestsDir: join(syncDir, 'manifests'),
     tempDir: join(syncDir, '.tmp'),
-    historyFile: join(syncDir, 'manifest_history.json'),
-    backupsDir: join(syncDir, 'backups')
+    historyFile: join(syncDir, 'manifest_history.json')
   };
 }
 

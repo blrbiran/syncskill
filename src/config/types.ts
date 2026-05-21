@@ -9,7 +9,6 @@ export interface SyncPaths {
   manifestsDir: string;
   tempDir: string;
   historyFile: string;
-  backupsDir: string;
 }
 
 export type ConflictResolution = 'manual' | 'keep-local' | 'keep-remote';
