@@ -1,6 +1,6 @@
 // src/cli/output.ts
 
-import type { OutputEvent, ResultEvent, ErrorEvent, WarningEvent, ChangeEvent, ProgressEvent, InfoEvent } from './types.js';
+import type { OutputEvent, ResultEvent, ErrorEvent, WarningEvent, ChangeEvent, ProgressEvent, InfoEvent, PromptEvent } from './types.js';
 import { ExitCode, errorCodeToExitCode, type ExitCodeValue } from './exit-codes.js';
 
 export interface OutputOptions {
@@ -59,6 +59,21 @@ export class Output {
    */
   warning(code: string, message: string, opts?: { path?: string; hint?: string }): void {
     const event: WarningEvent = { type: 'warning', code, message, ...opts };
+    this.emit(event);
+  }
+
+  /**
+   * Emit a prompt event (for AI agent consumption).
+   * In text mode, this is typically handled by @inquirer/prompts directly.
+   */
+  prompt(code: string, question: string, options: string[], defaultOption?: string): void {
+    const event: PromptEvent = {
+      type: 'prompt',
+      code,
+      question,
+      options,
+      ...(defaultOption !== undefined && { default: defaultOption })
+    };
     this.emit(event);
   }
 
@@ -128,6 +143,11 @@ export class Output {
         break;
       case 'result':
         // Result is typically implicit in text mode, summary already printed
+        break;
+      case 'prompt':
+        // Prompt events are typically handled by @inquirer/prompts in text mode
+        // But we still need to handle them for completeness
+        console.log(`? ${event.question}`);
         break;
     }
   }

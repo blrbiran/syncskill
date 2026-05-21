@@ -69,6 +69,30 @@ describe('cli/output', () => {
     });
   });
 
+  describe('prompt events', () => {
+    it('emits prompt as JSONL in JSON mode', () => {
+      const output = createOutput({ json: true, noColor: false });
+      output.prompt('P_SKILL_SELECT', 'Select skills to install', ['skill-a', 'skill-b'], 'skill-a');
+
+      const call = consoleLogSpy.mock.calls[0][0];
+      const event = JSON.parse(call);
+      expect(event).toEqual({
+        type: 'prompt',
+        code: 'P_SKILL_SELECT',
+        question: 'Select skills to install',
+        options: ['skill-a', 'skill-b'],
+        default: 'skill-a',
+      });
+    });
+
+    it('emits prompt to stdout in text mode', () => {
+      const output = createOutput({ json: false, noColor: false });
+      output.prompt('P_CONFIRM', 'Continue?', ['yes', 'no']);
+
+      expect(consoleLogSpy).toHaveBeenCalledWith('? Continue?');
+    });
+  });
+
   describe('Text mode', () => {
     it('emits progress as plain text', () => {
       const output = createOutput({ json: false, noColor: false });
