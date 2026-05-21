@@ -9,6 +9,9 @@ import { checkbox, select, confirm, input } from '@inquirer/prompts';
 import { createOutput, setGlobalOutput, getGlobalOutput } from './cli/index.js';
 import { loadEnvConfig, mergeWithFlags } from './cli/env.js';
 import { ExitCode } from './cli/exit-codes.js';
+import { createPlan, addAction, serializePlan, type Plan } from './cli/plan.js';
+import { withPlanExecute, type PlanExecuteOptions } from './cli/plan-execute.js';
+import type { Resolutions } from './cli/resolution.js';
 
 interface SelectServersOptions {
   all?: boolean;
@@ -183,6 +186,48 @@ function parseInteger(value: string): number {
   return parsed;
 }
 
+// Install-specific plan actions
+type InstallAction =
+  | { op: 'install-self'; to: string }
+  | { op: 'link-skill'; skill: string; agents: string[] };
+
+async function buildInstallPlan(
+  homeDir: string,
+  urlOrPath: string | undefined,
+  options: { self?: boolean; yes?: boolean }
+): Promise<Plan> {
+  const plan = createPlan('install');
+  const { skillsDir } = getSyncPaths(homeDir);
+
+  if (options.self || urlOrPath === 'self') {
+    const targetPath = join(skillsDir, 'syncskill');
+    return addAction(plan, { op: 'install-self', to: targetPath } satisfies InstallAction);
+  }
+
+  return plan;
+}
+
+async function executeInstallPlan(
+  homeDir: string,
+  plan: Plan,
+  _resolutions: Resolutions
+): Promise<void> {
+  for (const action of plan.actions) {
+    if (action.op === 'install-self') {
+      const result = await installSyncskillSkill(homeDir);
+      const output = getGlobalOutput();
+      if (result.alreadyInstalled) {
+        output.info('syncskill skill already installed');
+      } else {
+        output.change('add', 'skill', 'syncskill', { target: result.installedPath });
+        if (result.linkedAgents?.length) {
+          output.info(`Linked to: ${result.linkedAgents.join(', ')}`);
+        }
+      }
+    }
+  }
+}
+
 /**
  * Build CLI introspection data for --help --json.
  * See spec §11.10 for schema.
@@ -303,8 +348,24 @@ export function createProgram(homeDir?: string): Command {
       skillSubdir?: string;
       branch?: string;
       yes?: boolean;
+      _planMode?: boolean;
+      _planFile?: string;
+      _applyPath?: string;
+      _resolutionsPath?: string;
     }) => {
       const output = getGlobalOutput();
+
+      const rootOptions = program.opts<{
+        noInteractive?: boolean;
+        plan?: boolean;
+        planFile?: string;
+        apply?: string;
+        resolutions?: string;
+      }>();
+      const planMode = options._planMode ?? rootOptions.plan;
+      const planFile = options._planFile ?? rootOptions.planFile;
+      const applyPath = options._applyPath ?? rootOptions.apply;
+      const resolutionsPath = options._resolutionsPath ?? rootOptions.resolutions;
 
       if (!urlOrPath && !options.self) {
         if (process.stdout.isTTY) {
@@ -336,6 +397,29 @@ export function createProgram(homeDir?: string): Command {
 
       const selfPathExists = urlOrPath === 'self' ? await pathExists(resolve('./self')) : false;
       const isSelfInstall = options.self || (urlOrPath === 'self' && !selfPathExists);
+      const isPlanOperation = Boolean(planMode || planFile || applyPath);
+      const isSimpleCase = Boolean(options.self || urlOrPath === 'self');
+
+      if (isPlanOperation && isSimpleCase) {
+        const planOptions: PlanExecuteOptions = {
+          plan: planMode,
+          planFile,
+          apply: applyPath,
+          resolutions: resolutionsPath,
+          yes: options.yes
+        };
+
+        const result = await withPlanExecute({
+          buildPlan: () => buildInstallPlan(resolvedHomeDir, urlOrPath, options),
+          executePlan: (plan, resolutions) => executeInstallPlan(resolvedHomeDir, plan, resolutions),
+          options: planOptions
+        });
+
+        if (result.planOnly && result.plan) {
+          console.log(serializePlan(result.plan));
+        }
+        return;
+      }
 
       if (isSelfInstall) {
         const result = await installSyncskillSkill(resolvedHomeDir);
