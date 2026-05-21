@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-21T17:02:12.171Z
-> Files: 147 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-21T17:07:12.532Z
+> Files: 158 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -71,6 +71,12 @@
 - `output.ts` — Output controller that handles both JSONL and text output modes. (~1490 tok)
 - `types.ts` — JSONL event types for --json mode output. (~386 tok)
 
+## src/commands/
+
+- `dashboard.ts` — Exports runDashboard (~98 tok)
+- `index.ts` — Commands barrel export (~92 tok)
+- `init.ts` — Exports InitOptions, runInit (~102 tok)
+
 ## src/config/
 
 - `config-doctor.ts` — Discover existing skills by scanning skillsDir and sources. (~4018 tok)
@@ -94,6 +100,14 @@
 
 - `bootstrap_remote.sh` (~140 tok)
 - `sync_receiver.mjs` — syncRoot: readJson, readStdin, collectFileEntries + 11 more (~3101 tok)
+
+## src/source/
+
+- `core.ts` — During transition, re-export from legacy source.ts (~67 tok)
+- `detect.ts` — Exports SourceInputType, detectSourceInput, isGitUrl, isHttpUrl, isLocalArchive (~294 tok)
+- `dirty.ts` — Exports DirtyCheckResult, isSkillDirty, DirtySkill (~145 tok)
+- `discover.ts` — Exports DiscoveredSkill, discoverSourceSkills (~226 tok)
+- `index.ts` (~33 tok)
 
 ## src/utils/
 
@@ -217,6 +231,9 @@
 - `registry-builder.test.ts` — Exports x (~960 tok)
 - `server.test.ts` (~406 tok)
 - `skills-registry.test.ts` — Declares registry (~5407 tok)
+- `source-detect.test.ts` (~255 tok)
+- `source-dirty.test.ts` (~210 tok)
+- `source-discover.test.ts` — Declares tempDirs (~582 tok)
 - `source-github-url.test.ts` — Declares result (~1291 tok)
 - `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~27843 tok)
 - `test-tiers.test.ts` — Declares rootDir (~382 tok)
