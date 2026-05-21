@@ -2,11 +2,14 @@
 
 `syncskill` is a CLI for organizing AI agent skills in a local `~/.syncskill/` repository, linking them into agent-specific skill directories, and reconciling local state with remote servers.
 
+v2 adds JSONL output, non-interactive execution, and plan/apply workflows for agent-friendly automation.
+
 ## Features
 
 - **Multi-agent support**: Manage skills across Claude, Hermes, Qoder, and other AI agents
-- **Source management**: Import skills from git repositories, HTTP archives, or local directories
+- **Source management**: Import skills from git repositories, HTTP archives, or local directories with `install`; maintain them with `source list`, `source update`, and `source remove`
 - **Declarative linking**: Manage skill links with `link set`, `link add`, `link remove`, `link clear`, and `link apply`
+- **Agent automation**: Stream JSONL events, disable prompts, or split planning from execution with `--json`, `--no-interactive`, `--plan`, `--plan-file`, `--apply`, and `--resolutions`
 - **Remote sync**: Push and pull skills to/from remote servers via SSH/rsync, with optional `--timeout` control
 - **Conflict resolution**: Three-way merge with manual or automatic resolution
 - **Cross-platform**: Works on macOS, Linux, and Windows
@@ -37,6 +40,9 @@ syncskill
 
 # Install the syncskill skill (for AI agents)
 syncskill install --self
+
+# Preview the built-in install plan first
+syncskill --plan install --self
 
 # Install from a source interactively when running in a TTY
 syncskill install
@@ -83,8 +89,11 @@ syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 | Command | Description |
 |---------|-------------|
 | `syncskill source list` / `ls` | List configured sources |
+| `syncskill source update [name\|--all] [--force] [--dry-run]` | Refresh source content |
 | `syncskill source remove <name>` | Remove a source (interactive) |
 | `syncskill install <url-or-path>` | Install and register a source from git, HTTP archive, local directory, or archive file |
+
+In v2, `source add` and `source restore` were removed. Use `install` to add new sources.
 
 ### Reconciliation
 
