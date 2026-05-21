@@ -14,8 +14,13 @@ import {
   SkillsRegistry,
   SkillRegistryEntry,
   loadSkillsRegistry,
+  loadSkillsRegistryV2,
   saveSkillsRegistry,
+  saveSkillsRegistryV2,
   isSkillIgnored,
+  isSkillIgnoredV2,
+  getHttpBaselineV2,
+  setHttpBaselineV2,
   activateSkill,
 } from './core/skills-registry.js';
 import { hashSkillDirectory } from './core/manifest.js';
@@ -311,6 +316,7 @@ export async function listSourcesWithDetails(homeDir = homedir()): Promise<Sourc
     .sort((left, right) => left.name.localeCompare(right.name));
 
   const registry = await loadSkillsRegistry(homeDir);
+  const registryV2 = await loadSkillsRegistryV2(homeDir);
 
   return sources.map((source) => {
     const skills: string[] = [];
@@ -318,7 +324,7 @@ export async function listSourcesWithDetails(homeDir = homedir()): Promise<Sourc
 
     for (const [skillName, entry] of Object.entries(registry.skills)) {
       if (entry.origin === source.name) {
-        if (entry.status === 'ignored') {
+        if (isSkillIgnoredV2(registryV2, skillName)) {
           ignored.push(skillName);
         } else {
           skills.push(skillName);
@@ -1079,17 +1085,19 @@ async function detectHttpDirty(
   materializedSkills: string[]
 ): Promise<DirtyDetectionResult> {
   const registry = await loadSkillsRegistry(homeDir);
+  const registryV2 = await loadSkillsRegistryV2(homeDir);
   const dirtySkills: DirtySkillInfo[] = [];
 
   for (const skillName of materializedSkills) {
     const entry = registry.skills[skillName];
-    if (!entry || entry.origin !== sourceName || !entry.last_update_hash) continue;
+    const baseline = getHttpBaselineV2(registryV2, skillName);
+    if (!entry || entry.origin !== sourceName || baseline?.source !== sourceName) continue;
 
     // Use registry path directly instead of constructing from skillsDir
     const skillPath = entry.path;
     try {
       const currentHash = await hashSkillDirectory(skillPath);
-      if (currentHash !== entry.last_update_hash) {
+      if (currentHash !== baseline.hash) {
         dirtySkills.push({ name: skillName, path: skillPath, hash: currentHash });
       }
     } catch {
@@ -1110,25 +1118,19 @@ async function updateRegistryHashesForHttp(
   skillsDir: string,
   skills: string[]
 ): Promise<void> {
-  const registry = await loadSkillsRegistry(homeDir);
-  let changed = false;
+  let registryV2 = await loadSkillsRegistryV2(homeDir);
 
   for (const skillName of skills) {
     const skillPath = join(skillsDir, skillName);
     try {
       const hash = await hashSkillDirectory(skillPath);
-      if (registry.skills[skillName]) {
-        registry.skills[skillName].last_update_hash = hash;
-        changed = true;
-      }
+      registryV2 = setHttpBaselineV2(registryV2, skillName, hash, sourceName);
     } catch {
       // Skill may not exist
     }
   }
 
-  if (changed) {
-    await saveSkillsRegistry(homeDir, registry);
-  }
+  await saveSkillsRegistryV2(homeDir, registryV2);
 }
 
 async function syncSource(
@@ -2004,9 +2006,10 @@ export async function addSourceFromUrl(
     if (existingMatch) {
       // Check if the requested skill is in the ignore list
       const registry = await loadSkillsRegistry(homeDir);
+      const registryV2 = await loadSkillsRegistryV2(homeDir);
       const requestedSkillName = parsed.skillName;
 
-      if (requestedSkillName && isSkillIgnored(registry, requestedSkillName)) {
+      if (requestedSkillName && isSkillIgnoredV2(registryV2, requestedSkillName)) {
         // Restore from ignore list (activate it)
         const updatedRegistry = activateSkill(registry, requestedSkillName);
         await saveSkillsRegistry(homeDir, updatedRegistry);

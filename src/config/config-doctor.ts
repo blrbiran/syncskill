@@ -2,7 +2,13 @@ import { access, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { SyncSkillConfig } from './config.js';
-import { loadSkillsRegistry, saveSkillsRegistry, getSkillsRegistryPath, type SkillsRegistry } from '../core/skills-registry.js';
+import {
+  loadSkillsRegistry,
+  loadSkillsRegistryV2,
+  saveSkillsRegistry,
+  getSkillsRegistryPath,
+  type SkillsRegistry
+} from '../core/skills-registry.js';
 
 export const DiagnosticCode = {
   NO_VALID_AGENTS: 'NO_VALID_AGENTS',
@@ -239,10 +245,11 @@ export async function checkRegistryHealth(
     return items;
   }
 
-  // 2. Try to load and parse
-  let registry;
+  // 2. Try to load and parse both registry formats
+  let registry: SkillsRegistry;
   try {
     registry = await loadSkillsRegistry(homeDir);
+    await loadSkillsRegistryV2(homeDir);
   } catch {
     items.push({
       code: DiagnosticCode.REGISTRY_CORRUPT,
