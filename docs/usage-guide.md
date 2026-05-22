@@ -39,7 +39,7 @@ Prefer `--json` for machine-readable output and `--no-interactive` when a comman
 | Option | Description |
 |--------|-------------|
 | `--skip-scan` | Skip migrating skills from detected agent directories |
-| `--skip-skill` | Skip installing the syncskill skill |
+| `--skip-self` | Skip installing the syncskill skill |
 | `-y, --yes` | Accept all defaults without prompting |
 
 ## Local Workflow

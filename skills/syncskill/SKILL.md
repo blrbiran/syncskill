@@ -20,7 +20,7 @@ Use this skill when:
 
 | Command | Description |
 |---------|-------------|
-| `init [--skip-scan] [--skip-skill] [-y]` | Initialize `~/.syncskill/` and create `config.json` |
+| `init [--skip-scan] [--skip-self] [-y]` | Initialize `~/.syncskill/` and create `config.json` |
 | `install` / `i` | In TTY, open an interactive install menu; in non-TTY, show install help |
 | `install --self` / `install self` | Install built-in syncskill skill |
 | `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path and register it as a managed source |

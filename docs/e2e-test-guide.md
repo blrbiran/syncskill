@@ -15,7 +15,7 @@ e2eTest("init creates config file", async () => {
     .withAgents("claude")
     .setup();
 
-  await ctx.run("syncskill", "init", "-y", "--skip-skill");
+  await ctx.run("syncskill", "init", "-y", "--skip-self");
   await ctx.assertFileExists(".syncskill/config.yaml");
 });
 ```
@@ -114,7 +114,7 @@ new E2EScenario().withLinks({
 
 // Run init first
 new E2EScenario().withInit()
-new E2EScenario().withInit({ skipScan: true, skipSkill: true })
+new E2EScenario().withInit({ skipScan: true, skipSelf: true })
 ```
 
 #### Mock Server Configuration
@@ -266,7 +266,7 @@ e2eTest("init creates default structure", async () => {
     .withAgents("claude", "agents")
     .setup();
 
-  await ctx.run("syncskill", "init", "-y", "--skip-skill");
+  await ctx.run("syncskill", "init", "-y", "--skip-self");
 
   await ctx.assertFileExists(".syncskill/config.yaml");
   await ctx.assertFileExists(".syncskill/skills");

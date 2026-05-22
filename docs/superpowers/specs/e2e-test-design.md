@@ -117,7 +117,7 @@ class E2EScenario {
   // Config 配置
   withConfig(partial: Partial<SyncSkillConfig>): this;
   withLinks(links: Record<string, string[]>): this;
-  withInit(options?: { skipScan?: boolean; skipSkill?: boolean }): this;
+  withInit(options?: { skipScan?: boolean; skipSelf?: boolean }): this;
 
   // 模拟服务器
   withMockServer(config: MockServerConfig): this;
@@ -513,7 +513,7 @@ E2E_VERBOSE=1 npm run test:e2e
 
 📜 Command history:
   [2026-05-13T10:30:45.123Z]
-    $ syncskill init -y --skip-skill
+    $ syncskill init -y --skip-self
     exit: 0
   [2026-05-13T10:30:46.456Z]
     $ syncskill install https://github.com/blrbiran/syncskill_test -y
