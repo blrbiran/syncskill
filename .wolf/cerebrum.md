@@ -16,6 +16,7 @@
 
 ## Key Learnings
 
+- **[2026-05-22]** `install` can adopt plan-then-execute incrementally: wire only the deterministic `--self` path through `withPlanExecute` first, and leave interactive URL/path installs on the existing flow until source probing/planning is designed.
 - **[2026-05-22]** `tests/integration/source-update-force.test.ts` should verify stash/sidecar backup behavior only; persisted update history assertions must be removed because spec §3.8 no longer records history.
 - **[2026-05-21]** `docs/config-guide.md` should document v2 config as JSON-only, mention automatic YAML→JSON migration on write, and use `link apply|set|add|remove|clear|list` examples instead of legacy `link --apply`.
 - **Project:** syncskill

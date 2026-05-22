@@ -9,7 +9,7 @@ describe('E2E Smoke Tests', () => {
       .setup();
 
     try {
-      await ctx.run('syncskill', 'init', '-y', '--skip-skill');
+      await ctx.run('syncskill', 'init', '-y', '--skip-self');
 
       await ctx.assertFileExists('.syncskill/config.json');
       await ctx.assertFileExists('.syncskill/skills');
@@ -26,7 +26,7 @@ describe('E2E Smoke Tests', () => {
   e2eTest('link creates symlinks in agent directories', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude', 'agents')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withSkill('test-skill', '# Test Skill\n')
       .withLinks({ 'test-skill': ['*'] })
       .setup();

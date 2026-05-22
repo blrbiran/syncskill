@@ -9,7 +9,7 @@ describe('source update', () => {
   e2eTest('update git source fetches and resets', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('test-source', {
         skills: ['my-skill'],
         skillContents: { 'my-skill': '# Version 1' },
@@ -75,7 +75,7 @@ describe('source update', () => {
   e2eTest('update skips local and archive sources', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withArchive('local-skills.zip', {
         skills: ['archive-skill'],
         format: 'zip',
@@ -107,7 +107,7 @@ describe('source update', () => {
   e2eTest('update is alias for source update', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {

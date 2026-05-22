@@ -2,6 +2,7 @@ import { cp, lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink } from
 import { dirname, join } from 'node:path';
 
 import { expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, resolveAgentPath, saveConfig, type SyncSkillConfig } from './config/config.js';
+import { ensureDefaultLinkTargets } from './core/private-agents.js';
 import { buildSkillsIndex, saveSkillsIndex } from './source.js';
 import { isNotFoundError, pathExists } from './utils/utils.js';
 
@@ -123,7 +124,7 @@ export async function discoverSkills(homeDir: string, { allAgents, dryRun }: Sca
     }
 
     if (!(skill in config.links)) {
-      config.links[skill] = allAgents ? ['*'] : [];
+      config.links[skill] = allAgents ? await ensureDefaultLinkTargets(homeDir, config) : [];
     }
     addedSkills.push(skill);
   }
@@ -160,7 +161,7 @@ async function migrateSkillsFromAgentDirs(homeDir: string, config: SyncSkillConf
       await cp(source, target, { recursive: true });
 
       if (!config.links[skill]) {
-        config.links[skill] = allAgents ? ['*'] : [];
+        config.links[skill] = allAgents ? await ensureDefaultLinkTargets(homeDir, config) : [];
       }
     }
   }

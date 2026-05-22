@@ -321,12 +321,12 @@ export function createProgram(homeDir?: string): Command {
     .command('init')
     .description('Initialize the local syncskill repository')
     .option('--skip-scan', 'Skip migrating skills from detected agent directories')
-    .option('--skip-skill', 'Skip installing syncskill skill')
+    .option('--skip-self', 'Skip installing syncskill skill')
     .option('-y, --yes', 'Accept all defaults')
-    .action(async (options: { skipScan?: boolean; skipSkill?: boolean; yes?: boolean }) => {
+    .action(async (options: { skipScan?: boolean; skipSelf?: boolean; yes?: boolean }) => {
       await initializeRepo(resolvedHomeDir, {
         skipScan: Boolean(options.skipScan),
-        skipSkill: Boolean(options.skipSkill),
+        skipSelf: Boolean(options.skipSelf),
         yes: Boolean(options.yes)
       });
     });

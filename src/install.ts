@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { getSyncPaths, loadConfig, saveConfig } from './config/config.js';
+import { ensureDefaultLinkTargets } from './core/private-agents.js';
 import { linkConfiguredSkills } from './linker.js';
 import { addSourceFromUrl, DiscoveredSkill } from './source.js';
 import { pathExists } from './utils/utils.js';
@@ -44,7 +45,7 @@ export async function installSyncskillSkill(homeDir: string): Promise<InstallSyn
 
   const config = await loadConfig(homeDir);
   if (!config.links['syncskill']) {
-    config.links['syncskill'] = ['*'];
+    config.links['syncskill'] = await ensureDefaultLinkTargets(homeDir, config);
     await saveConfig(config, homeDir);
   }
 

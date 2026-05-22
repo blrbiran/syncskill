@@ -19,7 +19,7 @@ describe('source update http', () => {
     // Scenario 3: Local archives without URL cannot be updated
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withArchive('local-only.zip', {
         skills: ['local-skill'],
         format: 'zip',
@@ -55,7 +55,7 @@ describe('source update http', () => {
     // Scenario 3.3: Update should first report what will be updated
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('git-repo', {
         skills: ['git-skill'],
         skillContents: { 'git-skill': '# Git Skill\n' },
@@ -101,7 +101,7 @@ describe('source update http', () => {
     // Currently update doesn't report skill removal
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('shrinking-repo', {
         skills: ['keep-skill', 'remove-skill'],
         skillContents: {
@@ -159,7 +159,7 @@ describe('update alias', () => {
     // Scenario 3.2: update should be top-level alias
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {

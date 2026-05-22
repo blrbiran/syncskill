@@ -60,8 +60,8 @@ describe('discoverSkills', () => {
       conflict_resolution: 'manual',
       agents: {},
       links: {
-        alpha: ['*'],
-        beta: ['*']
+        alpha: ['agents'],
+        beta: ['agents']
       },
       servers: {},
       sources: {},

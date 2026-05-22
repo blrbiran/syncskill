@@ -45,6 +45,21 @@ export interface EnsureSharedDirResult {
 const ENSURE_SHARED_DIR_TIMEOUT_MS = 2000;
 
 /**
+ * Convenience wrapper: ensure ~/.agents/skills/ exists, then compute default link targets.
+ * Use this in install/init migration/scan/update entry points that need to
+ * "compute default link targets for new skills and make them immediately usable".
+ * See spec §3.2.
+ */
+export async function ensureDefaultLinkTargets(
+  homeDir: string,
+  config: ComputeLinkTargetsConfig
+): Promise<string[]> {
+  await ensureSharedSkillsDirectory(homeDir);
+  const result = await computeDefaultLinkTargets(homeDir, config);
+  return result.targets;
+}
+
+/**
  * Side-effect function: ensure ~/.agents/skills/ directory exists.
  * Creates it if missing and prints a message.
  * Returns null if the operation times out (2 seconds).

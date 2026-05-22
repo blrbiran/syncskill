@@ -55,7 +55,7 @@ describe('E2EScenario', () => {
 
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
     contexts.push(ctx);
 

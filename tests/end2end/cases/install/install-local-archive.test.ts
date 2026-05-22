@@ -13,7 +13,7 @@ describe('install local archive', () => {
   e2eTest('install local zip extracts to sources dir', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withArchive('my-skills.zip', {
         skills: ['skill-alpha', 'skill-beta'],
         format: 'zip',
@@ -45,7 +45,7 @@ describe('install local archive', () => {
   e2eTest('install local tar.gz extracts correctly', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withArchive('tarball-skills.tar.gz', {
         skills: ['tar-skill'],
         format: 'tar.gz',
@@ -69,7 +69,7 @@ describe('install local archive', () => {
     // Simulates downloading archive with URL parameters stripped
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withArchive('downloaded-package.zip', {
         skills: ['downloaded-skill'],
         format: 'zip',
@@ -93,7 +93,7 @@ describe('install local archive', () => {
     // Local archives are stored as local source type
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withArchive('local-only.zip', {
         skills: ['local-skill'],
         format: 'zip',

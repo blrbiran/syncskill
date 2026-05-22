@@ -194,11 +194,14 @@ export function setConfigValue(
 }
 
 export function expandTargetAgents(config: SyncSkillConfig, targets: string[]): string[] {
+  const registeredAgents = new Set(Object.keys(config.agents));
+
   if (targets.includes('*')) {
     return Object.keys(config.agents).sort();
   }
 
-  return [...new Set(targets)].sort();
+  // Filter to only include agents that are registered in config.agents
+  return [...new Set(targets)].filter((agent) => registeredAgents.has(agent)).sort();
 }
 
 /**

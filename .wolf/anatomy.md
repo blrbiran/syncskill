@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-21T17:07:12.532Z
-> Files: 158 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-21T17:20:19.710Z
+> Files: 166 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -12,7 +12,7 @@
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
 - `package.json` — Node.js package manifest (~355 tok)
-- `README.md` — Project documentation (~1594 tok)
+- `README.md` — Project documentation (~1753 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
 
@@ -26,21 +26,11 @@
 
 ## docs/
 
-- `config-guide.md` — Configuration Guide (~2886 tok)
-- `design-guide.md` — Design Guide (~2878 tok)
+- `config-guide.md` — Configuration Guide (~3258 tok)
+- `design-guide.md` — Design Guide (~3664 tok)
 - `e2e-test-guide.md` — E2E Test Writing Guide (~3900 tok)
 - `README.md` — Project documentation (~401 tok)
-- `usage-guide.md` — Usage Guide (~3390 tok)
-
-## docs/superpowers/plans/
-
-- `2026-05-21-syncskill-core-infrastructure.md` — Syncskill Core Infrastructure Implementation Plan (~8382 tok)
-- `2026-05-21-syncskill-deprecated-removal.md` — Syncskill Deprecated Feature Removal Plan (~3105 tok)
-- `2026-05-21-syncskill-plan-execute-protocol.md` — Syncskill Plan-then-Execute Protocol Plan (~5932 tok)
-- `2026-05-21-syncskill-project-restructure.md` — Syncskill Project Restructure Plan (~5808 tok)
-- `2026-05-21-syncskill-registry-v2.md` — Syncskill Registry v2 Migration Plan (~5385 tok)
-- `2026-05-21-syncskill-tests-docs.md` — Syncskill Tests and Documentation Plan (~3574 tok)
-- `2026-05-21-syncskill-v2-overhaul.md` — Syncskill v2 Overhaul Implementation Plan (~8762 tok)
+- `usage-guide.md` — Usage Guide (~3961 tok)
 
 ## docs/superpowers/specs/
 
@@ -54,7 +44,7 @@
 ## src/
 
 - `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1125 tok)
-- `index.ts` — Build CLI introspection data for --help --json. (~16344 tok)
+- `index.ts` — Build CLI introspection data for --help --json. (~17228 tok)
 - `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~890 tok)
 - `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4780 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
@@ -65,10 +55,14 @@
 
 - `env.ts` — Environment variable handling for syncskill CLI. (~525 tok)
 - `env.ts` — Environment variable loading and flag precedence merging for CLI config. (~340 tok)
+- `executor.ts` — Exports ActionHandler, ExecutionContext, Executor, createExecutor (~297 tok)
 - `exit-codes.ts` — Documented exit codes for syncskill CLI. (~539 tok)
-- `index.ts` — Barrel export for CLI types, exit codes, env, and output modules. (~40 tok)
+- `index.ts` — src/cli/index.ts (~84 tok)
 - `index.ts` — src/cli/index.ts (~40 tok)
 - `output.ts` — Output controller that handles both JSONL and text output modes. (~1490 tok)
+- `plan-execute.ts` — Exports PlanBuilder, PlanExecutor, ResolutionCollector, PlanExecuteOptions + 3 more (~485 tok)
+- `plan.ts` — Exports PlanAction, UnresolvedItem, Plan, createPlan + 6 more (~375 tok)
+- `resolution.ts` — Exports ResolutionValue, Resolutions, loadResolutions, resolveItem, hasResolution (~212 tok)
 - `types.ts` — JSONL event types for --json mode output. (~386 tok)
 
 ## src/commands/
@@ -181,7 +175,7 @@
 - `discover.test.ts` — Declares tempDirs (~3937 tok)
 - `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1231 tok)
 - `help-output.test.ts` — Declares execAsync (~1206 tok)
-- `install-cli.test.ts` — Declares execFileAsync (~1214 tok)
+- `install-cli.test.ts` — Declares execFileAsync (~1376 tok)
 - `README.md` — Project documentation (~37 tok)
 - `reconciliation-cli.test.ts` — Declares actual (~8729 tok)
 - `remote-refresh.test.ts` — Declares tempDirs (~669 tok)
@@ -201,7 +195,11 @@
 - `backup.test.ts` — Exports x (~792 tok)
 - `cli-env.test.ts` — tests/unit/cli-env.test.ts (~1157 tok)
 - `cli-env.test.ts` — Unit tests for CLI env var parsing and flag-over-env precedence. (~910 tok)
+- `cli-executor.test.ts` — Declares calls (~490 tok)
 - `cli-output.test.ts` — tests/unit/cli-output.test.ts (~1592 tok)
+- `cli-plan-execute.test.ts` — Declares buildPlan (~358 tok)
+- `cli-plan.test.ts` — Declares plan (~281 tok)
+- `cli-resolution.test.ts` — Declares dir (~347 tok)
 - `cli-types.test.ts` — tests/unit/cli-types.test.ts (~502 tok)
 - `config-doctor.test.ts` — Declares DiagnosticItem (~5859 tok)
 - `config.test.ts` — Declares paths (~2961 tok)

@@ -55,7 +55,7 @@ interface ArchiveEntry {
 
 interface InitOptions {
   skipScan?: boolean;
-  skipSkill?: boolean;
+  skipSelf?: boolean;
 }
 
 /**
@@ -242,8 +242,8 @@ export class E2EScenario {
       if (this.initOptions.skipScan) {
         initArgs.push('--skip-scan');
       }
-      if (this.initOptions.skipSkill) {
-        initArgs.push('--skip-skill');
+      if (this.initOptions.skipSelf) {
+        initArgs.push('--skip-self');
       }
       await runSyncskill(homeDir, projectRoot, initArgs, { env: this.envVars });
     }

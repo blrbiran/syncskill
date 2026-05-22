@@ -9,7 +9,7 @@ describe('stale checkout handling', () => {
   e2eTest('install handles stale checkout with url mismatch', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('correct-repo', {
         skills: ['my-skill'],
         skillContents: { 'my-skill': '# Correct Skill Content' },
@@ -69,7 +69,7 @@ describe('stale checkout handling', () => {
   e2eTest('install handles stale checkout non-git dir', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('new-repo', {
         skills: ['fresh-skill'],
         skillContents: { 'fresh-skill': '# Fresh Skill Content' },

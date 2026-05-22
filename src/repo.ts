@@ -12,11 +12,12 @@ import {
   saveConfig,
   type SyncSkillConfig
 } from './config/config.js';
+import { ensureDefaultLinkTargets } from './core/private-agents.js';
 import { installSyncskillSkill } from './install.js';
 
 export interface InitializeRepoOptions {
   skipScan?: boolean;
-  skipSkill?: boolean;
+  skipSelf?: boolean;
   yes?: boolean;
 }
 
@@ -47,7 +48,7 @@ export async function initializeRepo(homeDir: string, options: InitializeRepoOpt
   await saveConfig(config, homeDir);
 
   // Prompt to install syncskill skill
-  if (!options.skipSkill) {
+  if (!options.skipSelf) {
     const { skillsDir } = getSyncPaths(homeDir);
     const syncskillPath = join(skillsDir, 'syncskill');
 
@@ -117,7 +118,7 @@ async function migrateSkills(homeDir: string, config: SyncSkillConfig): Promise<
       await cp(source, target, { recursive: true });
 
       if (!config.links[skill]) {
-        config.links[skill] = ['*'];
+        config.links[skill] = await ensureDefaultLinkTargets(homeDir, config);
       }
     }
   }

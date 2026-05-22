@@ -82,8 +82,8 @@ describe('initializeRepo', () => {
         agents: join(homeDir, '.agents', 'skills')
       },
       links: {
-        'shared-skill': ['*'],
-        'agents-only': ['*']
+        'shared-skill': ['agents', 'claude'],
+        'agents-only': ['agents', 'claude']
       },
       servers: {},
       sources: {},
@@ -134,13 +134,13 @@ describe('initializeRepo', () => {
     });
   });
 
-  it('skips syncskill skill installation with skipSkill option', async () => {
+  it('skips syncskill skill installation with skipSelf option', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-repo-'));
     tempDirs.push(homeDir);
 
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
 
-    await initializeRepo(homeDir, { skipScan: true, skipSkill: true });
+    await initializeRepo(homeDir, { skipScan: true, skipSelf: true });
 
     // Verify syncskill skill was NOT installed
     const syncskillPath = join(homeDir, '.syncskill', 'skills', 'syncskill');
