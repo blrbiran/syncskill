@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-21T17:20:19.710Z
-> Files: 166 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-22T00:54:33.588Z
+> Files: 159 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -30,11 +30,11 @@
 - `design-guide.md` — Design Guide (~3664 tok)
 - `e2e-test-guide.md` — E2E Test Writing Guide (~3900 tok)
 - `README.md` — Project documentation (~401 tok)
-- `usage-guide.md` — Usage Guide (~3961 tok)
+- `usage-guide.md` — Usage Guide (~3954 tok)
 
 ## docs/superpowers/specs/
 
-- `e2e-test-design.md` — E2E 测试框架设计 (~4850 tok)
+- `e2e-test-design.md` — E2E 测试框架设计 (~4835 tok)
 - `syncskill-design.md` — Syncskill — TypeScript 实现设计 (~20347 tok)
 
 ## skills/syncskill/
@@ -44,11 +44,11 @@
 ## src/
 
 - `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1125 tok)
-- `index.ts` — Build CLI introspection data for --help --json. (~17228 tok)
-- `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~890 tok)
-- `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4780 tok)
+- `index.ts` — Build CLI introspection data for --help --json. (~17227 tok)
+- `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~922 tok)
+- `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4824 tok)
 - `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
-- `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1179 tok)
+- `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1210 tok)
 - `source.ts` — Git only: Convert source from git to local, keep path directory (~22151 tok)
 
 ## src/cli/
@@ -75,7 +75,7 @@
 
 - `config-doctor.ts` — Discover existing skills by scanning skillsDir and sources. (~4018 tok)
 - `config-ui.ts` — Interactive TUI config editing (~5956 tok)
-- `config.ts` — Resolve an agent path, expanding ~ to the actual home directory. (~2476 tok)
+- `config.ts` — Resolve an agent path, expanding ~ to the actual home directory. (~2528 tok)
 - `matrix-editor.ts` — 2D matrix editor component (~2264 tok)
 - `types.ts` — TypeScript type definitions for syncskill configuration (~267 tok)
 
@@ -83,7 +83,7 @@
 
 - `conflict.ts` — 3-way conflict detection and resolution (~1129 tok)
 - `manifest.ts` — Hash computation and manifest management (~3316 tok)
-- `private-agents.ts` — Pure function: compute default link targets based on config. (~770 tok)
+- `private-agents.ts` — Pure function: compute default link targets based on config. (~926 tok)
 - `registry-builder.ts` — Exports rebuildRegistryV2 (~475 tok)
 - `server.ts` — Server config formatting (~440 tok)
 - `skills-registry.ts` — Exports SkillRegistryEntry, IgnoredSkillEntry, HttpBaseline, SkillsRegistry + 24 more (~3639 tok)
@@ -116,7 +116,7 @@
 
 ## tests/end2end/cases/install/
 
-- `install-local-archive.test.ts` — E2E tests for installing local archive files (.zip, .tar.gz). (~1224 tok)
+- `install-local-archive.test.ts` — E2E tests for installing local archive files (.zip, .tar.gz). (~1223 tok)
 
 ## tests/end2end/cases/link/
 
@@ -125,15 +125,15 @@
 
 ## tests/end2end/cases/smoke/
 
-- `init.test.ts` — tests/end2end/cases/smoke/init.test.ts (~511 tok)
+- `init.test.ts` — tests/end2end/cases/smoke/init.test.ts (~510 tok)
 
 ## tests/end2end/cases/source/
 
 - `source-install-stale.test.ts` — E2E tests for install when stale checkout exists. (~1679 tok)
-- `source-stale-checkout.test.ts` — E2E tests for stale checkout handling (URL mismatch, non-git dir) (~1568 tok)
+- `source-stale-checkout.test.ts` — tests/end2end/cases/source/source-stale-checkout.test.ts (~1568 tok)
 - `source-update-dirty.test.ts` — E2E tests for dirty state detection and backup creation during update (~2704 tok)
-- `source-update-http.test.ts` — E2E tests for HTTP source update behavior. (~1854 tok)
-- `source-update.test.ts` — tests/end2end/cases/source/source-update.test.ts (~1291 tok)
+- `source-update-http.test.ts` — E2E tests for HTTP source update behavior. (~1853 tok)
+- `source-update.test.ts` — tests/end2end/cases/source/source-update.test.ts (~1290 tok)
 
 ## tests/end2end/cases/sync/
 
@@ -150,7 +150,7 @@
 - `guard.ts` — Error thrown when E2E test attempts to access protected paths. (~593 tok)
 - `index.ts` — Barrel export for all public E2E framework APIs. (~162 tok)
 - `runner.ts` — Result of running a command. (~910 tok)
-- `scenario.ts` — Agent name to skills directory path mapping. (~2127 tok)
+- `scenario.ts` — Agent name to skills directory path mapping. (~2126 tok)
 - `setup.ts` — Global beforeAll/afterEach hooks for E2E tests (cleanup, diagnostics). (~168 tok)
 
 ## tests/end2end/framework/fixtures/
@@ -172,14 +172,14 @@
 - `cli-introspection.test.ts` — Declares program (~493 tok)
 - `config-cli.test.ts` — Declares homeDir (~3730 tok)
 - `config-ui.test.ts` — Declares PromptStub (~4890 tok)
-- `discover.test.ts` — Declares tempDirs (~3937 tok)
+- `discover.test.ts` — Declares tempDirs (~3940 tok)
 - `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1231 tok)
 - `help-output.test.ts` — Declares execAsync (~1206 tok)
 - `install-cli.test.ts` — Declares execFileAsync (~1376 tok)
 - `README.md` — Project documentation (~37 tok)
 - `reconciliation-cli.test.ts` — Declares actual (~8729 tok)
 - `remote-refresh.test.ts` — Declares tempDirs (~669 tok)
-- `repo.test.ts` — Declares pathExists (~1983 tok)
+- `repo.test.ts` — Declares pathExists (~1991 tok)
 - `server-cli.test.ts` — Declares tempDirs (~678 tok)
 - `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~2080 tok)
 - `source-remove.test.ts` — Declares SourceConfig (~3129 tok)
