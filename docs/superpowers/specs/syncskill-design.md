@@ -1,7 +1,9 @@
 # Syncskill — TypeScript 实现设计
 
-> 更新日期：2026-05-21
-> 状态：v2 草稿（合并冗余命令、瘦身 registry、简化 dirty 处理、plan-then-execute 全局化、补齐 §11 AI 契约）
+> **当前版本**：v2.7.1（2026-06-02）
+> **版本历史**：[CHANGELOG.md](CHANGELOG.md)
+>
+> 主要里程碑：v2.7.1 spec/code 收口 + v2.6 兼容包袱清零（sidecar 路径 + cross-server 裸名） + 全 Tier 1 命令 plan_ref 落地 + force-hint 架构不变量 | v2.7 -y 破坏性 verb 规则 + plan_ref 可追溯 + sidecar backup 统一目录 + plan flag `-`=stdin + link audience 自省 + cross-server-policy `server:` 前缀 + unresolved resolve_phase | v2.6 source merge 重设计 + takeover 独立命令 + --on-conflict 统一 + cross-server-policy server-name + --plan-file 移除 + per-server result | v2.5 spec 清理 + UnresolvedKind 重命名 + remote refresh 合并 + link build 降 Tier 2 | v2.4 sidecar backup + restore 命令 + conflict 决议接通 | v2.4.1 receiver Node 18 | v2.3 远端备份模型 + remote 命令族 + takeover 协议 | v2.2 plan-then-execute + --strict | v2.1 install self + --apply 命名规则
 
 **相关文档**：
 - [E2E 测试框架设计](e2e-test-design.md) — End-to-End 测试框架规范
@@ -11,26 +13,17 @@
 `syncskill` AI Agent Skills 同步工具。核心用途：管理多 AI Agent（Claude/Hermes/Qoder 等）的 Skill 文件，在本地开发机和远程服务器之间双向同步。
 
 **设计约束**：
-- 兼容 Node 20+
+- **Controller (CLI)**: Node 20+（`package.json` engines 锁定，受 commander / @inquirer/prompts 等依赖约束）
+- **Receiver (远端脚本)**: Node 18+（v2.4.1 起；spec §3.13 详）。Controller 与 receiver Node 版本要求**解耦**——一台 controller 可推送到 Node 18 的远端
 - 运行时依赖 `yaml` + `commander` + `@inquirer/prompts` + `compressing` 四个 npm 包（`@inquirer/core` 通过 `@inquirer/prompts` 间接引入），其余全部 Node 原生 API
-- ESM 优先，远程 receiver 脚本也用 `.mjs`（Node 20+ 原生运行）
+- ESM 优先，远程 receiver 脚本也用 `.mjs`（Node 18+ 原生运行）
 - Hash 算法与 Python 版本完全兼容（MD5 + sorted 文件遍历）
 - 跨平台：macOS / Linux / Windows
 - CLI 命令名：`syncskill`
 - 远程部署目录：`~/.syncskill/`
 - **所有用户交互信息使用英文**
 
-**v2 关键变更**（2026-05-21）：
-
-- §3.0 / §3.0.B：新增 flag 语义统一定义 + plan-then-execute 全局协议
-- §3.1：合并 `install`/`source add`、`update`/`source update`、`unlink`/`link clear`；删除 `server probe`、`refresh --status`；`scan --migrate` 重命名 `--migrate-unmanaged`
-- §3.5：`install` 内化 source add 逻辑
-- §3.6：明确 link 双轨设计（人类用 edit/add/remove/clear，AI agent 用 set + apply）
-- §3.8：删除 `update-history.json` / `source restore` / `~/.syncskill/backups/`；dirty 默认 abort + hint
-- §3.8（registry）：skills-registry.json v2 schema 瘦身到 ignored 元信息 + http baselines
-- §10：registry 诊断 4 码合并为 1 码（REGISTRY_CORRUPT）；删 `--rebuild-registry`
-- §11.6：补齐 10 个命令的 data schema；明确 plan/result 可追溯、data.changes 强制约定
-- §11.8–11.11：新增环境变量表、stdout/stderr 契约、CLI self-introspection、JSON-only config（自动迁移）
+> 各版本详细增量变更已归档至 [CHANGELOG.md](CHANGELOG.md)（含 v2 ~ v2.6 的逐条变更与决策上下文）。本 spec 主体始终反映当前最新规范。
 
 ## 2. 项目结构
 
@@ -51,69 +44,95 @@ syncskill/
 │   └── syncskill/
 │       └── SKILL.md                 # syncskill 自身的 skill 定义
 └── src/
-    ├── index.ts                   # CLI 入口 (commander) — 命令路由 + preAction 钩子
-    ├── repo.ts                    # init 命令：目录结构 + 配置模板
-    ├── install.ts                 # install 命令：内置 skill 安装、从 URL/路径安装
-    ├── linker.ts                  # 软链接管理（三级降级）+ expandLinkTargets
+    ├── index.ts                   # CLI 入口 (commander) — 命令路由 + preAction 钩子 + --help --json 自省
+    ├── repo.ts                    # init 命令：目录结构 + 配置模板 + 首次迁移
+    ├── install.ts                 # install 实现层：buildInstallPlan / executeInstallPlan / installBuiltinSkill / installFromSource
+    ├── linker.ts                  # 软链接管理（三级降级）+ reconcileStaleLinks + expandLinkTargets
+    ├── link-build-plan.ts         # link build Tier 1 plan/execute（spec §3.0.B + §3.6）
     ├── source.ts                  # 外部来源顶层入口（re-export source/ 子模块）
-    ├── refresh.ts                 # 全局自动刷新钩子
-    ├── commands/                  # 命令动作模块（从 index.ts 拆分）
+    ├── refresh.ts                 # 全局自动刷新钩子 + refreshLocalManifest / refreshRemoteManifest
+    ├── commands/                  # CLI 命令注册层（一行 register 函数 + 编排 src/core 与 src/ 实现层）
     │   ├── index.ts               # Barrel — 注册所有命令到 program
     │   ├── config.ts              # config 命令
     │   ├── dashboard.ts           # 无参数调用的仪表盘
     │   ├── diff.ts                # diff 命令
     │   ├── doctor.ts              # doctor 命令
     │   ├── init.ts                # init 命令
-    │   ├── install.ts             # install 命令
-    │   ├── link.ts                # link/unlink 命令
-    │   ├── refresh.ts             # refresh 命令
-    │   ├── remote.ts              # remote 命令
+    │   ├── install.ts             # install 命令注册（编排 src/install.ts）
+    │   ├── link.ts                # link/unlink 命令（含 edit/add/remove/clear/set/build/list 子命令）
+    │   ├── refresh.ts             # refresh 命令注册
+    │   ├── remote.ts              # remote 命令（refresh/show/agent/link 子树）
+    │   ├── remote-server.ts       # SSH scan-agents 编排层（被 refresh <server> / push auto-synthesize 共用）
     │   ├── resolve.ts             # resolve 命令
     │   ├── scan.ts                # scan 命令
-    │   ├── server.ts              # server 命令
+    │   ├── server.ts              # server 命令（list/show）
     │   ├── skill.ts               # skill 命令
-    │   ├── source.ts              # source 命令
+    │   ├── source.ts              # source 命令 + update Tier 1 实现
     │   ├── status.ts              # status 命令
-    │   ├── sync.ts                # push/pull/sync 命令
-    │   └── update.ts              # update 命令
+    │   ├── push.ts                # push 命令注册（编排 src/commands/sync-helpers）
+    │   ├── pull.ts                # pull 命令注册（编排 src/commands/sync-helpers）
+    │   ├── sync.ts                # sync 命令注册（编排 src/commands/sync-helpers）
+    │   ├── sync-helpers.ts        # push/pull/sync 共享 plan-builder + execute-runner
+    │   ├── restore.ts             # v2.4 R1: restore 命令（从 ~/.syncskill/.backups/skills/<skill>/pre-pull 回滚,v2.7 统一目录）
+    │   └── update.ts              # update 命令注册（编排 src/commands/source.ts）
     ├── config/
     │   ├── types.ts               # TypeScript 类型定义 (SyncSkillConfig, SourceConfig, etc.)
     │   ├── config.ts              # JSON 加载（含 YAML 自动迁移）+ 自动检测 agent 目录
     │   ├── config-ui.ts           # 交互式 TUI 配置菜单 (@inquirer/prompts)
     │   ├── config-doctor.ts       # 配置健康诊断与修复 (agents/links/sources/registry)
     │   └── matrix-editor.ts       # 二维矩阵编辑器组件 (@inquirer/core createPrompt)
-    ├── core/
-    │   ├── manifest.ts            # MD5 hash + manifest 读写/比较
-    │   ├── sync_engine.ts         # push/pull/sync 核心流程
+    ├── core/                      # 业务逻辑层（不依赖 src/commands/；可被 src/commands/ + src/ 实现层共用）
+    │   ├── manifest.ts            # MD5 hash + manifest 读写/比较 + classifySkillDelta + compareManifests + W_MANIFEST_CORRUPT (v2.4 C6)
+    │   ├── pull-backup.ts         # v2.4 B1: pull sidecar backup 读写 + restore 辅助
+    │   ├── sync_engine.ts         # push/pull 核心流程 + auto-synthesize backup + remote skill reconcile
     │   ├── sync-utils.ts          # 同步层工具函数（getIncludedSkills, computeLocalHashes, buildDirectionMap）
     │   ├── transport.ts           # SSH/rsync 传输 + 降级
     │   ├── conflict.ts            # 三路冲突检测与解决
     │   ├── server.ts              # 服务器配置格式化输出
     │   ├── skills-registry.ts     # 统一 skills 注册表 (skills-registry.json)
-    │   └── registry-builder.ts    # v2 registry 重建（仅 ignored + http_baselines；REGISTRY_CORRUPT 自动恢复）
+    │   ├── registry-builder.ts    # v2 registry 重建（仅 ignored + http_baselines；REGISTRY_CORRUPT 自动恢复）
+    │   ├── receiver-backup.ts     # 远端 receiver_config.json 本地备份 schema v1 读写（§3.3）
+    │   ├── remote-scanner.ts      # SSH scan-agents primitive（receiver `scan-agents` 子命令调用）
+    │   ├── takeover.ts            # remote-takeover preflight + resolutions 决议
+    │   ├── plan.ts                # Plan-then-execute 框架类型 + 协议 helper（§3.0.B）
+    │   ├── tier-one-runner.ts     # Tier 1 plan-then-execute runner（统一脚手架）
+    │   ├── context.ts             # CommandContext：per-invocation 上下文 + emitter + 解析后的 flags
+    │   ├── events.ts              # JSONL 事件协议（§11.2）
+    │   ├── json-output.ts         # --json 渲染共享 helper
+    │   ├── error-codes.ts         # 错误码 / 警告码注册表（§11.4）+ 退出码映射（§11.3）
+    │   ├── log-level.ts           # SYNCSKILL_LOG_LEVEL 解析 + 文本日志过滤
+    │   └── prompt-utils.ts        # guardPrompt + @inquirer/prompts 动态 import 封装
     ├── source/                    # 外部来源子模块（从 source.ts 拆分）
     │   ├── index.ts               # Barrel — re-export 所有公共 API
     │   ├── core.ts                # 核心来源操作（installFromSource, runSourceUpdate）
-    │   ├── detect.ts              # 输入类型检测（detectSourceInput）
-    │   ├── dirty.ts               # Dirty 检测逻辑
+    │   ├── detect.ts              # 输入类型检测（detectSourceInput）+ GitHub URL → skill_subdir 推断
+    │   ├── dirty.ts               # Dirty 检测逻辑（git status / http baseline）
     │   ├── discover.ts            # Skill 发现（discoverSourceSkills）
-    │   └── history.ts             # （已废弃：update-history.json 已移除，见 §3.8）
+    │   ├── install-flow.ts        # 安装流程（含同 URL 合并 Case 1-3）
+    │   ├── remove-flow.ts         # source remove Tier 1 plan/execute（buildRemovePlan/executeRemovePlan）
+    │   └── update-flow.ts         # source update Tier 1 plan/execute + skill-removed 决议
     ├── utils/
-    │   ├── utils.ts               # 共享工具函数 (isNotFoundError, pathExists)
+    │   ├── utils.ts               # 共享工具函数 (isNotFoundError, pathExists, expandTilde)
     │   ├── archive.ts             # 归档检测 + 跨平台解压 (compressing → CLI fallback)
-    │   └── backup.ts              # HTTP source --force 更新时的 sidecar 备份 (.syncskill-pre-update-backup)
+    │   └── backup.ts              # HTTP source --force 更新时的备份 (~/.syncskill/.backups/sources/<source>/pre-update,v2.7 统一目录)
     └── receiver/
         ├── bootstrap_remote.sh    # 远程部署脚本
-        └── sync_receiver.mjs      # 远程零依赖接收脚本
+        └── sync_receiver.mjs      # 远程零依赖接收脚本（含 scan-agents / apply [--takeover=...] / Node 18 guard, v2.4.1）
 
 ~/.syncskill/                    # init 后创建的本地数据目录
 ├── config.json                    # 用户配置（JSON 格式，见 §11.11）
 ├── skills/                        # 手动管理的 skill
 ├── manifests/                     # 各服务器同步状态 (JSON per server)
 │   └── <server>.json
+├── receivers/                     # v2.3+: 远端 receiver_config.json 的本地备份（per server）
+│   └── <server>.json
 ├── manifest_history.json          # hash 变更历史
 ├── skills-registry.json           # skill 注册表（来源映射 + 忽略状态，统一管理）
 ├── sources/                       # 外部来源 clone/下载目录（git clone、HTTP 解压）
+├── .backups/                      # v2.7: 统一 sidecar 备份目录
+│   ├── skills/<skill>/pre-pull/   #   pull/sync 写盘前的本地快照（§3.9 B1）
+│   ├── skills/<skill>/pre-restore/#   restore 执行前的安全兜底（§3.17）
+│   └── sources/<source>/pre-update/ # update --force 的 HTTP source 旧内容（§3.8）
 └── .tmp/                          # 临时文件（运行时创建，自动清理）
 ```
 
@@ -124,7 +143,7 @@ syncskill/
 **通用设计原则**：
 
 - **CLI 输出只显示变化**：命令执行后只输出实际发生变化的条目（新增、删除、错误等），不输出未变化的条目（如 already-linked）。如果完全没有变化，输出一条简短的汇总消息（如 `All links are up to date.`）。`--dry-run` 模式同样遵循此原则，显示"将要变化"的条目。
-- **别名命令复用核心逻辑**：当一个命令是另一个命令的别名或组合（如 `install` = `source add` + `auto-link`），禁止重新实现持久化逻辑，必须复用核心命令的写入路径。这确保核心逻辑发生变更时，所有入口点自动获得修复。
+- **复合命令复用核心逻辑**：当一个命令在功能上组合了多个其他命令的能力（如 `install` 兼有 source 注册 + auto-link 的语义），禁止重新实现持久化逻辑，必须复用核心命令的写入路径。这确保核心逻辑发生变更时，所有入口点自动获得修复。
 - **Skill/Source 变更的不变量**：所有会改变 skill 或 source 状态的入口点（`install`、`update`、`scan`）都必须保证以下三个副作用完整执行：
   1. config.sources 持久化（新增/修改 source 条目）
   2. config.links 持久化（新增 skill 映射）
@@ -138,8 +157,8 @@ syncskill/
 
 | 项 | 定义 |
 |---|---|
-| 含义 | 不做任何 fs 写、不发起任何网络请求、不修改任何外部状态 |
-| 允许例外 | 只读探查（`git status --porcelain`、`stat`、`ls`、本地 hash 计算）—— 用于产出 plan |
+| 含义 | 不修改任何外部状态：不写 fs、不发起任何**写** SSH/rsync 请求、不修改远端 |
+| 允许例外 | 只读探查 — 包括只读网络请求（`git ls-remote`、`ssh <host> "cat manifest"`、HTTP HEAD 探针）和本地只读操作（`git status --porcelain`、`stat`、`ls`、本地 hash 计算）—— 用于产出 plan |
 | 输出（text 模式） | 显示"将要发生的变更"，每行前缀 `[dry-run]` |
 | 输出（json 模式） | 完整 plan JSON，等价 `--plan` |
 | 与 `--plan` 关系 | `--dry-run` ≡ `--plan` + text 渲染；`--json --dry-run` ≡ `--json --plan` |
@@ -153,6 +172,17 @@ syncskill/
 | 不暗示 | 不暗示 `--force`；不暗示 `--cross-server-policy=first-wins`；不暗示 `--on-conflict=keep-local` |
 | 适用范围 | 仅影响 prompt 选择，不改变命令的破坏性行为 |
 
+**破坏性 verb 规则（统一定义，取代旧的"个别例外"措辞）**：
+
+`-y` 选的是**该 prompt 文档化的 default**——而 default 本身由命令语义决定，分两类：
+
+| 命令类别 | prompt 默认（无 flag） | `default-under-y` | 理由 |
+|---|---|---|---|
+| **破坏性 verb**（命令名本身即破坏意图：`link clear` / `unlink` / `remote takeover` 等） | 保守（如 `N`，防人类误操作） | **执行该意图** | 用户敲 `clear`/`unlink` 就是要删；agent 加 `-y` 是明确表达"执行此 verb" |
+| **非破坏命令**（`update` / `pull` / `sync` / `install` 等） | 保守 | 保守（`skip` / `keep-*`，与 §3.0.5 一致） | `-y` 不暗示破坏性副作用 |
+
+判定标准：**verb 本身是否就是破坏动作**。破坏性 verb（类比 `rm`）的"文档化 default"就是"执行";因此 `-y` 选 default = 执行,这不是对"`-y` 不暗示破坏"的违反,而是"该命令的 default 即执行"。非破坏命令内部遇到的破坏性子决策（如 `--on-local-deletion=delete`、cross-server 选边）仍必须显式 opt-in,`-y` 取保守 default。每个 prompt 站点仍按"强制约定"标注其 `default-under-y`,据本规则取值。
+
 #### 3.0.3 `--force`
 
 | 项 | 定义 |
@@ -160,6 +190,26 @@ syncskill/
 | 含义 | **单一含义** = "绕过 dirty 保护"（覆盖 dirty source、强制 `git reset --hard` 等） |
 | 不暗示 | 不暗示 `-y`（force 仍可能弹其他确认）；不暗示文件删除 |
 | 不用于 | 删除文件用专门 verb 或显式 `--delete-files`；跳过确认用 `-y` |
+| 误用纠偏 | force/yes 正交是有意设计（agent 需独立控制"绕 dirty"与"跳确认"）。但为纠正人类肌肉记忆：当 `--force` 在**非 dirty 场景**传入、命令仍弹出其它 prompt 时，输出一次性 `info` hint —— `\`--force\` only bypasses dirty protection; use \`-y\` to auto-confirm prompts`。仅提示，不改变行为 |
+
+**触发模型（v2.7.1 option D — 架构不变量）**：
+
+`maybeEmitForceHint(ctx)` 在 `--force=true` 时，**任何** prompt 一旦真正调用 `promptConfirm` / `promptSelect`，hint 必然 emit 一次（每 `CommandContext` 一次去重）。**不区分 prompt 类型** —— 区分依靠 callsite 自身的守卫：
+
+- **dirty-相关 prompt** callsite 必须被 `if (!ctx.flags.force)` 块短路，使 `--force=true` 时 prompt 根本不被调用。参考实现：`src/commands/source.ts` 的 dirty 分支：
+
+  ```typescript
+  if (!force) {              // ← --force 时根本不走这条路径
+    action = await promptSelect(ctx, "P_UPDATE_DIRTY_ACTION", ...);
+  }
+  if (force) {               // ← --force 走这条：自动 stash/backup，无 prompt
+    // ...
+  }
+  ```
+
+- **非 dirty prompt** callsite 不读 `ctx.flags.force`（force 与 prompt 正交）
+
+**为什么这个设计自治**：违反不变量（dirty prompt 没被 `if (!force)` 守卫）→ `--force` 下 hint 错误触发 → 测试 / 用户立刻在 callsite 暴露 bug,而非藏在 `maybeEmitForceHint` 内的字符串匹配规则里。v2.7 曾用 `promptCode.includes("DIRTY")` 做 heuristic,v2.7.1 移除——所有 dirty callsite 已正确守卫,heuristic 永远不命中,纯属脆弱的防御性代码。
 
 #### 3.0.4 `--no-interactive`
 
@@ -181,14 +231,22 @@ syncskill/
 
 | `--force` | dirty source 时 |
 |---|---|
-| ✗ | skip + warning，exit 6 |
+| ✗ | skip + `W_SOURCE_DIRTY`；exit 码按 §11.3 多 target skip 规则 |
 | ✓ | 执行更新（git reset --hard / http overwrite） |
+
+| `--strict` | 触发条件（partial skip 时） |
+|---|---|
+| ✗ | 默认；多 target 命令至少 1 个成功就 exit 0，skip 列表反映在 `data.skipped[]` |
+| ✓ | 任何 skip 都升级为 exit 6（CI / 严格 AI agent 场景显式 opt-in） |
+
+适用范围：`--strict` 影响**所有可能产生 partial skip 的命令**，包括 `update` / `sync` / `push` / `pull`。等价环境变量 `SYNCSKILL_STRICT=1`。
 
 | `--dry-run` 组合 | 行为 |
 |---|---|
 | `--dry-run -y` | plan 显示"将要做"（含 `-y` 下的默认决策） |
 | `--dry-run --force` | plan 显示"force 下将要做"（dirty source 也算入） |
 | `--dry-run --no-interactive` | plan 照常输出，遇 unresolved 也列出（plan 阶段允许 unresolved 存在，不 exit 4） |
+| `--dry-run --strict` | plan 标注哪些项"将会触发 exit 6"，便于 CI 预判 |
 
 ### 3.0.B Plan-then-Execute 全局协议
 
@@ -199,13 +257,14 @@ syncskill/
 | Flag | 行为 |
 |------|------|
 | `--plan` | 只跑 plan 阶段，输出结构化 plan 后 exit 0 |
-| `--plan-file <path>` | 写 plan 到文件，仍继续 execute |
-| `--apply <path>` | 跳过 plan，直接执行 `<path>` 中预生成的 plan |
-| `--apply-stdin` | 从 stdin 读 plan，等价 `--apply` 的流式版本 |
-| `--resolutions <path>` | 提供决议文件，绕过所有 prompt |
-| `--resolutions-stdin` | 从 stdin 读决议 JSON，避免临时文件 |
+| `--apply <path\|->` | 跳过 plan，直接执行预生成的 plan。`<path>` = 文件；`-` = 从 stdin 读（Unix 惯例，流式版本） |
+| `--resolutions <path\|->` | 提供决议绕过所有 prompt。`<path>` = 文件；`-` = 从 stdin 读，避免临时文件 |
+
+`-` 作为参数值表示 stdin,是各 agent / shell 通用的约定;用 `--apply -` / `--resolutions -` 即可流式传入,无需临时文件。
 
 `--dry-run`（§3.0.1）等价 `--plan` + text 渲染；两者共享同一份 plan-builder 函数。
+
+**Deprecation（v2.7）**：旧 flag `--apply-stdin` / `--resolutions-stdin` 降级为对应 `--apply -` / `--resolutions -` 的 alias，保留一个大版本并在 `result.summary.deprecations` 列出，下个大版本移除。
 
 #### 3.0.B.2 通用 plan schema
 
@@ -215,14 +274,15 @@ syncskill/
   "command": "install",
   "generated_at": "2026-05-21T12:00:00Z",
   "actions": [
-    { "op": "clone", "url": "...", "to": "..." },
-    { "op": "register-source", "name": "my-repo", "type": "git" },
-    { "op": "link-skill", "skill": "skill-a", "agents": ["claude", "cursor"] },
-    { "op": "create-symlink", "from": "...", "to": "..." }
+    { "id": "a1", "op": "clone", "url": "...", "to": "..." },
+    { "id": "a2", "op": "register-source", "name": "my-repo", "type": "git" },
+    { "id": "a3", "op": "link-skill", "skill": "skill-a", "agents": ["claude", "cursor"] },
+    { "id": "a4", "op": "create-symlink", "from": "...", "to": "..." }
   ],
   "unresolved": [
     {
       "kind": "skill-selection",
+      "resolve_phase": "execute",
       "candidates": [{"name": "skill-a", "path": "..."}],
       "default_under_y": ["skill-a", "skill-b"]
     }
@@ -231,26 +291,78 @@ syncskill/
 }
 ```
 
-`actions[].op` 与 `unresolved[].kind` 取值由具体命令定义，但字段名稳定（视作 API 表面）。
+`actions[].op` 与 `unresolved[].kind` 字段名稳定（视作 API 表面）。`actions[].skill` 字段在多数 op 下必填，但跨 skill 的 op（如 `clone` / `register-source` / `download`）允许省略 — AI agent 解析时应判定该字段为 `string | undefined`。
+
+**`actions[].id`（v2.7，可追溯）**：每个 action 带一个**在单个 plan 内稳定唯一**的 id（如 `a1`/`a2`…，生成规则 = 顺序计数器,buildPlan 内确定性）。result 的每个变更项通过 `plan_ref` 回指该 id（§11.6.0），使 plan↔result 对账退化为机械 join，无需语义猜测。id 仅在单个 plan 作用域内有意义，不跨调用持久化。
+
+**`unresolved[].resolve_phase`（v2.7）**：取值 `"plan"`（默认）或 `"execute"`,显式标注该决议项**能在哪个阶段解决**:
+
+| `resolve_phase` | 含义 | agent 影响 |
+|---|---|---|
+| `"plan"`（默认） | plan 阶段即可枚举完整 candidates，可在 plan 输出后用 `--resolutions` 解决 | 该 plan 可被无脑 `--apply`（配 `--resolutions`） |
+| `"execute"` | candidates 只有 execute 阶段（如 clone 完成后）才能枚举，plan 阶段无法穷举 | 含此项的 plan **不能盲 apply**;`--apply` 时必须配 `--resolutions`,否则 `E_UNRESOLVED` + exit 7 |
+
+目前唯一的 `"execute"` 项是 `install` 的 `skill-selection`（git source 的真实 skill 列表只有 clone 后才能枚举，见 §3.0.B.4 约束 2）。agent 据此字段机读判断"这个 plan 能否直接重放"，无需把"install 是特例"硬编码进 prompt。
+
+**`unresolved[].kind` 规范化枚举**（命令章节引用本表，禁止自创新 kind 名）：
+
+| Kind | 出现命令 | 触发场景 | `default_under_y` 含义 |
+|------|---------|---------|----------------------|
+| `skill-selection` | `install` / `update` | 新 source 中检测到多个 skill，需用户选 install 子集 | 默认全选 |
+| `dirty-source` | `update` | source 目录有未提交改动 | `skip`（保留 dirty，跳过该 source） |
+| `skill-removed` | `update` | source 中某 skill 被上游删除 | `keep`（保留为本地 manual skill） |
+| `link-cleanup` | `link build` | 检测到 config 不再引用的 stale symlink | `approve`（删除 stale link） |
+| `cross-server-conflict` | `sync` / `pull` | 同一 skill 在多个 server 上 hash 不同 | `abort`（停止 plan，exit 7） |
+| `content-conflict` | `push` / `pull` / `sync` | 单 server 上 local/remote/recorded 三方冲突。所有命令统一 `options[]`：`["keep-local", "keep-remote", "skip"]`。push 下 `keep-local` = force push（本地覆盖远端）；`keep-remote` = skip（保留远端现状）。**v2.4 C2/C3**：pull 侧决议起作用——`applySyncResolutions` 把决议写入 `SyncDecisionSink.conflicts`，`pullFromServer.conflictResolutions` 真正消费；v2.3 及之前由于 sink 没接通，pull 路径下任何 conflict 都被默认拉取（数据丢失路径，v2.4 B1 sidecar backup 兜底） | `skip`（不动；与 §3.0.5 一致——`-y` 不暗示破坏性操作） |
+| `remote-deletion` | `sync` / `pull` | 远端 manifest 中已删除某 skill，但本地仍存在 | `keep-local`（保留本地） |
+| `local-deletion` | `push` / `sync` | 本地已删除某 skill（baseline 中存在、当前文件不在），远端未改 → 用户可能本地 `rm` 想推送删除，syncskill 默认不主动跨设备删 | `keep-remote`（保留远端，本地下次 pull 会拉回；需用户显式 opt-in） |
+
+**`options[]` 与 `abort` 的关系**：`options[]` 列举的是**per-skill 决议项**（决定该 skill 如何处理）；`abort` 不在任何 `options[]` 中，因为它是**元决策**（停止整个 plan 的执行，不属于"对这个 skill 做什么"的选项）。`abort` 仅出现在 `default_under_y` 字段、`--cross-server-policy=abort`、`--on-conflict=abort` 等 orchestration-level 配置中。这一规则适用于所有 kind。
 
 #### 3.0.B.3 应用范围
 
+命令按 plan-execute 复杂度分为两层：
+
+**Tier 1 — 完整 plan/execute**（昂贵或多决议项，提供 `--plan` / `--apply <path|->` / `--resolutions <path|->`;旧 `--apply-stdin` / `--resolutions-stdin` 降为 alias 一版,见 §3.0.B.1）：
+
 | 命令 | plan 应列出 |
 |------|------------|
-| `install <url>` / `install --self` | clone/download + 待 link 的 skill 列表 + skill-selection 决议项 |
+| `install <url>` / `install self` | clone/download + 待 link 的 skill 列表 + skill-selection 决议项 |
 | `update [name]` | 哪些 source 会更新、dirty 状态、删除/新增的 skill |
 | `source remove <name>` | 待删 config 条目 + 待删文件路径 + 待清理 symlink |
-| `scan` | 待 register 的新 skill + 待迁移的 unmanaged skill |
-| `link set/add/remove/clear/apply` | config 前后 diff + reconcile 的 symlink 增删 |
 | `sync` / `push` / `pull` | 远程 delta + cross-server / content / deletion 未决项（§3.9 详） |
+
+**Tier 2 — 轻量 dry-run**（执行成本低、决议项少，只提供 `--dry-run` + `--json`，输出与 plan **同 schema**）：
+
+| 命令 | dry-run 应列出 |
+|------|---------------|
+| `scan` / `scan --migrate-unmanaged` | 待 register 的新 skill + 待迁移的 unmanaged skill |
+| `link build` | reconcile 的 symlink 增删（多 agent 多 skill 时涉及几十次 fs 写，但均为本地 ms 级操作） |
+| `link set/add/remove/clear` | config 前后 diff + reconcile 的 symlink 增删（执行成本低，单 skill 作用域） |
 | `resolve <skill>` | 待覆盖方向 + 涉及 server |
 | `doctor --fix` | 待修复项列表 |
 
+Tier 2 命令的 `--dry-run --json` 输出复用 §3.0.B.2 通用 schema（`actions[]` + `unresolved[]` + `warnings[]`），AI agent 可统一解析；但不提供 plan-then-apply 两阶段调用（轻量命令直接执行更高效）。
+
 #### 3.0.B.4 硬性约束（保护人类体验）
 
-1. **plan 阶段不允许做昂贵操作**：clone / download 必须发生在 execute 阶段。plan 只做轻量探查（`git ls-remote`、`fs.stat`、本地 hash 计算）。否则用户回车后会"卡住"。
-2. **plan 阶段不允许 prompt**：plan 是 `(config, args, fs state) → Plan` 的纯函数。prompt 发生在"plan 构建完成 → execute 开始前"这层，由 TTY + flag 组合决定怎么收集 resolutions。
-3. **TTY + 无 flag 时 prompt 体感与今天一致**：用 `@inquirer/prompts` 原生组件，不让用户感知底层有 plan 抽象。
+1. **plan 阶段不允许做昂贵操作**：clone / 大型 archive 下载 / `rsync` 文件传输必须发生在 execute 阶段。plan 允许的范围是**常数级网络元数据查询 + 本地探查**：
+   - 本地：`fs.stat`、本地 hash 计算、读 config / manifest
+   - 网络元数据（允许）：`git ls-remote`、HTTP HEAD 探针、**SSH 元数据命令（`ssh <host> ls/stat/cat`、receiver `scan-agents` / `refresh-manifest` 等输出 KB 量级 JSON 的调用）**
+   - **禁止**：`git clone`、HTTP body 下载（MB+ archive）、`rsync` 真实文件传输
+   - 准则：每次网络请求的数据量必须为**常数级（KB 量级）**，不依赖 skill 数量、仓库大小或目录文件数。否则用户回车后会"卡住"。
+2. **`buildPlan()` 与 `executePlan()` 都是纯函数**：从不 prompt、从不写盘、从不发起写网络请求。两者完全可重放。
+   - **`resolve_phase: "execute"` 的 unresolved（v2.7 正规化）**：少数决议项的 candidates 只有 execute 阶段才能枚举（plan 阶段连"候选集"都拿不到）。这些项在 plan 中已用 `resolve_phase: "execute"` 显式标注（§3.0.B.2），agent 据此机读判断。目前唯一的此类项是 `install` 的 `skill-selection`（git source 真实 skill 列表只有 clone 完成后才能枚举，plan 阶段只允许 `git ls-remote` 等常数级元数据）。`executeInstallPlan()` 允许在 clone 完成后、TTY + 无 `--apply` + 无 `--no-interactive` 组合下，弹出 inquirer prompt 收集 skill 子集决议；其他所有命令、其他所有 kind（`resolve_phase: "plan"` 项）都**不允许** execute 阶段 prompt。
+   - `resolve_phase: "execute"` 项在以下模式下**仍不弹 prompt**，按下表降级：
+     - `--apply <plan>` / `--apply -`：plan 含此类 unresolved 时必须用 `--resolutions` 提供决议；缺决议直接 `E_UNRESOLVED` + exit 7（不弹 prompt）。
+     - `--no-interactive` 单独使用：输出 `prompt` 事件 + `E_NEEDS_INPUT` + exit 4。
+     - `-y` / `--yes`：按 `default_under_y = 全选` 自动决议，不弹 prompt。
+     - 非 TTY 环境：等价 `--no-interactive`。
+3. **prompt 在 orchestration 层、按模式开关**：
+   - **模式 A — 显式 plan/apply**（`--plan` / `--apply <path|->` 任一,含旧 `--apply-stdin` alias）：orchestration 也**不得 prompt**。unresolved 通过 plan 输出 + `--resolutions <path|->` 解决。
+   - **模式 B — 非交互**（`--no-interactive`、`--yes`、或非 TTY 环境，不带 `--plan`/`--apply`）：orchestration 也**不得 prompt**。unresolved 按 `-y` 时的 `default_under_y` 自动决议；`--no-interactive` 单独使用则输出 `prompt` 事件 + `E_NEEDS_INPUT` + exit 4。
+   - **模式 C — 纯交互**（TTY ＋ 无以上任何 flag）：orchestration 允许在 buildPlan 之后、executePlan 之前一次性 prompt 收集决策。Ctrl+C 视同 abort，整个命令以 exit 4 结束。
+4. **TTY + 无 flag 时 prompt 体感与今天一致**：用 `@inquirer/prompts` 原生组件，不让用户感知底层有 plan 抽象（模式 C）。
 
 #### 3.0.B.5 默认人类流程（无 flag）
 
@@ -279,13 +391,25 @@ $ syncskill install https://github.com/user/repo
 # 探查
 syncskill --json --plan install https://github.com/...
 
-# 离线决策后携带决议执行
+# 离线决策后携带决议执行（用 `-` 从 stdin 流式传决议，免临时文件）
 syncskill --json --no-interactive \
-  --resolutions-stdin install https://github.com/... <<< "$resolutions"
+  --resolutions - install https://github.com/... <<< "$resolutions"
 
-# 或直接重放上一步生成的 plan
+# 或直接重放上一步生成的 plan：命令名从 plan.command 自动读取
 syncskill --json --apply plan.json
+
+# 流式重放（plan 从 stdin）
+cat plan.json | syncskill --json --apply -
 ```
+
+**`--apply` 与命令名规则**：
+
+- plan 文件必含 `command` 字段（§3.0.B.2 schema）。
+- 当 CLI 行同时显式给出命令名时，**两者必须一致**，否则报 `E_PLAN_COMMAND_MISMATCH` + exit 2。
+  - 例：`syncskill --apply plan.json install ...` 时，`plan.command === "install"`。
+- 当 CLI 行**不给**命令名（如 `syncskill --apply plan.json`）时，从 `plan.command` 读取并路由到对应命令。
+
+这让 AI agent 既可"无脑重放 plan"（不指定命令名），也可"显式指定命令并复用 plan 子集决议"，两种用法语义对齐。
 
 ### 3.1 `index.ts` — CLI 入口
 
@@ -332,14 +456,14 @@ Run `syncskill --help` for all commands.
 
 | 命令 | 说明 |
 |------|------|
-| `init [--skip-scan] [-y/--yes]` | 创建 `~/.syncskill/` 目录结构和 config.json；默认安装 syncskill skill（无需询问） |
+| `init [--skip-scan] [--skip-self] [-y/--yes]` | 创建 `~/.syncskill/` 目录结构和 config.json；默认安装 syncskill skill（`--skip-self` 跳过自安装） |
 | `install` | TTY 下交互式菜单，让用户选择安装来源；非 TTY → E_NEEDS_INPUT + exit 4 |
-| `install --self` | 安装内置 syncskill skill |
-| `install <url-or-path>` / `i <url-or-path>` | 安装外部来源（旧 `source add` 的行为合并到此） |
+| `install self` | 安装内置 syncskill skill（`self` 是保留位置关键字；本地 `./self` 目录请显式写 `install ./self`） |
+| `install <url-or-path>` / `i <url-or-path>` | 安装外部来源 |
 
 `install` 完整参数：
 
-- `--self`：安装内置 syncskill skill
+- `self`（保留位置关键字）：安装内置 syncskill skill
 - `--name <name>`：指定 source 名称
 - `--path <path>`：指定存储路径
 - `--skill-subdir <dir>`：指定 skill 所在子目录
@@ -350,7 +474,7 @@ Run `syncskill --help` for all commands.
 
 **Link 管理**
 
-链接命令双轨：人类用 verb（`edit`/`add`/`remove`/`clear`/`apply`）表达增量意图；AI agent 用 declarative（`set` + `apply`）表达终态。
+链接命令双轨：人类用 verb（`edit`/`add`/`remove`/`clear`/`build`）表达增量意图；AI agent 用 declarative（`set` + `build`）表达终态。
 
 | 命令 | 模式 | 受众 | 说明 |
 |------|------|------|------|
@@ -358,13 +482,13 @@ Run `syncskill --help` for all commands.
 | `link add <skill> <agent>...` | 增量 | 人类 | 在 `config.links[skill]` 上追加 agents |
 | `link remove <skill> <agent>...` | 增量 | 人类 | 从 `config.links[skill]` 移除 agents |
 | `link clear <skill>` | 增量 | 人类 | 删除该 skill 的所有 link + 从 config 移除 |
-| `link apply` | 批量 | 人类 / AI | 按 config reconcile：创建/删除 symlink |
+| `link build` | 批量（Tier 2） | 人类 / AI | 按 config reconcile：创建/删除 symlink；支持 `--dry-run` + `--json` |
 | `link set <skill> <agent>...` | 声明式 | AI agent | 覆盖 `config.links[skill]` 为给定 agents |
 | `link list` / `link ls` | 只读 | 人类 / AI | 显示链接状态矩阵 |
 
 **`unlink <skill>`**：顶级别名，等价 `link clear <skill>`。
 
-**AI agent 推荐用法**：先 `link set <skill> <agents>...` 写 config（declarative），再 `link apply` 执行 reconcile。避免用 `add`/`remove` —— 这些是人类 verb，多次调用会被多个 agent 互相覆盖。
+**AI agent 推荐用法**：先 `link set <skill> <agents>...` 写 config（declarative），再 `link build` 执行 reconcile。避免用 `add`/`remove` —— 这些是人类 verb，多次调用会被多个 agent 互相覆盖。
 
 **子选项**：
 
@@ -377,7 +501,7 @@ Run `syncskill --help` for all commands.
 
 **参数校验**：所有 `<agent>` 参数必须在 `config.agents` 中存在（除 `'*'`），否则报 `E_AGENT_NOT_CONFIGURED` + exit 2。
 
-**`link list` 与同名 skill 歧义**：保留子命令名（`list`/`ls`/`edit`/`add`/`remove`/`clear`/`apply`/`set`）始终优先匹配子命令。同名 skill 通过 `link edit <skill>` 操作。注：`unlink` 是顶级命令（等价 `link clear`），不在 link 子命令命名空间，因此 skill 名为 `unlink` 时不冲突——`syncskill unlink unlink` 即"unlink 名为 unlink 的 skill"。
+**`link list` 与同名 skill 歧义**：保留子命令名（`list`/`ls`/`edit`/`add`/`remove`/`clear`/`build`/`set`）始终优先匹配子命令。同名 skill 通过 `link edit <skill>` 操作。注：`unlink` 是顶级命令（等价 `link clear`），不在 link 子命令命名空间，因此 skill 名为 `unlink` 时不冲突——`syncskill unlink unlink` 即"unlink 名为 unlink 的 skill"。
 
 **`link edit` 是唯一交互式子命令**：非 TTY 下报错 `E_NEEDS_INPUT` + exit 4，hint 指引到 `link set` / `link add` / `link clear`。不接受 `--dry-run`（用 `link set --dry-run`）。
 
@@ -400,7 +524,7 @@ Run `syncskill --help` for all commands.
 
 - `[name]`：指定要更新的 source 名称
 - 通用 flag 见 §3.0；plan 行为见 §3.0.B
-- `--force`：强制更新 dirty source（git 走 `git stash`；http 写 `.syncskill-pre-update-backup` sidecar，详见 §3.8）
+- `--force`：强制更新 dirty source（git 走 `git stash`；http 写 `~/.syncskill/.backups/sources/<source>/pre-update/`,详见 §3.8）
 
 注：dirty source 默认 skip + warning（exit 6），hint 字段输出"如何手动备份"的可执行命令片段。`--force` 是 escape hatch，多数情况推荐用户用原生 `git stash` 处理后再跑 `update`。
 
@@ -424,9 +548,46 @@ Run `syncskill --help` for all commands.
 
 **Remote 管理**
 
+`remote` 命令族管理 **远端 receiver 配置的本地备份**（`~/.syncskill/receivers/<server>.json`，详见 §3.3）。本地备份是远端 `receiver_config.json` 的真相源：所有编辑通过 `remote` 命令操作本地备份，push 时同步到远端，避免每次配置变更都走 SSH 往返。
+
+命令面采用 **action-first** 词序（`remote <action> <server> [...args]`），与 `server show <name>` / `server list` 等已有顶层命令一致。无参数 `remote` 仍是矩阵编辑器入口。
+
 | 命令 | 说明 |
 |------|------|
 | `remote` | 进入 skills × servers 矩阵编辑器 |
+| `remote show <server>` | 打印本地备份内容（remote_agents + links 矩阵）。backup 不存在 → **in-memory 返回空 backup，不写盘**（只读命令不应该有副作用） |
+| `remote agent ls <server>` | 列出本地备份中的 `remote_agents`。backup 不存在 → **in-memory 返回空列表，不写盘** |
+| `remote agent add <server> <name> <path>` | 向本地备份的 `remote_agents` 加一条；backup 不存在 → 自动建空 backup + 完成写入并落盘 |
+| `remote agent rm <server> <name>` | 移除一条 agent；同时移除 `links` 中对该 agent 的引用；backup 不存在 → **in-memory 空 backup，no-op，不写盘** |
+| `remote link ls <server>` | 显示 skill × agent 矩阵（仅该 server）；backup 不存在 → **in-memory 返回空矩阵，不写盘** |
+| `remote link add <server> <skill> <agent>` | 在 `links[skill]` 中追加 agent（接管意图）；backup 不存在 → 自动建空 backup + 完成写入并落盘 |
+| `remote link rm <server> <skill> [<agent>]` | 移除 `links[skill]` 中的某 agent；省略 agent = 清空该 skill 的 links；backup 不存在 → **in-memory 空 backup，no-op，不写盘** |
+| `remote takeover <server> <skill> [--agent <a>]` | 显式接管远端非 symlink 真目录：SSH 删除 + 重建 symlink。详见 §3.18 |
+
+**Backup 创建语义（v2.3 audit-4 修订）**：
+- **只读命令**（`show` / `agent ls` / `link ls`）：backup 不存在时返回 in-memory 空备份（`{version:1, remote_agents:{}, links:{}}`），**绝不落盘**。这避免 AI agent 跑 `remote show` 探测时悄悄制造空文件，符合"读操作零副作用"原则。
+- **空操作命令**（`agent rm` / `link rm` 在 backup 不存在时）：与只读命令同语义——in-memory no-op，**不落盘**，info 提示"backup 不存在，操作 no-op"。
+- **写入型命令**（`agent add` / `link add`）：backup 不存在时先 `createEmptyReceiverBackup(server)` in-memory 再叠加写入，**最终原子落盘**一次。这让用户从未跑 `refresh <server>` 也能开始配置 — `remote agent add prod claude ~/.claude/skills` 在 `prod` 是新 server 时直接工作。
+
+注：远端拓扑的刷新（SSH scan-agents → 创建/合并 backup）现由顶层 `refresh <server>` 命令承担（v2.5 起），不再是 `remote` 子命令族的一部分。
+
+**默认 `links=[]` 的含义**：远端独有的 skill（用户手动放在 agent 目录下的真目录）首次被 `refresh <server>` 的 scan-agents 发现时，备份的 `links[skill] = []` 表示"已知该 skill 存在但未激活同步"。push union(links) 不会包含它（不主动推送 / 不主动 link 到任何 agent），远端原 agent 目录下的真目录也不会被动（保护机制详见 takeover 决议项，§3.0.B.2 / §3.9）。用户后续用 `remote link add <server> <skill> <agent>` 显式激活同步。
+
+**重置 backup**：需要从零重建时使用 shell 工具：
+
+```bash
+rm ~/.syncskill/receivers/<server>.json
+syncskill refresh <server>
+```
+
+`refresh <server>` 会重新做 SSH 扫描，从零生成与现状对齐的备份。
+
+**Receiver 部署依赖**：`refresh <server>` 首次运行时若远端尚未部署 receiver，会先调用 `deployReceiver()`（含 `bootstrap_remote.sh` 自动执行），再走 SSH 扫描流程。
+
+**通用 flag 与 plan/execute 协议**：
+
+- `remote agent {add|rm}` / `link {add|rm}` 是纯本地命令，直接 execute，不支持 plan/apply。
+- `remote show` / `agent ls` / `link ls` 是只读命令。
 
 **同步操作**
 
@@ -441,9 +602,10 @@ Run `syncskill --help` for all commands.
 | `resolve <skill> --local` | 保留本地版本，覆盖远程 |
 | `resolve <skill> --remote` | 保留远程版本，覆盖本地 |
 | `resolve <skill> --diff` | 只显示 hash 差异 |
-| `refresh [server]` | 刷新本地 + 远程 manifest 后显示状态（带 `[server]` 时只针对该服务器） |
+| `restore <skill> [--server <s>] [--all-servers]` | **v2.4 R1**：从 `~/.syncskill/.backups/skills/<skill>/pre-pull/`（v2.7+ 统一目录）回滚最近一次 pull / sync 覆盖。同时把所有（或指定）server 的该 skill manifest 条目标记为 `status=conflict + direction=conflict`，强制后续 `resolve` 决定推/拉方向。无 backup → `E_BACKUP_NOT_FOUND` exit 3 |
+| `refresh [server]` | 刷新本地 + 远程 manifest 后显示状态；带 `[server]` 时**同时刷新远端拓扑**（SSH scan-agents → 更新 `receivers/<server>.json` 备份，合并语义同原 `refresh <server>`：不覆盖手动 `link add` 设过的条目，仅追加新发现） |
 | `refresh --local` | 只刷新本地 hash，不显示状态 |
-| `refresh --remote` | 只刷新远程 hash，不显示状态 |
+| `refresh --remote` | 只刷新远程 hash + 远端拓扑，不显示状态 |
 
 注：上述命令的 `-y/--yes` 和 `--dry-run` 是全局参数（见下方"全局参数"），各命令签名不重复列出。
 
@@ -464,6 +626,7 @@ Run `syncskill --help` for all commands.
 - `-y` / `--yes`：同意所有 prompt（safe default）
 - `--dry-run`：预览变更但不执行（等价 `--plan` + text 渲染）
 - `--force`：绕过 dirty 保护
+- `--no-pull-backup`（**v2.4 B1**，仅 push / pull / sync）：跳过 pull 写盘前的 backup（v2.7+ 路径 `~/.syncskill/.backups/skills/<skill>/pre-pull/`）。等价 `config.pull_backup: false` 与 `SYNCSKILL_PULL_BACKUP=0`。CI / 大 skill 场景的 escape hatch；默认开启
 
 机器/脚本接入层（见 §11 + §3.0.B）：
 
@@ -471,9 +634,8 @@ Run `syncskill --help` for all commands.
 - `--no-interactive`：禁止任何 prompt
 - `--quiet` / `-q`：仅输出错误与最终结果
 - `--plan`：只跑 plan 阶段并输出（见 §3.0.B）
-- `--plan-file <path>`：写 plan 到文件，仍继续 execute
-- `--apply <path>` / `--apply-stdin`：执行预生成 plan
-- `--resolutions <path>` / `--resolutions-stdin`：携带决议绕过 prompt
+- `--apply <path|->`：执行预生成 plan(`-` = stdin,v2.7;旧 `--apply-stdin` 为 alias)
+- `--resolutions <path|->`：携带决议绕过 prompt(`-` = stdin,v2.7;旧 `--resolutions-stdin` 为 alias)
 - `--config <path>`：覆盖 config 文件路径
 - `--sync-dir <path>`：覆盖 `~/.syncskill/` 目录
 - `--cwd <path>`：切换工作目录
@@ -616,7 +778,7 @@ Configuration Menu
 
 **Matrix editor 保存时的通配符优化**：如果某个 skill 选中了所有已配置的 agents，保存时写入 `["*"]` 而不是逐个列出所有 agent 名称。
 
-**`link edit`**（无 skill 参数）：直接调用矩阵编辑器。退出矩阵编辑器后，若 links 配置发生了变更，交互式询问用户是否立即 apply（等效于 `link apply`，创建/清理 symlink 使实际状态与配置一致）。用户确认则执行 reconcile，拒绝则仅保存配置不操作 symlink。
+**`link edit`**（无 skill 参数）：直接调用矩阵编辑器。退出矩阵编辑器后，若 links 配置发生了变更，交互式询问用户是否立即 build（等效于 `link build`，创建/清理 symlink 使实际状态与配置一致）。用户确认则执行 reconcile，拒绝则仅保存配置不操作 symlink。
 
 **`link list`** / **`link ls`**：显示链接状态。
 
@@ -668,9 +830,25 @@ xlsx                     broken      missing     missing     missing
 
 **`config set <key> <value>`**：非交互式设置单个配置项。
 
-**新增类型：`ServerConfig.agents`**
+**`ServerConfig.agents`（v2.3 起降级为 hint）**
 
-每个远程 server 可独立配置 AI agent 目录映射：
+历史上 `ServerConfig.agents` 是 push 时单方面下发的远端 agent 映射；v2.3 起远端 agent 集合改由 **本地备份 `~/.syncskill/receivers/<server>.json`** 表达（详见下方"远端 receiver 本地备份"）。`ServerConfig.agents` 字段在以下场景作为 hint 使用：
+
+1. `refresh <server>` 执行时若 SSH 扫描完全发现不到任何 agent（极少数无标准 agent 目录的远端），`ServerConfig.agents` 中的条目作为初值写入新备份。
+2. **scan-based auto-synthesize（v2.3 audit-3）**：push / sync 时若 `~/.syncskill/receivers/<server>.json` 不存在（未跑 `refresh <server>`、老用户从 v2.2 升级、新用户跳过 remote 命令直接 push），push 路径**先 SSH `scan-agents` 拉真实远端布局**，按下表分类填 `links` 后持久化为新备份：
+
+   | 远端发现 | 写入 `links[skill]` |
+   |---------|--------------------|
+   | agent 目录下是 **symlink**（已被 syncskill 管理） | `[<agent>]`（追加，多 agent 累加） |
+   | agent 目录下是 **真目录**（用户手放） | `[]`（保护；不创建 link，push 时 skip + `W_TAKEOVER_NEEDED`；接管需显式 `remote takeover`，详见 §3.18） |
+   | 仅出现在 `~/.syncskill/skills/`（远端 manifest 有但 agent 下无） | `[]` |
+   | 本地 push 集中、远端完全不存在 | 取 `config.links[skill]` 若非空，否则 fallback `Object.keys(remote_agents)`（用户本地已声明的 link 意图优先；未声明视为全 agent） |
+
+   合成完成后持久化为 backup（与 `refresh <server>` 等效），info 提示 `Created receiver backup … (auto-synthesized from remote scan)`。**SSH 扫描失败**（网络、receiver 未部署、远端 Node 太旧等）→ **硬失败**，抛 `E_RECEIVER_SCAN_FAILED`（exit 5），hint：`Cannot auto-synthesize: remote scan failed (<reason>). Run \`syncskill refresh <server>\` manually to retry, or check SSH/receiver setup.` **不软回退**到老的 "config-based 全连合成"——避免拿到伪 backup 后所有 remote 命令基于错误状态。
+3. 旧版升级路径：v2.2 及以前生成的 manifest 仍可读；首次 v2.3 push 后被本地备份替代，字段保留但不再被推流程消费。
+
+新部署 / 新 server 维护远端 agent 集合的推荐流程：① 跑 `refresh <server>` 主动 preview（也会落盘 backup），② 按需 `remote agent/link add` 微调，③ `push` 应用。也可以省略 ① 直接 `push <server>`，scan-based auto-synthesize 会做等价工作（前提是 SSH 通）；`refresh <server>` 因此从"必跑"变成"可选 preview / 调试"。
+
 ```json
 {
   "agents": {
@@ -679,6 +857,35 @@ xlsx                     broken      missing     missing     missing
   }
 }
 ```
+
+**远端 receiver 本地备份（`~/.syncskill/receivers/<server>.json`，v2.3 新增）**
+
+每个 server 一份独立 JSON 文件，是远端 `~/.syncskill/receiver_config.json`（§3.13）的**本地真相源**。push 时 scp 同步到远端，远端 receiver 按此文件决定 link 行为。所有编辑通过 `remote` 命令族（§3.1）操作本地备份，避免每次配置变更走 SSH 往返。
+
+schema（v1）：
+
+```json
+{
+  "version": 1,
+  "server": "prod",
+  "updated_at": "2026-05-25T00:00:00Z",
+  "remote_agents": {
+    "claude": "~/.claude/skills",
+    "agents": "~/.agents/skills"
+  },
+  "links": {
+    "skill-a": ["claude", "agents"],
+    "skill-b": ["claude"],
+    "skill-c": []
+  }
+}
+```
+
+- `remote_agents`：远端实际存在的 agent 名 → 远端目录路径映射。由 `refresh <server>` 通过 SSH 扫描候选目录（§3.2 候选路径列表的远端版）发现并填充。
+- `links`：per-server skill × agent 矩阵。`links[skill]` 为 agent 名数组（支持通配符 `'*'`）；**空数组 `[]` 表示"已知但不激活"**——常见于 `refresh <server>` 发现的远端独有 skill。push 推送集 = `union(links[skill] 非空的所有 skill)`（§3.9）。
+- `updated_at`：备份本身的最后修改时间（供调试 / 比较使用，不参与同步逻辑）。
+
+文件由 `remote` 命令族原子写入（先写 `<server>.json.tmp` 再 `rename`），doctor 检测到 JSON 解析失败时备份为 `<server>.json.bak` 后重建为空 schema（与 `skills-registry.json` 处理一致）。
 
 ### 3.4 `repo.ts` — 仓库初始化
 
@@ -706,19 +913,25 @@ syncskill install
 │   │   From a URL or local path                              │
 │   │   Cancel                                                │
 │   └─────────────────────────────────────────────────────────┘
-│   ├─ Built-in syncskill skill → 等同 install --self
+│   ├─ Built-in syncskill skill → 等同 install self
 │   ├─ From a URL or local path → 提示输入 URL 或路径，等同 install <input>
 │   └─ Cancel → 退出，不操作
-└─ 非 TTY → E_NEEDS_INPUT + exit 4（hint: 用 `--self` 或 `<url-or-path>`）
+└─ 非 TTY → E_NEEDS_INPUT + exit 4（hint: 用 `install self` 或 `<url-or-path>`）
 ```
 
 **安装内置 syncskill skill**：
 
 ```
-syncskill install --self
+syncskill install self
 ├─ Plan: 探查 ~/.syncskill/skills/syncskill/ 是否已存在
 │   ├─ 已存在 → plan.actions 为空 + info "already installed"
 │   └─ 不存在 → plan.actions: [copy-builtin, link-skill, create-symlink]
+├─ Pre-execute 检测：cwd 存在 ./self/ 目录？
+│   └─ 是 → 打印 W_INSTALL_SELF_AMBIGUOUS 警告（不阻断）
+│        例：`warning: A directory named "./self" exists in the current
+│        working directory. "install self" installs the built-in syncskill
+│        skill (not your local directory). To install ./self, run
+│        \`syncskill install ./self\` instead.`
 ├─ Execute:
 │   ├─ 定位 dist/skills/syncskill/ 目录（通过 import.meta.url）
 │   ├─ 复制到 ~/.syncskill/skills/syncskill/
@@ -726,7 +939,7 @@ syncskill install --self
 └─ 输出 result.summary.data（schema 见 §11.6）
 ```
 
-**`--self` flag**：安装内置 syncskill skill。如果用户本地有名为 `self` 的目录需要安装，请使用 `install ./self`（显式路径）。
+**`self` 保留位置关键字**：`install self` 直接调用此分支，**不再有 `--self` flag**。如果用户本地有名为 `self` 的目录需要安装，使用显式路径 `install ./self`（任何含 `/` 或 `.` 前缀的输入都按"路径"解析）。cwd 含 `./self/` 时会发 `W_INSTALL_SELF_AMBIGUOUS` 警告（exit 0，不阻断）。
 
 **从 URL/路径安装**：
 
@@ -739,11 +952,11 @@ syncskill install <url-or-path> [--name <n>] [--path <p>] [--type git|http|local
 │   ├─ local source: fs.stat 验证存在
 │   ├─ 计算默认 name / path（推断或显式 --name/--path 覆盖）
 │   ├─ 推断会发现的 skill 集合（git: SKILL.md 路径只能在 clone 后确定 →
-│   │   plan 标 unresolved.kind="skill-selection-deferred"。execute 阶段
-│   │   clone 完成后列出 candidates 并按 flag 处理：
-│   │     - TTY → 弹 prompt（这是 §3.0.B.4 约束 2 的例外：deferred 决议
-│   │       只能在 clone 后做，作为 execute 内部的 sub-plan 周期处理）
-│   │     - `-y` / `--resolutions[-stdin]` 提供 → 应用决议
+│   │   plan 标 unresolved.kind="skill-selection" + resolve_phase="execute"
+│   │   （§3.0.B.2）。execute 阶段 clone 完成后列出 candidates 并按 flag 处理：
+│   │     - TTY → 弹 prompt（§3.0.B.4 约束 2 允许 resolve_phase=execute 的
+│   │       项在 execute 内部作为 sub-plan 周期处理；非"例外"，是正规化的契约）
+│   │     - `-y` / `--resolutions <path|->` 提供 → 应用决议
 │   │     - `--no-interactive` 且无 `-y` 无 resolutions → exit 4 + E_NEEDS_INPUT）
 │   └─ 产出 plan：actions + unresolved
 │
@@ -763,7 +976,7 @@ syncskill install <url-or-path> [--name <n>] [--path <p>] [--type git|http|local
 └─ 输出 result.summary.data（schema 见 §11.6）
 ```
 
-**参数说明**：`--self` 安装内置 skill；其余参数用于外部来源安装。
+**参数说明**：`install self`（保留位置关键字）安装内置 skill；其余 flag 用于外部来源安装。
 
 **输出示例**：
 
@@ -777,10 +990,10 @@ $ syncskill install
 
 # 无参数 + 非 TTY (CI、管道) → exit 4
 $ echo "" | syncskill install
-{"type":"error","code":"E_NEEDS_INPUT","message":"`install` without args requires an interactive terminal","hint":"Use `install --self` or `install <url-or-path>`"}
+{"type":"error","code":"E_NEEDS_INPUT","message":"`install` without args requires an interactive terminal","hint":"Use `install self` or `install <url-or-path>`"}
 
-# 安装内置 skill
-$ syncskill i --self
+# 安装内置 skill（保留位置关键字）
+$ syncskill i self
 ✓ Installed syncskill skill to ~/.syncskill/skills/syncskill/
 ✓ Linked to: claude, hermes
 
@@ -827,11 +1040,11 @@ All skills from "examples/skill-a" are already included in source "my-skills".
 | `link add <skill> <agent>...` | 人类 | 增量追加 |
 | `link remove <skill> <agent>...` | 人类 | 增量移除 |
 | `link clear <skill>` | 人类 | 清空该 skill |
-| `link apply` | 人类 / AI | 按 config reconcile symlinks |
+| `link build` | 人类 / AI | 按 config reconcile symlinks |
 | `link set <skill> <agent>...` | AI agent | declarative 覆盖 |
 | `link list` / `link ls` | 人类 / AI | 只读查询 |
 
-**AI agent 优先用法**：`link set <skill> <agents>...`（写 config）+ `link apply`（reconcile）。避免 `add` / `remove` —— 这些是人类 verb，多个 agent 并发调用容易互相覆盖；`set` 是 declarative，可幂等重放。
+**AI agent 优先用法**：`link set <skill> <agents>...`（写 config）+ `link build`（reconcile）。避免 `add` / `remove` —— 这些是人类 verb，多个 agent 并发调用容易互相覆盖；`set` 是 declarative，可幂等重放。
 
 **三级降级策略**：
 1. `fs.symlink()` — 标准软链接
@@ -842,12 +1055,12 @@ All skills from "examples/skill-a" are already included in source "my-skills".
 
 **Stale Link Reconcile**：
 
-`link apply`、`link set/add/remove/clear` 落盘后、以及矩阵编辑器退出后的 apply 操作，都需要清理 stale 的 syncskill 管理的软链接。当用户通过矩阵编辑器（或 `link set`）将某个 skill 从 `["*"]` 改为 `["claude"]` 后，其他 agent 目录中残留的旧链接应被自动清理。
+`link build`、`link set/add/remove/clear` 落盘后、以及矩阵编辑器退出后的 build 操作，都需要清理 stale 的 syncskill 管理的软链接。当用户通过矩阵编辑器（或 `link set`）将某个 skill 从 `["*"]` 改为 `["claude"]` 后，其他 agent 目录中残留的旧链接应被自动清理。
 
 - `link edit <skill>`：单 skill 矩阵编辑器，退出后 reconcile 该 skill 的链接状态
 - `link edit`：全局矩阵编辑器，退出后 reconcile 所有变更的 skill
 - `link set/add/remove/clear`：落盘前先 reconcile 受影响 skill 的链接（dry-run 时仅打印）
-- `link apply`：按 config 配置 reconcile 所有 skill 在所有 agent 目录中的链接状态
+- `link build`：按 config 配置 reconcile 所有 skill 在所有 agent 目录中的链接状态
 
 清理规则：
 1. 遍历所有 `config.agents` 目录，检查指定 skill（或所有 skill）是否存在需要清理的 stale 链接
@@ -876,8 +1089,35 @@ function reconcileStaleLinks(
 当有需要清理的链接时，显示并等待用户确认：
 
 - **默认（交互模式）**：列出将要清理的链接，等待确认 `[Y/n]`
-- **`-y/--yes`**：显示摘要，自动确认
+- **`-y/--yes`**：显示摘要，自动确认（**default under -y = 同意清理**，与 prompt 默认 `Y` 一致）
 - **`--dry-run`**：只显示，不执行也不询问
+
+**`link build` dry-run 协议**（Tier 2）：
+
+`link build` 是 Tier 2 命令，仅支持 `--dry-run` + `--json`（不提供 `--plan` / `--apply` / `--resolutions`）。多 agent 多 skill 时可能涉及几十次 fs 写，但均为本地 ms 级 symlink 操作，无需 plan-then-apply 两阶段。
+
+**dry-run 输出 schema**（复用 §3.0.B.2 通用 plan schema）：
+
+```json
+{
+  "version": 1,
+  "command": "link build",
+  "actions": [
+    { "op": "create-symlink", "skill": "skill-a", "agent": "claude", "from": "...", "to": "..." },
+    { "op": "remove-symlink", "skill": "skill-b", "agent": "hermes", "path": "..." }
+  ],
+  "unresolved": [
+    {
+      "kind": "link-cleanup",
+      "to_remove": [{ "skill": "skill-b", "agent": "hermes", "path": "..." }],
+      "default_under_y": "approve"
+    }
+  ],
+  "warnings": []
+}
+```
+
+**`command` 字段约定**：含子命令时直接用空格连接（`"link build"` / `"source remove"`），与 CLI 行书写一致。不引入 `subcommand` 字段。
 
 **输出示例（单 skill 矩阵编辑器）**：
 
@@ -933,7 +1173,7 @@ Error: Agent 'unknown-agent' not configured (E_AGENT_NOT_CONFIGURED)
 **输出示例（批量 reconcile）**：
 
 ```bash
-$ syncskill link apply
+$ syncskill link build
 
 ✓ Linked 5 skills
 
@@ -951,7 +1191,7 @@ Remove 4 links? [Y/n] y
 **使用 `-y` 时**：
 
 ```bash
-$ syncskill link apply -y
+$ syncskill link build -y
 
 ✓ Linked 5 skills
 ✓ Removed 4 links (skill-a, skill-b, local-tool)
@@ -973,6 +1213,8 @@ $ syncskill unlink my-skill -y
 ✓ Unlinked my-skill from all agents
 ✓ Removed "my-skill" from config links.
 ```
+
+**default under -y**（`link clear` / `unlink`）：自动确认删除。按 §3.0.2 **破坏性 verb 规则**，`link clear` / `unlink` 的命令名即破坏意图，因此其文档化 default-under-y = 执行 = `Y`。人类无 flag 时 prompt 仍默认 `N`（防误删）；`-y` 选 default 落到 `Y` 是规则的统一应用，不再是"例外"。
 
 ### 3.7 `manifest.ts` — Hash 计算与 Manifest
 
@@ -1011,7 +1253,7 @@ $ syncskill unlink my-skill -y
 - `remote_hash`：最后已知的远程 hash（从远程 manifest 拉取）
 - `recorded_hash`：上次同步点的基准 hash（push/pull 完成时设置为同步后的 hash）
 - `direction`：同步方向，取值 `push` / `pull` / `conflict`（其中 `conflict` 由 manual 策略下的冲突标记产生；不设方向等价于 `push`，需要双向同步用 `sync` 命令）
-- `status`：同步状态，取值固定为 5 态枚举之一 —— `in-sync` / `local-changed` / `remote-changed` / `conflict` / `new`。所有写入 manifest 的代码路径都通过 `classifySkillDelta(local, remote, recorded)` 派生该值，避免出现 `changed`、`pending` 等非枚举值。
+- `status`：同步状态，取值固定为 6 态枚举之一 —— `in-sync` / `local-changed` / `remote-changed` / `remote-deleted` / `conflict` / `new`（其中 `remote-deleted` 由 v2.3 audit-2 S1 引入：远端 manifest 删除某 skill 但本地仍在 baseline 的场景）。所有写入 manifest 的代码路径都通过 `classifySkillDelta(local, remote, recorded)` 派生该值，避免出现 `changed`、`pending` 等非枚举值。
 
 `recorded_hash` 作为 3-way merge 的基准点，用于判断"谁改了"：
 - `local_hash ≠ recorded_hash` → 本地相对基准有变化
@@ -1021,14 +1263,45 @@ $ syncskill unlink my-skill -y
 
 **Manifest 变更历史** (`manifest_history.json`)：用于追踪 hash 变更事件，仅在 hash 实际变更时追加记录。
 
+**Manifest 健壮性（v2.4 C6）**：
+
+`loadManifest(path)` 的行为按文件状态分桶：
+
+| 文件状态 | 行为 | 调用方理解 |
+|---|---|---|
+| 文件不存在 (`existsSync` false) | 返回 `null`，无日志 | 合法 "first-time / never synced" |
+| 文件存在但 `JSON.parse` 失败 | **`renameSync(path, path + ".bak")` + `console.warn(W_MANIFEST_CORRUPT)` + 返回 `null`** | 损坏路径——绝不静默吞错。下次访问视为 first-time，结合 §3.9 B1 sidecar backup 兜底数据安全 |
+| 文件存在且解析成功 | 返回解析结果 | 正常路径 |
+
+警告码 `W_MANIFEST_CORRUPT`（§11.4）说明文案：`"<path> is corrupted; moved to <path>.bak. Re-classified as first-time sync — running pull/sync may overwrite local. Run \`syncskill refresh <server>\` first."`。
+
+**为什么不静默 null**：v2.3 及之前 `loadManifest` 把"不存在"和"解析失败"混入同一个 `null` 路径，导致用户**误删 manifest** / 半写损坏 / 跨机器复制漏 `manifests/` 等真实场景被当作 "first-time sync"——在 pull / sync 时与远端同名 skill 发生 `classifySkillDelta` case 6 conflict 时，sink 决议链未通使本地被静默覆盖。v2.4 通过 rename + 显式 warn 让用户立刻看到信号；结合 doctor 新增的 "config 有 server 但 manifest 缺失" 检查（§10.3）形成完整诊断。
+
+**recorded_hash = null 的歧义（v2.4 强调）**：
+
+`classifySkillDelta` 的 case 6（`recorded_hash === null && local_hash && remote_hash && local_hash ≠ remote_hash`）会被以下**所有真实路径**触发——不是 corner case：
+
+1. 首次 sync 新 server（正常）
+2. 用户 `rm ~/.syncskill/manifests/<server>.json`（清理 / 想 reset）
+3. Manifest JSON 损坏 → v2.4 C6 rename `.bak` 后等价 null
+4. 从另一台机器复制 `~/.syncskill/` 但漏了 `manifests/` 子目录（最常见的"复制 config 不复制 manifest"）
+5. `~/.syncskill/` 被整目录删除后 `syncskill init` 重建（保留 config，manifest 没了）
+6. 磁盘满 / 写入中断导致部分写 → 下次解析失败 → 同上
+7. `doctor --fix` 误清
+
+v2.4 后所有 pull 写盘前一律做 sidecar backup（B1），即便用户跑了 `sync` 且本地版本被覆盖，也能通过 `restore <skill>` 回滚。
+
+
 **Delta 比较逻辑**（`classifySkillDelta`）：
 
 返回二元组 `{ action, status }`：
 
-- `action` 取值 `skip` / `push` / `pull` / `conflict` / `init`（同步动作，给 push/pull 引擎消费）
+- `action` 取值 `skip` / `push` / `pull` / `delete` / `push-delete` / `conflict` / `init`（同步动作，给 push/pull 引擎消费）
   - `init`：首次同步（recorded 为 null），具体方向（推/拉）由调用方根据哪一侧有 hash 推断
-  - 注意 action 与 status 词表共享 `conflict` 但**不共享 `new`**：状态用 `new`，动作用 `init`
-- `status` 取值 `in-sync` / `local-changed` / `remote-changed` / `conflict` / `new`（写入 manifest 的当前状态）
+  - `delete`：v2.3 audit-2 S1 引入。远端已删除该 skill 而本地仍在 baseline；plan 把它表面为 `remote-deletion` unresolved（§3.0.B.2），由 `--on-deletion` 决议是否删本地（pull-side deletion）
+  - `push-delete`：v2.3 audit-4 G3 引入。本地已删除该 skill 而远端仍在 baseline；plan 把它表面为 `local-deletion` unresolved（§3.0.B.2），由 `--on-local-deletion` 决议是否同步删除远端（push-side deletion）
+  - 注意 action 与 status 词表共享 `conflict` 但**不共享 `new`**：状态用 `new`，动作用 `init`；同样 action 用 `delete` / `push-delete`、status 用 `remote-deleted` / `local-deleted`
+- `status` 取值 `in-sync` / `local-changed` / `remote-changed` / `remote-deleted` / `local-deleted` / `conflict` / `new`（写入 manifest 的当前状态）
 
 ```text
 1. local_hash === remote_hash                                                     → skip, in-sync
@@ -1037,8 +1310,20 @@ $ syncskill unlink my-skill -y
 4. recorded_hash === null && local_hash && !remote_hash                           → init, new   (首次同步,推方向)
 5. recorded_hash === null && !local_hash && remote_hash                           → init, new   (首次同步,拉方向)
 6. recorded_hash === null && local_hash && remote_hash && local_hash ≠ remote_hash → conflict, conflict   (双方独立创建,内容冲突)
-7. local_hash ≠ remote_hash && 以上都不满足                                        → conflict, conflict
+7. recorded_hash !== null && remote_hash === null && local_hash === recorded_hash → delete, remote-deleted        (S1 audit-2: 远端删了, 本地未改)
+7b. recorded_hash !== null && local_hash === null && remote_hash === recorded_hash → push-delete, local-deleted    (G3 audit-4: 本地删了, 远端未改)
+8. local_hash ≠ remote_hash && 以上都不满足                                        → conflict, conflict
 ```
+
+**新增 `--on-local-deletion` flag（push/sync）**：与 §3.9 既有 `--on-deletion`（pull-side）平行。
+
+| 取值 | 行为 |
+|------|------|
+| `keep-remote`（默认 + `-y` safe default） | 保留远端 skill 原样，本地下次 pull 会拉回——表示"我只是临时删了，不想同步" |
+| `delete` | 执行 push 时同步删除远端 skill（rsync 不带特殊参数即可；接着把 manifest 中该 skill 条目从 baseline 移除） |
+| `prompt`（仅模式 C） | orchestration 在 buildPlan 之后 executePlan 之前一次性弹 inquirer prompt 逐项 y/N |
+
+`-y` 的 safe default 是 `keep-remote` 而非 `delete`，与 §3.0.5 "`-y` 不暗示破坏性操作" 一致。删除远端 skill 必须显式 opt-in（`--on-local-deletion=delete` 或 resolutions `"choose": "delete"`）。
 
 ### 3.8 `source.ts` — 外部来源管理
 
@@ -1133,44 +1418,75 @@ Skill 发现统一基于**递归搜索 SKILL.md 文件**。给定一个 subdir�
   - 选中的 → 加入 links
   - 未选中的 → 加入 ignore
 
-使用 `-y` 标志时自动选中所有发现的 skills（跳过确认）。
+**default under -y**（skill-selection）：自动选中**所有**发现的 skills（最宽松默认；不会有 skill 被 silently 忽略）。`-y` 同时跳过任何确认。
 
 **同仓库合并逻辑**：
 
 核心原则：**一个 URL 对应一个 source entry**，通过调整 `skill_subdir` 层级和 `ignore` 列表来管理。
 
+**统一原则**：`install <url>` 表达用户对 scope S 的意图——"我要 S 范围内的 skill"。S 内 previously-ignored skills 被 un-ignore（重新激活）；S 外且不属于 existing 区域的 skills 被 auto-ignore。已有 source 的 install 操作**永远不弹 prompt**（source 已受信，与 `scan`/`update` 一致）。
+
+**设计理由**：ignore list 不一定是用户意图（可能是 syncskill 自动添加的，如 Case 3 的 auto-ignore 或首次安装时的 skill-selection 跳过）。用户再次 install 时，新的显式意图应 override 旧的 ignore 决策。
+
+**Case 判定分支**：
+
 ```
-同 URL 的 source 已存在时：
+install <url> 时检测到同 URL source 已存在：
 
-1. 新 subdir 在 existing subdir 范围内
-   → 只更新 ignore list（从 ignore 移除目标 skills，加入 links）
-   → skill_subdir 保持不变
-   例：existing=".", new="examples/skill-a"
+  subdirContains(existing, new)?
+    → Case 1: new 在 existing 内
 
-2. 新 subdir 比 existing 更广
-   → 扩大 skill_subdir 为新值
-   → 新增 skills 加入 links，已有的保持不变
-   例：existing="examples/skill-a", new="."
+  subdirContains(new, existing)?
+    → Case 2: new 比 existing 广（含 identity: new = existing）
 
-3. 完全不相关的路径（互不包含）
-   → 询问用户：扩大到共同父目录，还是创建独立 source？
-   → 推荐扩大到共同父目录（保持一个 source 原则）
-   例：existing="skills/", new="examples/" → 扩大到 "."
+  otherwise?
+    → Case 3: 互不包含
+```
+
+注：Identity（完全相同 URL + subdir）归入 Case 2（`subdirContains(".", ".") = true`）。
+
+**各 Case 行为**：
+
+```
+Case 1 — new 在 existing 内：
+  → subdir 不变
+  → new subdir 内的 ignored skills → un-ignore + link
+  → 无 auto-ignore
+  → 无 prompt
+  例：existing=".", new="examples/skill-a" → un-ignore skill-a
+
+Case 2 — new 比 existing 广（含 Identity）：
+  → subdir expand 到 new（Identity 时不变）
+  → ALL previously-ignored skills → un-ignore + link
+  → 新发现的 skill → 直接 link（source 已受信，与 scan/update 一致）
+  → 无 auto-ignore（new scope 覆盖一切）
+  → 无 prompt
+  例：existing="examples/andrej", new="." → expand to ".", un-ignore all, link all
+
+Case 3 — 互不包含：
+  → subdir expand 到 common parent（通常 "."）
+  → new subdir 内的 ignored skills → un-ignore + link
+  → new subdir 内首次发现的 skill → 直接 link（source 已受信）
+  → 跨区域 skill（不在 existing 也不在 new subdir）→ auto-ignore
+  → existing 区域保持原状（ignored 仍 ignored）
+  → 无 prompt
+  例：existing="tools/", new="examples/demo"
+      → expand to ".", activate demo
+      → tools/ 区域不变, 跨区域 auto-ignore
 
 裸仓库 URL（无 /tree/branch/subdir）：
-   → GitHub URL 无 /tree/... 部分时，等同于 skill_subdir="."（整个仓库）
-   → 若 existing 范围比 "." 窄，走 Case 2 扩大到 "."
-   → 若 existing 已是 "."，走 Case 1 identity（all already included）
-   例：existing="examples", new=bare URL → expand to "."
-
-重复安装完全相同的 URL+subdir：
-   → 保持现有 source 不变，只 refresh 发现新 skills
+  → GitHub URL 无 /tree/... 部分时，等同于 skill_subdir="."
+  → 若 existing 范围比 "." 窄，走 Case 2 扩大到 "."
+  → 若 existing 已是 "."，走 Case 2 Identity
+  例：existing="examples", new=bare URL → Case 2, expand to ".", un-ignore all
 ```
 
 **包含关系判断**：`subdirContains(parent, child)`
 - `"."` 包含一切（仓库根）
 - `"a/b"` 包含 `"a/b/c"` 但不包含 `"a/x"`
 - 同一路径视为包含（identity）
+
+**Un-ignore 联动 skills-registry.json**：当 skill 从 `source.ignore[]` 中移除时，`skills-registry.json` 的 `ignored` map 中对应条目也必须同步清除（`removeIgnore(skillName)`）。
 
 **示例**（nuwa-skill 仓库）：
 ```
@@ -1180,17 +1496,24 @@ Skill 发现统一基于**递归搜索 SKILL.md 文件**。给定一个 subdir�
   /examples/steve-jobs-perspective/SKILL.md
   ... (~15 个 examples/*/SKILL.md)
 
-# 首次安装
+# 首次安装（全新 source，多 skill → skill-selection prompt）
 syncskill i https://github.com/alchaincyf/nuwa-skill
 → 递归搜索发现 ~16 个 skills
 → 交互式选择：用户选中 "nuwa-skill"，其余加入 ignore
 → config: skill_subdir: ".", ignore: [其余 15 个]
 
-# 后续添加子目录 skill
+# 后续添加子目录 skill（Case 1: new 在 existing 内）
 syncskill i .../tree/main/examples/andrej-karpathy-perspective
 → source 已存在，"." 包含 "examples/..."
-→ 从 ignore 移除 "andrej-karpathy-perspective"，加入 links
-→ skill_subdir 保持 "."
+→ un-ignore "andrej-karpathy-perspective"，加入 links
+→ skill_subdir 保持 "."，无 prompt
+
+# 裸 URL 重装（Case 2 Identity: un-ignore all）
+syncskill i https://github.com/alchaincyf/nuwa-skill
+→ source 已存在，subdir 均为 "."
+→ un-ignore ALL previously-ignored skills（15 个 examples 全部激活）
+→ 新发现的 skill（如有）直接 link
+→ 输出：Activated 15 previously-ignored skills: steve-jobs, ...
 ```
 
 **`update` 命令流程**：
@@ -1222,7 +1545,7 @@ Step 2: Dirty 处理（per-source 决策；最终 exit 6 当任意 source 被 sk
 │   └─ --force → 继续执行：
 │       ├─ git source: git stash push -m "syncskill: auto-stash" → git fetch → git reset --hard
 │       │   不记录 stash SHA（用户自己 git stash list 找；用 --force 即接受手动恢复成本）
-│       └─ http source: 将 dirty skills 复制到 `<source-path>.syncskill-pre-update-backup/` sidecar 目录
+│       └─ http source: 将 dirty skills 复制到 `~/.syncskill/.backups/sources/<source>/pre-update/`
 │           不持久化历史记录（用户自己 cp 恢复；用 --force 即接受手动恢复成本）
 
 Step 3: Execute 更新
@@ -1236,10 +1559,14 @@ Step 3: Execute 更新
 
 Step 4: 处理被删除的 skill
 ├─ 列出更新后从 source 中消失的 skill
-├─ 对每个被删除的 skill 询问（除非 -y/--no-interactive 则用 safe default = 保留）：
+├─ 对每个被删除的 skill 进入 `unresolved` 决议流（kind = `skill-removed`）：
 │   "Skill <X> was removed from source <Y>. Keep it as a local skill?"
-│   ├─ Yes（safe default）→ 复制 skill 到 ~/.syncskill/skills/<name>，registry 更新为 manual
-│   └─ No → 从 links 中移除，清理软链接，registry 标记删除
+│   ├─ TTY 纯交互（无 --no-interactive / --yes）→ inquirer prompt
+│   ├─ `-y/--yes`（不论是否非交互）→ 自动选 safe default = `keep`（保留为 manual skill）
+│   ├─ `--no-interactive` 但无 `-y` → 输出 prompt 事件 + E_NEEDS_INPUT + exit 4
+│   └─ 用户/默认选择：
+│       ├─ `keep` → 复制 skill 到 ~/.syncskill/skills/<name>，registry 更新为 manual
+│       └─ `remove` → 从 links 中移除，清理软链接，registry 标记删除
 
 Step 5: 输出更新报告（result.summary.data，schema 见 §11.6）
 ```
@@ -1248,7 +1575,7 @@ Step 5: 输出更新报告（result.summary.data，schema 见 §11.6）
 
 - 不再有 `update-history.json` —— 用户 `--force` 即接受手动恢复成本
 - 不再有 `source restore` 命令 —— hint 字段直接输出可执行命令片段
-- HTTP source 备份改为 sidecar 目录 `.syncskill-pre-update-backup/`（同 source 旁），不再有独立 `~/.syncskill/backups/` 目录
+- HTTP source 备份位于 `~/.syncskill/.backups/sources/<source>/pre-update/`（v2.7+ 统一目录,与 pre-pull/pre-restore 同根）
 - 不再有 git source / http source 分流的恢复 UI
 
 **为什么简化**：force-update dirty source 是低频场景。原设计相当于"自己实现 git stash 工作流"，复杂度回报比低。abort + 可执行 hint 解决 90% 场景，剩下 10% 用 `--force` 接受手动恢复。
@@ -1291,7 +1618,7 @@ Step 5: 输出更新报告（result.summary.data，schema 见 §11.6）
 - 在 `install`（HTTP 类型解压完成后）和 `update`（更新完成后）写入
 - update 前计算当前 skill 实际 hash，与此字段对比判断是否 dirty
 
-**Schema 迁移**：v1 (旧 schema) → v2。`install --self` / `init` 升级路径：检测到 v1 registry 时只读取 `ignored` 状态和 `last_update_hash`，丢弃其他派生字段后重写为 v2。doctor 在 v1 → v2 迁移时不视为错误。
+**Schema 迁移**：v1 (旧 schema) → v2。`install self` / `init` 升级路径：检测到 v1 registry 时只读取 `ignored` 状态和 `last_update_hash`，丢弃其他派生字段后重写为 v2。doctor 在 v1 → v2 迁移时不视为错误。
 
 **全局 skill 发现**：
 
@@ -1299,21 +1626,32 @@ Step 5: 输出更新报告（result.summary.data，schema 见 §11.6）
 
 ### 3.9 `sync_engine.ts` — 核心同步流程
 
-**Push 流程**：
-1. 按需部署 receiver：计算本地 `sync_receiver.mjs` 的 MD5 hash，通过 SSH `md5sum` 获取远程文件 hash，仅在 hash 不同或远程文件不存在时重新部署 `sync_receiver.mjs` + `bootstrap_remote.sh`
-2. 推送 receiver config（remote_agents 映射）
-3. 计算本地 hash
-4. 拉取远程 manifest
-5. 对比 → delta（注：`compareManifests` 对不在远程 manifest 中的 skill **无论本地 hash 是否变化**都标记为 `"new"`，确保新增到 include 列表的 skill 一定会被 push）
-6. 检测冲突
-7. **Reconcile remote skill set**：一次性 SSH `ls` 远端 `~/.syncskill/skills/` 目录，得到实际存在的 skill 列表。基于此列表执行两件事，复用同一次 ls 调用：
-   - **7a (always — cleanup)**：远端实际存在但不在当前 include 列表中的 skill → 列出待删除项，除 `-y/--yes` 外要求用户确认后删除。
-   - **7b (`--no-refresh` only — safety net)**：delta 中被标记为 "skip"（manifest 认为已同步）但远端实际缺失的 skill → 强制改为 "push"。正常流程下 `refreshRemoteManifest()` 已经从 manifest 删除了消失的远端 skill（详见 §3.12），所以 7b 仅在 `--no-refresh` 场景下有意义；正常流程不会命中。
-8. rsync 将具体 skill 目录推送到远程
-9. **对远程有变更但本地不需要 push 的 skill**：仅打印警告（`Skipping <skill>: remote has changes. Use syncskill pull to update local.`），**不执行隐式 pull**。push 命令只推送，不拉取。用户需要单独执行 `syncskill pull` 来获取远程变更。
-10. **更新本地 manifest**（3-field 模型）：区分实际推送的 skill 和未推送的 skill。实际 pushed 的 skill 设置 `remote_hash=local_hash, recorded_hash=local_hash, status="in-sync"`（三个 hash 同步）；未 pushed 的 skill（skip/pull/conflict）保留旧的 `remote_hash` 和 `recorded_hash`，正确反映同步状态。
-11. 推送 manifest
-12. SSH exec `sync_receiver.mjs apply`（receiver 会创建当前 skill 的 agent symlink，并清理指向已删除 skill 目录的 stale symlink）
+**Push 流程**（v2.3 — 嵌入 §3.0.B plan-then-execute）：
+
+**Plan 阶段（只读）**：
+
+1. 按需部署 receiver：计算本地 `sync_receiver.mjs` 的 MD5 hash，通过 SSH `md5sum` 获取远程文件 hash，仅在 hash 不同或远程文件不存在时重新部署 `sync_receiver.mjs` + `bootstrap_remote.sh`（首次部署时同时 `ssh bash bootstrap_remote.sh` 做目录预创建 + Node 存在性预检）
+2. 读取本地 receiver 备份 `~/.syncskill/receivers/<server>.json`（§3.3）：
+   - 若备份不存在 → 走 **scan-based auto-synthesize**（v2.3 audit-3）：详细规则见 §3.3 节场景 2。简述：先 SSH `scan-agents` 拉真实远端布局，按 symlink/真目录/远端独有/本地新建 4 类分别填 `links`；持久化后推流程继续。SSH 失败 → abort + `E_RECEIVER_SCAN_FAILED`（exit 5），用户需先跑 `syncskill refresh <server>` 或修 SSH 后重试。
+   - 备份存在 → 提取 `remote_agents` + `links` 矩阵进入下游步骤
+3. **计算推送集**：`pushSet = { skill | links[skill] 非空 且 该 skill 在本地存在 }`。这是 v2.3 的关键语义：push 不再"推所有本地 skill"，而是按 per-server `links` 矩阵筛选，避免 server A 拉回的远端独有 skill 污染 server B 的远端
+4. 计算本地 hash（仅 pushSet 内的 skill）
+5. 拉取远程 manifest
+6. 对比 → delta（注：`compareManifests` 对不在远程 manifest 中的 skill **无论本地 hash 是否变化**都标记为 `"new"`，确保新增到 `links` 的 skill 一定会被 push）
+7. 检测冲突（同 §3.7 三方比较）
+8. **Reconcile remote skill set**：一次性 SSH `ls` 远端 `~/.syncskill/skills/` 得到实际存在的 skill 列表：
+   - **8a (always — cleanup)**：远端 `skills/` 中存在但不在 pushSet 中的 skill → 列入 plan 待删除项
+   - **8b (`--no-refresh` only — safety net)**：delta 标 "skip" 但远端缺失的 skill → 强制改为 "push"。正常流程下 `refreshRemoteManifest()` 已经从 manifest 删除消失的远端 skill（§3.12），8b 仅在 `--no-refresh` 场景下命中
+9. 生成 SyncPlan（schema 见 §3.9 SyncPlan）含 `actions` + `unresolved` + `warnings`
+
+**Execute 阶段（写盘，禁止 prompt）**：
+
+10. rsync 把 pushSet 内的 skill 目录推到远端 `~/.syncskill/skills/`
+11. **对远程有变更但本地不需要 push 的 skill**：打印 warning `Skipping <skill>: remote has changes. Use syncskill pull to update local.`，**不执行隐式 pull**。push 命令只推送，不拉取
+12. **更新本地 manifest**（3-field 模型）：区分实际推送的 skill 和未推送的 skill。实际 pushed 的 skill 设置 `remote_hash=local_hash, recorded_hash=local_hash, status="in-sync"`；未 pushed 的 skill（skip/pull/conflict）保留旧的 `remote_hash` 和 `recorded_hash`
+13. 推送本地 receiver 备份到远端 `~/.syncskill/receiver_config.json`（覆盖式 scp，因为本地是真相源）
+14. 推送 manifest 到远端
+15. SSH exec `sync_receiver.mjs apply`：receiver 按 `receiver_config.json` 的 `links` 矩阵创建 symlink。远端目标位置为非 symlink 真目录时，receiver 跳过并在 stderr 输出 `protected:` 行（不视为错误）。接管真目录需通过 `remote takeover` 独立命令（详见 §3.18）
 
 **Push 命令交互**：
 
@@ -1329,12 +1667,17 @@ Select servers to push:
 ↑↓ navigate  Space: toggle  Enter: confirm
 ```
 
-**Pull 流程**：
+**Pull 流程**（v2.4 起 step 4 含 sidecar backup 与 conflict 决议消费）：
 1. 拉取远程 manifest
 2. 对比本地 hash
 3. 确定 pull 目标路径（见下方路径解析规则）
-4. rsync 拉取到目标路径
+4. **对每个待写盘 skill 写盘前**（v2.4 B1）：
+   - 4a: 若 `<localSkillDir>` 存在 且 未传 `--no-pull-backup`/`config.pull_backup=false`/`SYNCSKILL_PULL_BACKUP=0`：令 `BK = ~/.syncskill/.backups/skills/<skill>/pre-pull/`（v2.7+ 统一目录）。先 `rmSync(BK, { recursive: true, force: true })` 清旧 backup，再 `cpSync(<localSkillDir>, BK, { recursive: true, dereference: false })`。父目录 `~/.syncskill/.backups/skills/<skill>/` 不存在时 `mkdirSync({ recursive: true })`
+   - 4b: rsync 拉取到目标路径
+   - 4c: 若 rsync 失败 → **不删 backup**（保留供 restore）；成功则保留 backup 至下次 pull 才覆盖
+   - 适用范围（v2.4）：`action: "pull"`、`action: "init"` with remote_hash、`action: "conflict"` choose `keep-remote`（C3 修通后）、`action: "delete"` choose `delete`
 5. 更新本地 manifest + skills-registry.json
+6. **Conflict 决议消费（v2.4 C3）**：`pullFromServer.options.conflictResolutions` 决定 `action: "conflict"` 的 skill 是否入选 `toPull`——仅 `keep-remote` 拉取；`skip`/`keep-local` 不动；未提供决议默认 `skip`。决议由 `sync.ts` / `pull.ts` 从 `SyncDecisionSink.conflicts` 切片后传入
 
 **Pull 目标路径解析**：
 
@@ -1378,15 +1721,16 @@ Sync 拆成两个**完全分离**的阶段：
 
 **遍历顺序**：plan 与 execute 阶段都按 `Object.keys(config.servers)` 的插入顺序串行处理（YAML 中的 servers 出现顺序）。文档化的固定顺序让多 server sync 行为可预测，并影响 cross-server policy `first-wins` / `last-wins` 的语义。
 
-**通用 flag**（语义见 §3.0.B）：`--plan` / `--plan-file <path>` / `--apply <path>` / `--apply-stdin` / `--resolutions <path>` / `--resolutions-stdin`
+**通用 flag**（语义见 §3.0.B）：`--plan` / `--apply <path|->` / `--resolutions <path|->`（v2.7;旧 `--apply-stdin` / `--resolutions-stdin` 降为 alias 一版）
 
-**sync 专属 flag**：
+**sync / push / pull 共享 flag**（v2.3 audit-3 起统一）：
 
-| Flag | 行为 |
-|------|------|
-| `--cross-server-policy <p>` | 跨 server 冲突的批量策略：`first-wins` / `last-wins` / `abort` / `prompt`（默认）。`-y` 暗示 `first-wins` |
-| `--on-conflict <p>` | 单 server 冲突的批量策略：`skip`（默认）/ `keep-local` / `keep-remote` / `abort` |
-| `--on-deletion <p>` | sync 中检测到远端删除时的策略：`keep-local`（默认，等价于"保留本地复制为 manual"）/ `delete` / `prompt` |
+| Flag | 适用命令 | 行为 |
+|------|---------|------|
+| `--cross-server-policy <p>` | sync / `pull --all` | 跨 server 冲突（同一 skill 在多个 server 给出不同 hash）批量策略。取值:`first-wins` / `last-wins` / `abort` / `prompt`（默认）/ **`server:<name>`**（指定该 server 获胜,如 `server:prod`）。`-y` 不暗示 `first-wins`；`-y` 在跨 server 冲突上使用 safe default `abort`（与 §3.0.5 一致，避免误自动选某 server）。push 不暴露此 flag（push 是单向覆盖，远端不会回写到本地）。`server:<name>` 中 `<name>` 不在 `config.servers` → `E_SERVER_NOT_FOUND` exit 2。**裸 server 名**（如 `--cross-server-policy=prod`）一律 `E_SERVER_NOT_FOUND` exit 2;v2.6 曾接受过的兼容窗口在 v2.7.1 关闭(无用户采用) |
+| `--on-conflict <p>` | push / pull / sync | 单 server 内容冲突批量策略。**统一值域**：`keep-local` / `keep-remote` / `skip` / `abort`。push 下语义映射：`keep-local` = force push（本地覆盖远端）；`keep-remote` = skip（保留远端，不推）；`skip` = skip；`abort` = abort |
+| `--on-deletion <p>` | pull / sync | 检测到远端 manifest 已删除但本地仍存在时的策略：`keep-local`（默认，等价"保留本地复制为 manual"）/ `delete` / `prompt` |
+| `--no-pull-backup` | push / pull / sync | **v2.4 B1**：跳过 pull 写盘前的 backup(v2.7+ 路径 `~/.syncskill/.backups/skills/<skill>/pre-pull/`)。等价 `config.pull_backup: false`、`SYNCSKILL_PULL_BACKUP=0`。push 命令名义上无 pull 行为，但 sync 内嵌 pull 阶段时此 flag 仍生效；为接口对称对 push / pull / sync 三命令都注册 |
 
 ```
 Phase A: PLAN（只读，无副作用）
@@ -1421,7 +1765,7 @@ Phase B: EXECUTE（写盘，禁止 prompt）
          └─ 更新 manifest + 远程 receiver apply
 ```
 
-**SyncPlan schema**（`--plan-file` 写出 / `--json --plan` 直接打印 result.summary.data）：
+**SyncPlan schema**（`--json --plan` 直接打印 result.summary.data）：
 
 ```json
 {
@@ -1446,7 +1790,9 @@ Phase B: EXECUTE（写盘，禁止 prompt）
         { "server": "prod", "hash": "aaa" },
         { "server": "dev",  "hash": "bbb" }
       ],
-      "default_under_first_wins": { "server": "prod", "hash": "aaa" }
+      "default_under_y": "abort",
+      "if_first_wins": { "server": "prod", "hash": "aaa" },
+      "if_last_wins":  { "server": "dev",  "hash": "bbb" }
     },
     {
       "kind": "content-conflict",
@@ -1476,7 +1822,7 @@ Phase B: EXECUTE（写盘，禁止 prompt）
     "shared-skill": { "choose": "prod" }
   },
   "content": {
-    "diverged": { "choose": "local" }
+    "diverged": { "choose": "keep-local" }
   },
   "deletion": {
     "removed-on-remote": { "choose": "keep-local" }
@@ -1484,16 +1830,21 @@ Phase B: EXECUTE（写盘，禁止 prompt）
 }
 ```
 
-读取规则：未在 resolutions 中列出的条目走对应 `--*-policy` flag；两者都缺时 `abort` + exit 7。
+读取规则：未在 resolutions 中列出的条目走对应 `--*-policy` / `--on-*` flag；两者都缺时按各自的 `default_under_y` 处理（cross-server / content 默认 `abort` + exit 7）。
 
 **Cross-server policy 语义**：
 
 | Policy | 行为 |
 |--------|------|
-| `first-wins`（`-y` 默认） | 按 `Object.keys(config.servers)` 顺序，第一个出现该 skill 的 server 获胜，后续 server 的 pull 跳过 |
+| `first-wins` | 按 `Object.keys(config.servers)` 顺序，第一个出现该 skill 的 server 获胜，后续 server 的 pull 跳过 |
 | `last-wins` | 顺序最后一个 server 获胜 |
-| `abort` | 检测到 cross-server conflict 立即停止 plan，exit 7 |
-| `prompt`（默认，仅交互模式） | plan 阶段为每个 conflict 一次性弹出 prompt（不在 execute 阶段中途打断） |
+| **`server:<name>`** | 指定该 server 的版本永远获胜（如 `--cross-server-policy=server:prod`）。前缀消除与枚举值的命名空间碰撞——server 即使叫 `abort` / `first-wins` 也能精确指定。`<name>` 不在 `config.servers` → `E_SERVER_NOT_FOUND` exit 2。**裸 server 名形式已下线**（v2.7.1）：传 `--cross-server-policy=prod` 而非 `server:prod` 一律报 `E_SERVER_NOT_FOUND` |
+| `abort`（`-y` safe default） | 检测到 cross-server conflict 立即停止 plan，exit 7 |
+| `prompt`（默认，仅模式 C） | orchestration 在 buildPlan 之后 executePlan 之前一次性弹出 prompt（详见 §3.0.B.4 模式分层） |
+
+注：`-y` 的 safe default 是 `abort` 而非 `first-wins`，与 §3.0.5"`-y` 不暗示 `--cross-server-policy=first-wins`"原则一致。用户若想自动让某个 server 获胜，请显式 `--cross-server-policy=server:<name>` / `first-wins` / `last-wins`。
+
+**Advanced/低频场景标注（v2.7）**：cross-server 冲突仅在多 server 同时被 pull 且同一 skill 在不同 server 给出不同 hash 时触发,属于多 server best-effort 编排的高级场景。日常单 server 工作流(`push <s>` / `pull <s>` / `sync <s>`)无需关心此 flag,默认 `prompt` / `-y` 下 `abort` 已是安全行为。AI agent 在常规 sync 流程中不必主动指定此 flag——只在 plan 的 `unresolved[].kind === "cross-server-conflict"` 出现时再读它。
 
 **关键设计点**：
 
@@ -1572,13 +1923,24 @@ scp -P <port> -i <identity_file> ...
 
 ### 3.11 `conflict.ts` — 冲突检测与解决
 
+> **v2.4 优先级修订（C4）**：plan-then-execute 决议优先于 `config.conflict_resolution` 全局策略。
+>
+> 完整优先级链（高 → 低）：
+> 1. `--resolutions` 文件中的 `content.<skill:server>.choose`（per-skill, per-server）
+> 2. `--on-conflict` flag（per-command runtime override）
+> 3. `-y` safe default = `skip`（plan unresolved 的 `default_under_y`）
+> 4. **`config.conflict_resolution`（全局兜底，保留向后兼容）**
+> 5. 硬编码 `manual`
+>
+> push 与 pull / sync 共享同一条链。`pushToServer` / `pullFromServer` 都接受 `conflictResolutions` 参数，未提供时才回落到 `config.conflict_resolution`——v2.3 既有用户行为不变。
+
 **3-field 模型的三路比较**：
 - `local_hash` vs `recorded_hash` → 本地是否相对基准有变更
 - `remote_hash` vs `recorded_hash` → 远程是否相对基准有变更
 
 冲突发生条件：两边都相对基准有变更（`local_hash ≠ recorded_hash` 且 `remote_hash ≠ recorded_hash`），且变更内容不同（`local_hash ≠ remote_hash`）。
 
-策略：
+策略（`config.conflict_resolution` 字段——v2.4 起为优先级链最末档）：
 - `manual`（默认）：跳过冲突 skill，在 manifest 中标记 `direction: conflict`，用户通过 `syncskill status` 查看、`syncskill resolve` 解决
 - `keep-local`：本地覆盖远程
 - `keep-remote`：远程覆盖本地
@@ -1649,9 +2011,11 @@ syncskill refresh <server> # 同上，但范围限定到指定 server
 
 注：原 `refresh --status` 删除——纯"显示状态"用 `status` 命令，更直观。
 
+**Manifest 损坏的修复入口（v2.4 C6）**：`refresh <server>` 是处理 `W_MANIFEST_CORRUPT` 的标准修复入口。`loadManifest` 检测到 JSON 损坏 → rename 到 `.bak` → 返回 null（§3.7 Manifest 健壮性）；`refreshLocalManifest()` 用当前文件 hash 重建本地 manifest，`refreshRemoteManifest()` 用 SSH 从远端拉重建远端字段。重建后 `recorded_hash` 重置为 null（baseline 丢失），下次 sync 若与远端差异会进入 §3.7 case 6 conflict 路径——但 v2.4 B1 sidecar backup 兜底数据安全。`doctor` 也会主动检查"config 中有 server 但 `manifests/<server>.json` 缺失"，提示用户跑 `refresh`。
+
 ### 3.13 `receiver/sync_receiver.mjs` — 远程接收脚本
 
-纯 ESM Node 20+ 脚本，零外部依赖：
+纯 ESM Node 18+ 脚本（v2.4.1 起；controller 仍要求 Node 20+），零外部依赖：
 - `apply` 命令：遍历 `~/.syncskill/skills/` 下 skill
 - 根据 `receiver_config.json` 中的 remote_agents 映射创建软链接
 - 更新 `manifest.json`
@@ -1659,20 +2023,62 @@ syncskill refresh <server> # 同上，但范围限定到指定 server
 
 **hash 一致性要求**：receiver 内部的 `computeHash()` 必须使用 `lstatSync`（而非 `statSync`）来检测文件类型，与本地 `computeHash()`（§3.7）及 `refreshRemoteManifest()`（§3.12）保持一致。使用 `statSync` 会导致 `isSymbolicLink()` 永远返回 false，将 symlink 文件内容错误地纳入 hash 计算。
 
-**远程 `receiver_config.json` schema**：
+**Node 版本运行时 guard（v2.4.1 修订）**：receiver 文件顶部（紧随 import 之后、任何业务逻辑之前）检测 `process.versions.node`。若 major 版本 `< 18`，输出 `E_RECEIVER_NODE_TOO_OLD: ...` 到 stderr 并以 `exit 8` 失败（错误码见 §11.4）。
 
-由 `buildReceiverConfig()` 生成，push 时通过 scp 推送到远程 `~/.syncskill/receiver_config.json`：
+**为什么 Node 18 是硬下限**：
+
+- **唯一的 post-Node-16 依赖**是 `fs.cpSync(..., { recursive: true })`（Node 16.7.0 引入），用于 symlink 失败的 fallback 拷贝（`sync_receiver.mjs:183`）。其余 fs / path / crypto / os API 与 `node:` 协议 import 全部在 Node 14 时代就稳定可用。
+- **技术下限是 16.7**，但 2026 年 5 月仍然在 spec 里推荐 Node 16（EOL 自 2023-09）不负责任。Node 18 在 Ubuntu 22.04 / Debian 12 / RHEL 9 默认模块中均开箱可用，覆盖现实部署，是当前合理的"宽松边界"。
+- **失败一旦发生越早越好**，便于调用方（push/pull/refresh）准确归因，而不是在执行中段抛出含糊的 `ReferenceError`。Hint 文案推荐 `nvm install 22`（当前 LTS）作为升级路径。
+- **Controller 与 receiver 解耦**：controller 的 `package.json` engines 仍要求 Node 20+（受 commander / @inquirer/prompts 等依赖约束），但 controller 可以推送到 Node 18 的远端 receiver。两套版本要求独立维护。
+
+**Receiver 部署模型（无独立版本）**：receiver 没有独立的版本号或发布流程。每次 `push` / `sync` / `refresh <server>` 执行时，controller 端比较本地打包的 `sync_receiver.mjs` MD5 与远端已部署文件的 MD5；不一致则自动重新 scp 部署。这意味着 receiver 版本**始终等于当前 controller 的打包版本**——用户升级 npm 包后下一次 push 就会自动升级远端 receiver，无需手动操作。因此不存在"controller v2.4 + receiver v2.3"的跨版本场景——唯一会出现版本不一致的窗口是"升级包后尚未 push"的短暂时期，此时远端 receiver 是旧版但 push 会自动更新它。
+
+**远端 `receiver_config.json` schema（v2.3 起 schema version 1）**：
+
+push 时通过 scp 把本地备份 `~/.syncskill/receivers/<server>.json`（§3.3）原样推到远端 `~/.syncskill/receiver_config.json`。本地备份是真相源，远端只是镜像。
 
 ```json
 {
+  "version": 1,
   "remote_agents": {
     "claude": "~/.claude/skills",
     "cursor": "~/.cursor/skills"
+  },
+  "links": {
+    "skill-a": ["claude", "cursor"],
+    "skill-b": ["claude"],
+    "skill-c": []
   }
 }
 ```
 
-- `remote_agents`：agent 名称 → 远程 skill 目录路径的映射。服务器级 `agents` 配置优先于全局 `agents`（§3.3）。
+- `version`：schema 版本，当前为 `1`。旧版（无 `version` 字段、无 `links` 字段）由 receiver 兼容读取并视为 "links = 所有 SKILLS_DIR 下 skill × 所有 remote_agents"（与 v2.2 及以前行为一致），首次 v2.3 push 后被新 schema 覆盖。
+- `remote_agents`：agent 名 → 远端 skill 目录路径映射。
+- `links`：per-server skill × agent 矩阵。`links[skill]` 数组中的 agent 才会被 receiver 创建 symlink；空数组 `[]` = 不主动 link 但保留本地备份记录（详见 §3.3 远端 receiver 本地备份）。
+
+**receiver `apply` 命令面（v2.6 简化）**：
+
+```text
+node sync_receiver.mjs apply
+```
+
+遍历 `links` 矩阵，对每个 `<skill, agent>` 对：
+- 目标位置不存在 → 创建 symlink
+- 目标位置是 symlink → 删除旧 symlink 重建（确保指向当前 SKILLS_DIR/skill）
+- 目标位置是**非 symlink 实体**（真目录、文件、第三方 symlink target 在 SKILLS_DIR 外）→ **不动**，stderr 输出一行 `protected: <agent>/<skill> is not a syncskill-managed symlink; use \`remote takeover\` to replace`（不视为错误，不影响其他 skill 的 apply）
+
+**stale cleanup 不变**：清理 agent 目录中"指向 SKILLS_DIR 但 skill 已不在 `links` 矩阵"的 stale symlink（与 v2.2 行为一致；不清理非 syncskill 管理的 symlink，也不清理真目录）。
+
+注：v2.3-v2.5 的 `--takeover=skill1,skill2,...` 参数已移除。接管远端真目录现由独立命令 `remote takeover`（§3.18）通过直接 SSH 操作完成，不再通过 receiver 中转。
+
+**`apply` 输出契约**：
+
+receiver 的 stdout / stderr 是给人看的诊断信息，push 端**不解析**这些输出：
+
+- **stdout**: 每个 link 一行 `Linked <skill> -> <agent>` 或 `Copied <skill> -> <agent> (fallback)`；stale 清理写 `Removed stale link <name> from <agent>`；结束写 `Receiver apply complete.`
+- **stderr**: 每个被严格保护的项一行 `protected: <agent>/<skill> is not a syncskill-managed symlink; use \`remote takeover\` to replace`（非致命，apply 继续处理其他项）
+- **exit code**: `0` = OK；`1` = receiver_config.json 不存在；`8` = Node version guard（`E_RECEIVER_NODE_TOO_OLD`）
 
 **远程 `manifest.json` schema** (single-hash snapshot, version 2)：
 
@@ -1793,6 +2199,176 @@ Sources:
 - 每个 source 显示：名称、类型、URL（如有）、路径、分支（Git）、archive 路径（本地压缩包）、活跃 skills、忽略的 skills（如有）
 - **Label 列宽对齐**：所有字段标签的冒号后用空格补齐，使 value 列对齐到第 9 字符（按最长 label `archive:` / `ignored:` 8 字符 + 1 空格计算）。具体：`url:` 5 空格、`path:` 4 空格、`branch:`/`skills:` 2 空格、`archive:`/`ignored:` 1 空格。
 - 无 source 时显示 `No sources configured.`
+
+### 3.17 `restore.ts` — Pull backup 回滚命令（v2.4 R1）
+
+`restore` 是 v2.4 新增的顶级命令，用于把最近一次 pull / sync 覆盖的本地 skill 从 `~/.syncskill/.backups/skills/<skill>/pre-pull/`（v2.7+ 统一目录）回滚回来。配合 §3.9 B1 backup 形成"备份 → 回滚"完整闭环。
+
+**为什么 pre-restore 没有 legacy fallback**：pre-restore 快照（步骤 3）是 restore 命令在 v2.4 引入时由 restore 自身写的；没有从 v2.6 升级而来的 sidecar 需要兼容读。pull-side backup（步骤 4 的 `BK`）也在 v2.7.1 完全切到新路径——v2.6 sidecar 兼容窗口在用户尚未采用前就已撤销，因此 `backup-paths.ts` 不需要 `legacyXxxPath` helper。
+
+**命令面**：
+
+```bash
+syncskill restore <skill>                  # 默认：所有 server 的 manifest 都标记 conflict
+syncskill restore <skill> --server <s>     # 只更新指定 server 的 manifest
+syncskill restore <skill> --all-servers    # 显式表达默认语义
+```
+
+**Tier 与 flag**：
+
+- Tier 2 命令（§3.0.B.3）：单 skill 作用域、操作成本低，仅提供 `--dry-run` + `--json`，不提供 `--plan` / `--apply` / `--resolutions`
+- 通用 flag 见 §3.0（`-y` / `--no-interactive` / `--json` / `--quiet`）
+- **`--server` 与 `--all-servers` 互斥**：同时给出两者时报 `E_USAGE` + exit 2（hint: "Cannot specify both --server and --all-servers"）。Commander 通过 `.conflicts('server', 'allServers')` 实现。
+
+**执行流程**：
+
+```
+1. 通过 resolveSkillPullTarget(skill, config.sources) 定位 <skill_path>
+   ├─ 找不到 skill → E_SKILL_NOT_FOUND, exit 2
+
+2. 检查 backup 是否存在：
+   ├─ 路径: `~/.syncskill/.backups/skills/<skill>/pre-pull/`
+   └─ 不存在 → E_BACKUP_NOT_FOUND, exit 3
+       hint: "No backup found for <skill>. Backups are created only when --no-pull-backup
+              is not set and config.pull_backup is true (default)."
+
+3. 安全兜底备份（防 restore 本身误操作）：
+   ├─ 令 PR = `~/.syncskill/.backups/skills/<skill>/pre-restore/`
+   ├─ 父目录不存在 → mkdirSync({ recursive: true })
+   └─ cpSync(<skill_path>, PR, { recursive: true, dereference: false })
+       已存在则先 rmSync 覆盖
+
+4. 回滚（BK = 步骤 2 命中的 backup 路径）：
+   ├─ rmSync(<skill_path>, { recursive: true, force: true })
+   ├─ cpSync(BK, <skill_path>, { recursive: true, dereference: false })
+   └─ rmSync(BK, { recursive: true, force: true })
+       清掉原 backup（restore 已用掉它）；保留 pre-restore/ 让用户必要时再回滚
+
+5. Manifest 状态更新（按 --server / --all-servers）：
+   ├─ 范围内每个 server 的 manifest:
+   │   ├─ 该 skill 条目存在 → status: "conflict", direction: "conflict"
+   │   ├─ 该 skill 条目不存在（被 pull 后才出现的 manual skill 等） → 跳过该 server，info 提示
+   │   └─ 保留 local_hash / remote_hash / recorded_hash 原值（不重算；让 resolve 决定后续走哪个 hash）
+   └─ 提示用户：`Run \`syncskill resolve <skill>\` to choose final direction.`
+
+6. 失败回滚：step 3 之后任何 step 失败 → E_RESTORE_FAILED, exit 1
+   hint: "Manual recovery: restore from ~/.syncskill/.backups/skills/<skill>/pre-restore/ if it exists."
+```
+
+**为什么 manifest 默认标 conflict**：restore 把本地内容换回了 pre-pull 状态，但**远端仍是 pull 时拉下来的内容**——本地与远端确实分歧。如果默认把 status 写成 `local-changed` / `remote-changed`，下一次 sync 会自动选边，可能再次产生数据丢失（绕了一圈又回到原点）。强制 `conflict` 让用户必须显式 `resolve` 选边，符合 §3.0.5 "破坏性操作必须显式 opt-in" 原则。
+
+**多 server 语义**：sidecar backup 是本地 skill 目录的快照，**与 server 无关**（pull 时 rsync 已经覆盖了"上一次同步给某 server 的本地状态"，备份保留的是 pull 前的全局本地状态）。因此默认 `--all-servers` 是正确的语义——所有 server 的同步状态都因这次 restore 进入不确定态。`--server <s>` 是用户**明确知道只有一个 server 跟这次 pull 相关**时的精细化选项。
+
+**dry-run 行为**：text 模式打印 `[dry-run] Would restore <skill> from <backup_path>; would mark conflict in: <server list>`；JSON 模式输出与 result schema 同形的预览（详见 §11.6.17）。
+
+**输出示例**：
+
+```bash
+$ syncskill restore my-skill
+✓ Restored my-skill from ~/.syncskill/.backups/skills/my-skill/pre-pull/
+✓ Pre-restore backup saved at ~/.syncskill/.backups/skills/my-skill/pre-restore/
+✓ Marked conflict in manifests: prod, dev
+
+Run `syncskill resolve my-skill` to choose final direction.
+```
+
+```bash
+$ syncskill restore missing-skill
+Error: No backup found for missing-skill (E_BACKUP_NOT_FOUND)
+  hint: Backups are created only when --no-pull-backup is not set and config.pull_backup is true (default).
+```
+
+### 3.18 `remote takeover` — 远端真目录接管命令（v2.6）
+
+`remote takeover` 是独立的破坏性命令，用于显式接管远端 agent 目录中的非 symlink 真目录（用户手动放置或第三方工具创建的 skill 目录），将其替换为 syncskill 管理的 symlink。
+
+**命令面**：
+
+```bash
+syncskill remote takeover <server> <skill> [--agent <agent>]
+```
+
+**参数**：
+
+| 参数 | 说明 |
+|------|------|
+| `<server>` | 目标 server 名称 |
+| `<skill>` | 待接管的 skill 名称 |
+| `--agent <agent>` | 可选：只接管指定 agent 下的真目录。省略时接管该 skill 在 `links[skill]` 中所有 agent 下的真目录 |
+
+**前置条件**：
+
+- `receivers/<server>.json` 备份必须存在（否则 `E_REMOTE_NOT_INITIALIZED` exit 3，hint: `Run \`syncskill refresh <server>\` first`）
+- `links[skill]` 非空（否则 `E_USAGE` exit 2，hint: `Run \`syncskill remote link add <server> <skill> <agent>\` first`）
+- 远端 `$HOME/.syncskill/skills/<skill>` 必须存在（即该 skill 已 push 到远端）。takeover 前用一次只读 SSH `test -e` 探测；不存在则 `E_USAGE` exit 2，hint: `Push it first: \`syncskill push <server>\``。否则接管会创建指向不存在目标的 dangling symlink
+
+**SSH 引号约定**：takeover 直接拼 SSH 命令（不经 receiver），远端路径必须让**远端 shell**展开 `~` / `$HOME`。`sshExec` 把命令包在外层双引号里，因此路径统一经 `remoteArg()` 转成 `\"$HOME/...\"`（`~/` 前缀改写为 `$HOME/`，`$` 转义后穿过本地双引号在远端展开，外层远端双引号容忍空格）。**禁止单引号包裹** `~` / `$HOME`——单引号会阻止远端展开，产生 dangling/错误 symlink（v2.6 修复的 bug）。
+
+**执行流程**：
+
+```
+1. 确定目标 agents：
+   ├─ --agent 指定 → 仅该 agent
+   └─ 省略 → links[skill] 中所有 agent
+
+2. 对每个目标 agent，SSH lstat 远端 <remote_agents[agent]>/<skill>：
+   ├─ 不存在 → skip（info: "not present, nothing to takeover"）
+   ├─ 已是 symlink → skip（info: "already managed by syncskill"）
+   └─ 非 symlink 实体 → 标记为待接管
+
+3. Execute（无确认提示——显式调用 `remote takeover` 命令本身即表达接管意图，
+   类似 `rm` 不二次询问；`--dry-run` 只列出待删除目录不执行）：
+   ├─ SSH exec: rm -rf <remote_agents[agent]>/<skill>
+   ├─ SSH exec: ln -s <SKILLS_DIR>/<skill> <remote_agents[agent]>/<skill>
+   └─ 失败 → E_TAKEOVER_FAILED exit 5
+
+4. 输出 result
+```
+
+**与 push 的关系**：
+
+- Push 遇到远端非 symlink 真目录时**自动 skip + warning** `W_TAKEOVER_NEEDED`（不阻断其他 skill 的 push）
+- 用户看到 warning 后显式调用 `remote takeover` 接管
+- 下次 push 时该位置已是 symlink，正常 link 不再触发 warning
+
+**AI agent 标准流程**：
+
+```bash
+# Push 发现需要 takeover
+syncskill --json push prod
+# → warning: W_TAKEOVER_NEEDED skill=foo agent=claude
+
+# 显式接管
+syncskill --json -y remote takeover prod foo
+
+# 再次 push（此时 foo 已被管理）
+syncskill --json push prod
+```
+
+**`--dry-run` 行为**：SSH lstat 探测远端状态，输出"将要删除的目录列表"，不执行删除。
+
+**`--json` result schema**：
+
+```json
+{
+  "server": "prod",
+  "skill": "foo",
+  "takeovers": [
+    { "agent": "claude", "path": "~/.claude/skills/foo", "action": "takeover", "remote_type": "directory" }
+  ],
+  "skipped": [
+    { "agent": "cursor", "path": "~/.cursor/skills/foo", "reason": "already symlink" }
+  ]
+}
+```
+
+**错误码**：
+
+| Code | 触发条件 | exit |
+|------|---------|------|
+| `E_REMOTE_NOT_INITIALIZED` | receivers backup 不存在 | 3 |
+| `E_TAKEOVER_FAILED` | SSH rm/ln 执行失败 | 5 |
+| `W_TAKEOVER_NEEDED` | push 时检测到需 takeover 但跳过 | — |
 
 ## 4. 同步协议
 
@@ -1961,12 +2537,14 @@ function formatDiagnosticSummary(report: DiagnosticReport): string;
 
 | Code | Severity | 触发条件 | 修复动作 |
 |------|----------|---------|---------|
-| `NO_VALID_AGENTS` | error | `agents` 中所有路径都不存在 | 阻断，提示运行 `doctor --fix` |
-| `AGENT_PATH_INVALID` | warning | 单个 agent 路径不存在 | 从 `agents` 中移除 |
-| `SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 在 `~/.syncskill/skills/` 和 sources 中都不存在 | 从 `links` 中移除该 skill |
-| `AGENT_NOT_CONFIGURED` | warning | `links[skill]` 中引用的 agent 不在 `agents` 中 | 从该 skill 的 targets 中移除该 agent |
-| `SOURCE_PATH_INVALID` | warning | `sources` 中 local 类型的 `path` 不存在 | 从 `sources` 中移除 |
-| `REGISTRY_CORRUPT` | warning | `skills-registry.json` 解析失败或 schema 不合法 | 备份损坏文件后重建（只重建 v2 schema 中的 ignored + http_baselines 字段）。若 `--fix` 模式下重建仍失败 → 升级为 `E_REGISTRY_CORRUPT` exit 3 |
+| `E_NO_VALID_AGENTS` | error | `agents` 中所有路径都不存在 | 阻断，提示运行 `doctor --fix` |
+| `W_AGENT_PATH_INVALID` | warning | 单个 agent 路径不存在 | 从 `agents` 中移除 |
+| `W_SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 在 `~/.syncskill/skills/` 和 sources 中都不存在 | 从 `links` 中移除该 skill |
+| `W_AGENT_NOT_CONFIGURED` | warning | `links[skill]` 中引用的 agent 不在 `agents` 中 | 从该 skill 的 targets 中移除该 agent |
+| `W_SOURCE_PATH_INVALID` | warning | `sources` 中 local 类型的 `path` 不存在 | 从 `sources` 中移除 |
+| `W_REGISTRY_CORRUPT` | warning | `skills-registry.json` 解析失败或 schema 不合法 | 备份损坏文件后重建（v2.6 起只重建 `http_baselines` 字段；ignore 状态由 `config.sources[].ignore[]` 持有）。若 `--fix` 模式下重建仍失败 → 升级为 `E_REGISTRY_CORRUPT` exit 3 |
+
+**code 命名规则**：`E_*` = 阻断错误（伴随非 0 exit），`W_*` = 非阻断警告（exit 0）。本节诊断码与 §11.4 的错误码注册表一致 — 同一 logical 问题在 doctor 模式与运行时模式应使用相同的 code 字符串。
 
 **检查顺序**：
 1. 检查 `agents` 路径有效性（决定是否 error）
@@ -1978,13 +2556,13 @@ function formatDiagnosticSummary(report: DiagnosticReport): string;
 
 **skills-registry.json 诊断**：
 
-v2 schema 下 registry 只存 ignored 元信息 + http_baselines。诊断流程：
+v2 schema 下 registry 只存 `http_baselines`（v2.6 起；ignore 状态已移到 `config.sources[].ignore[]`）。诊断流程：
 
 1. 文件不存在 → 静默创建空 registry（非错误）
 2. JSON 解析失败 / schema 不合法 → `REGISTRY_CORRUPT`，`--fix` 时备份为 `skills-registry.json.bak` 然后重建空 registry
-3. v1 schema → 自动迁移到 v2（保留 ignored 状态 + 从 v1 的 last_update_hash 字段提取 http baseline），不报错
+3. v1 schema → 自动迁移到 v2（只从 v1 的 `last_update_hash` 字段提取 http baseline；v1 的 ignore 条目丢弃，不再迁移），不报错
 
-重建逻辑（v2）：扫描 `config.sources` 中所有 HTTP source 的 skill，计算当前 hash 作为新 baseline；ignored 状态从 v1 迁移或为空。
+重建逻辑（v2）：扫描 `config.sources` 中所有 HTTP source 的 skill，计算当前 hash 作为新 baseline。
 
 ### 10.4 CLI 命令
 
@@ -2143,17 +2721,31 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 
 | Exit code | 含义 | 例子 |
 |-----------|------|------|
-| `0` | 成功 | 命令完成，无错误 |
+| `0` | 成功 | 命令完成，无错误（多 target 命令至少 1 个成功也算 0） |
 | `1` | 通用错误（运行时未分类） | 内部 panic / 未捕获异常 |
-| `2` | 用法错误 | 未知参数、缺少必填位置参数 |
-| `3` | 配置错误 | doctor 检测到 `error`-级问题且无 `--fix` |
+| `2` | 用法错误 | 未知参数、缺少必填位置参数、`E_PLAN_COMMAND_MISMATCH`、`E_CONFIG_FORMAT_UNSUPPORTED` |
+| `3` | 配置错误 | doctor 检测到 `error`-级问题且无 `--fix`、`E_CONFIG_NOT_FOUND` |
 | `4` | 需要输入但无法获取 | `--no-interactive` 模式下遇到 prompt |
 | `5` | 网络/远端错误 | SSH / rsync 失败、超时 |
-| `6` | Dirty / 安全保护跳过 | `update` 跳过 dirty source、push 检测到冲突 |
+| `6` | Dirty / 安全保护跳过 | 单 target 命中 skip；多 target **全部** skip；多 target partial skip 默认 exit 0，**`--strict` 下升级到 exit 6** |
 | `7` | 冲突未解决 | `resolve` 未提供决议、sync 计划中存在未决冲突 |
 | `8` | 远端不一致 | receiver 部署失败、远端 manifest 损坏 |
 
 **`-y/--yes` 与 exit code**：`-y` 让 prompt 默认前进，不会触发 `4`。`--no-interactive` 不暗示 `-y`：遇到 prompt 直接 `4`，由调用方决定是否重跑加 `-y`。
+
+**`--strict` 与 exit code 6**：多 target 命令（`update --all` / `sync --all` / `push --all` / `pull --all`）默认走"宽容模式"——只要至少 1 个 target 成功就 exit 0，被 skip 的 target 反映在 `data.skipped[]` 中。`--strict` / `SYNCSKILL_STRICT=1` 让任何 skip 都升级为 exit 6（CI / 严格 AI agent 场景使用）。单 target 命令 / 多 target **全部** skip 时不受 `--strict` 影响（已经是 exit 6）。
+
+**典型场景**：
+
+| 命令 | skip 数 / 总数 | 默认 exit | `--strict` exit |
+|------|---------------|----------|----------------|
+| `update --all` | 0 / 5 | 0 | 0 |
+| `update --all` | 2 / 5 | **0** | **6** |
+| `update --all` | 5 / 5 | 6 | 6 |
+| `update my-source` | 1 / 1 | 6 | 6 |
+| `sync --all` | partial skip | 0 | 6 |
+
+**AI agent 解读建议（v2.7）**：exit code 仅作粗筛——精确判断"哪个 target 被 skip / 失败 / 成功"必须读 `result.data.skipped[]` / `data.servers[]` / `data.failed[]`(各命令 schema 见 §11.6)。多 target partial skip 默认 exit 0 是"宽容模式"(至少一个成功);若 agent 需要"全成功才继续"的语义,要么加 `--strict`/`SYNCSKILL_STRICT=1` 让 exit code 反映,要么解析 `data.skipped.length === 0` 自行判定。不要靠 `exit === 0` 推断"全部成功"。
 
 ### 11.4 错误码（error codes）
 
@@ -2164,23 +2756,45 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 | Code | Severity | 含义 | exit code |
 |------|----------|------|-----------|
 | `E_USAGE` | error | 参数错误 | 2 |
+| `E_PLAN_COMMAND_MISMATCH` | error | `--apply` 显式命令名与 plan.command 不一致 | 2 |
+| `E_CONFIG_FORMAT_UNSUPPORTED` | error | `--config` 传入非 `.json` 扩展名 | 2 |
 | `E_AGENT_NOT_CONFIGURED` | error | 引用了未配置的 agent | 2 |
 | `E_SKILL_NOT_FOUND` | error | skill 不存在 | 2 |
 | `E_SOURCE_NOT_FOUND` | error | source 不存在 | 2 |
 | `E_SERVER_NOT_FOUND` | error | server 不存在 | 2 |
+| `E_CONFIG_NOT_FOUND` | error | `~/.syncskill/config.json` 与 `config.yaml` 均不存在 | 3 |
 | `E_NEEDS_INPUT` | error | `--no-interactive` 下需要输入 | 4 |
 | `E_NO_VALID_AGENTS` | error | doctor: 所有 agent 路径都失效 | 3 |
-| `E_REGISTRY_CORRUPT` | error | doctor: registry 损坏 | 3 |
+| `E_REGISTRY_CORRUPT` | error | doctor: `--fix` 模式下重建仍失败 | 3 |
 | `E_NETWORK` | error | 网络/SSH 失败 | 5 |
 | `E_TIMEOUT` | error | 操作超时 | 5 |
-| `E_SOURCE_DIRTY` | warning/error | source dirty，无 `--force` 时降级为 warning + skip | 6 |
-| `E_CONFLICT` | error | sync/push 检测到内容冲突 | 7 |
+| `E_RECEIVER_SCAN_FAILED` | error | scan-based auto-synthesize 触发的 SSH `scan-agents` 失败（网络断、receiver 未部署、远端 Node 太旧等）；不软回退，由用户跑 `refresh <server>` 或修 SSH 后重试（v2.3 audit-3） | 5 |
+| `E_SOURCE_DIRTY` | error | source dirty 且 `--strict`（或 receiver 端拒绝） | 6 |
+| `E_UNRESOLVED` | error | plan 中存在 unresolved 但 `--no-interactive` 或非 TTY 无 `--resolutions` | 7 |
+| `E_CONFLICT` | error | sync/push 检测到内容冲突且无决议 | 7 |
+| `E_TAKEOVER_FAILED` | error | **v2.6**：`remote takeover` 执行 SSH rm/ln 失败 | 5 |
 | `E_RECEIVER_DEPLOY` | error | receiver 部署失败 | 8 |
-| `W_AGENT_PATH_INVALID` | warning | doctor warning（`W_*` 前缀仅用于 warning 级别） | — |
-| `W_SKILL_NOT_FOUND` | warning | doctor warning | — |
+| `E_RECEIVER_NODE_TOO_OLD` | error | 远端 Node 版本低于 18（receiver 运行时 guard；v2.4.1 起从 20 降到 18，理由见 §3.13） | 8 |
+| `W_AGENT_PATH_INVALID` | warning | doctor warning（agent 路径不存在） | — |
+| `W_AGENT_NOT_CONFIGURED` | warning | doctor warning（links 引用未配置的 agent） | — |
+| `W_SKILL_NOT_FOUND` | warning | doctor warning（links 引用不存在的 skill） | — |
+| `W_SOURCE_PATH_INVALID` | warning | doctor warning（local source 路径不存在） | — |
 | `W_REGISTRY_CORRUPT` | warning | doctor warning（registry 损坏，会自动备份重建） | — |
+| `W_SOURCE_DIRTY` | warning | update 跳过 dirty source（无 `--force` 时） | — |
+| `W_INSTALL_SELF_AMBIGUOUS` | warning | `install self` 执行时 cwd 含 `./self/` 目录 | — |
+| `W_TAKEOVER_NEEDED` | warning | **v2.6**：push 检测到远端 agent 目录中存在非 symlink 真目录，已 skip；hint 指向 `remote takeover <server> <skill>`（§3.18） | — |
+| `E_BACKUP_NOT_FOUND` | error | **v2.4 R1**：`restore <skill>` 找不到 backup(主路径 `~/.syncskill/.backups/skills/<skill>/pre-pull/`,兼容路径 v2.6 sidecar) | 3 |
+| `E_RESTORE_FAILED` | error | **v2.4 R1**：`restore <skill>` 执行步骤失败（cp/rm/manifest 写入异常）；hint 提示 `~/.syncskill/.backups/skills/<skill>/pre-restore/` 仍可手工恢复 | 1 |
+| `W_MANIFEST_CORRUPT` | warning | **v2.4 C6**：`loadManifest` 检测到 JSON 损坏，已 rename 到 `.bak` 并返回 null；建议跑 `refresh <server>` 重建 | — |
+| `W_MANIFEST_MISSING` | warning | **v2.4 C6**：`doctor` 检测到 `config.servers` 中有 server X 但 `manifests/X.json` 缺失；建议跑 `refresh <server>` 重建 baseline，避免下次 sync 走 first-time + 远端差异的 conflict-overwrite 路径 | — |
+| `W_PULL_BACKUP_SKIPPED` | warning | **v2.4 B1**：因 `--no-pull-backup` / `config.pull_backup=false` / `SYNCSKILL_PULL_BACKUP=0` 跳过 sidecar backup；info 性质，提醒用户失去回滚兜底 | — |
+| `I_FORCE_PROMPT_HINT` | info | **v2.7 item 8 / v2.7.1 option D**：`--force` 下任何 prompt 真正调用 promptConfirm/promptSelect 时,每个 ctx 一次性 info 提示 ``--force` only bypasses dirty protection; use `-y` to auto-confirm prompts``。dirty-related prompt 在 callsite 已被 `if (!force)` 守卫（不会调用 prompt 函数），因此自然不发；详见 §3.0.3 "架构不变量" | — |
 
-**前缀约定**：`E_*` = error 级别（伴随非 0 exit code），`W_*` = warning 级别（exit 0，但事件流里出现）。同一逻辑问题可能既有 `E_FOO` 又有 `W_FOO`：取决于上下文是否阻断。
+**前缀约定**：`E_*` = error 级别（伴随非 0 exit code），`W_*` = warning 级别（exit 0，但事件流里出现），`I_*` = informational（exit 0,不阻断流程,纯纠偏/迁移提示;v2.7 起新增,例:`I_FORCE_PROMPT_HINT`）。同一逻辑问题可能既有 `E_FOO` 又有 `W_FOO`：取决于上下文是否阻断（例：dirty source 默认 `W_SOURCE_DIRTY` warning + skip + exit 6；`--strict` 下升级为 `E_SOURCE_DIRTY` error + exit 6）。
+
+**已删除的 deprecated flag / command 名**（v2.2 起一律不再接受，不再发警告）：
+
+`init --skip-skill`、`scan --migrate`、`source add`、`source update`、`install --self`、`link --apply`、`link --status`、`link --unlink`、`refresh --all` — 用户传入这些旧 flag/命令直接由 commander 报 `unknown option/command` 后退出码 1（commander 默认行为；不走 syncskill 的 E_USAGE / exit 2 转换层，与 H5 决议保持一致）。
 
 ### 11.5 `--no-interactive` 契约
 
@@ -2211,7 +2825,7 @@ $ syncskill --json --no-interactive link edit my-skill
 
 - **任何 mutate state 的命令必须返回 `data.changes` 或等价字段**（不能只返回计数）
 - **text 渲染从 data 派生**：`renderText(data)`，不允许独立组装人类文本
-- **plan/result 可追溯**：每个 plan action 在 result 中必须能找到对应记录（成功 / 跳过 / 失败 + 原因）。result 不要求与 plan **结构同构**——分类输出（`skills.installed`、`updated[]` 等）允许，但语义上必须可与 plan 的 `actions[]` 逐项核对
+- **plan/result 可追溯（v2.7 加强）**：每个 plan action(`actions[].id`,§3.0.B.2)在 result 中必须**机械可定位**——result 的每个变更项必带 `plan_ref: "<action.id>"`。result 不要求与 plan **结构同构**(分类输出 `skills.installed`、`updated[]` 等仍允许),但每项都带 `plan_ref` 让 agent 用一次 `Map<plan_ref, result_item>` 即可对账,无需语义猜测。若某 result 项对应多个 plan actions(如一次 link 创建多个 symlink),用 `plan_refs: ["a3", "a4"]`(数组形式)。无对应 plan action 的 result 项(如 execute 阶段自发的 backup 写盘)可省略 `plan_ref`
 - **skill 标识字段命名约定**：父键已表明是 skill 集合（如 `skills.installed`、`removed_skills`、`migrated_skills`）时，子项用 `name`；父键是泛化操作集合（如 `changes`、`deltas`、`local_changes`、`affected_servers`）时，子项用 `skill` 显式标识
 
 #### 11.6.1 `syncskill` (dashboard)
@@ -2249,21 +2863,28 @@ $ syncskill --json --no-interactive link edit my-skill
 { "matrix": [{ "skill": "skill-a", "agents": { "claude": "linked", "cursor": "missing" } }] }
 ```
 
-#### 11.6.6 `install` / `install --self`
+#### 11.6.6 `install` / `install self`
 
 ```json
 {
   "source": { "name": "my-repo", "type": "git", "url": "...", "path": "..." },
   "skills": {
-    "installed": [{ "name": "skill-a", "path": "..." }],
+    "installed": [{ "name": "skill-a", "path": "...", "plan_ref": "a1" }],
     "ignored": [{ "name": "skill-c", "reason": "user-deselected" }],
     "already_installed": ["skill-d"]
   },
   "links_created": [
-    { "skill": "skill-a", "agent": "claude", "path": "~/.claude/skills/skill-a" }
+    { "skill": "skill-a", "agent": "claude", "path": "~/.claude/skills/skill-a", "plan_ref": "a2" }
   ]
 }
 ```
+
+**plan_ref 语义（v2.7.1）**：
+
+- `skills.installed[].plan_ref` → 对应的 `install.source.*` action id（同一 source 装出多个 skill 时，所有 installed[] 项共享同一 plan_ref —— 1:N fan-out）
+- `links_created[].plan_ref` → 对应的 `install.link` action id（同一 plan 内所有 link 共享该 id —— `install.link` action 携带 `targets[]` 列表 N 个 agent × M 个 skill 全部回指它）
+- `skills.ignored[]` 由用户决议产生（skill-selection unresolved），无 plan action 对应，省略 `plan_ref`
+- `skills.already_installed[]` 仅是字符串列表（spec 未指定子项 schema），无 `plan_ref`
 
 #### 11.6.7 `update [name]`
 
@@ -2279,15 +2900,20 @@ $ syncskill --json --no-interactive link edit my-skill
         "modified": ["skill-a"],
         "added": ["skill-d"],
         "removed": ["skill-old"]
-      }
+      },
+      "plan_ref": "a1"
     }
   ],
   "skipped": [
-    { "name": "company", "reason": "dirty", "dirty_skills": ["skill-a"], "hint": "git -C ... stash && syncskill update company && git -C ... stash pop" }
+    { "name": "company", "reason": "dirty", "dirty_skills": ["skill-a"], "hint": "git -C ... stash && syncskill update company && git -C ... stash pop", "plan_ref": "a2" }
   ],
-  "failed": []
+  "failed": [
+    { "name": "broken-remote", "reason": "Git update failed: ...", "plan_ref": "a3" }
+  ]
 }
 ```
+
+**plan_ref 语义（v2.7.1）**：`updated[]` / `skipped[]` / `failed[]` 每项的 `plan_ref` 回指 `update.fetch`（git）或 `update.download`（http）action id（按 `action.skill === item.name` 匹配）。仅在 plan-then-execute 路径（`--apply <plan>`）下生效；直接调用 `update` 不经过 plan builder 时省略此字段。
 
 #### 11.6.8 `source remove <name>`
 
@@ -2297,9 +2923,18 @@ $ syncskill --json --no-interactive link edit my-skill
   "mode": "completely",
   "deleted_paths": ["~/.syncskill/sources/my-repo"],
   "removed_skills": ["skill-a", "skill-b"],
-  "removed_links": [{ "skill": "skill-a", "agents": ["claude"] }]
+  "removed_links": [
+    { "skill": "skill-a", "agents": ["claude"], "plan_ref": "a1" }
+  ]
 }
 ```
+
+**字段语义**：
+
+- `mode`：`"keep-files"`（用户选 "remove-config",仅删 config）或 `"completely"`（用户选 "remove-all"/`--force`,删 config + 文件 + links）
+- `deleted_paths[]`：仅 `mode="completely"` 时填入,列出实际成功 `rm -rf` 的路径
+- `removed_skills[]`：扁平名字列表（per spec example,无 plan_ref slot）
+- `removed_links[]`：结构化条目,每项 **必带** `plan_ref` 回指 `remove.unlink` action id（按 `action.skill === item.skill` 匹配,v2.7.1）
 
 #### 11.6.9 `scan` / `scan --migrate-unmanaged`
 
@@ -2311,7 +2946,7 @@ $ syncskill --json --no-interactive link edit my-skill
 }
 ```
 
-#### 11.6.10 `link set/add/remove/clear/apply`
+#### 11.6.10 `link set/add/remove/clear/build`
 
 ```json
 {
@@ -2320,14 +2955,20 @@ $ syncskill --json --no-interactive link edit my-skill
       "skill": "my-skill",
       "config_before": ["claude"],
       "config_after": ["claude", "cursor"],
-      "symlinks_created": [{ "agent": "cursor", "path": "..." }],
+      "symlinks_created": [{ "agent": "cursor", "path": "...", "plan_ref": "a1" }],
       "symlinks_removed": []
     }
   ]
 }
 ```
 
-**AI agent 优先**：用 `set` + `apply`，避免 `add` / `remove`（人类 verb，多 agent 并发时易互相覆盖）。
+**plan_ref 语义（v2.7.1）**（`link build` only — set/add/remove/clear 不构建 plan）：
+
+- `symlinks_created[].plan_ref` → 对应的 `create-symlink` action id（按 `(action.skill, action.agent)` 匹配）
+- `symlinks_removed[].plan_ref` → 对应的 `remove-symlink` action id（同样的 (skill, agent) 匹配）
+- `link build` 是 Tier 2 命令（spec §3.0.B.3）—— 用户不会显式调 `--plan` 然后 `--apply`，plan 在 `runLinkApply` 内部构建仅用于 plan_ref 生成。其他 link 子命令（set/add/remove/clear）不构建 plan，因此 `symlinks_created` / `symlinks_removed` 子项无 plan_ref
+
+**AI agent 优先**：用 `set` + `build`，避免 `add` / `remove`（人类 verb，多 agent 并发时易互相覆盖）。
 
 #### 11.6.11 `refresh [server]`
 
@@ -2379,16 +3020,107 @@ $ syncskill --json --no-interactive link edit my-skill
 
 ```json
 {
-  "pushed": 3,
-  "pulled": 1,
-  "skipped": 2,
+  "ok": true,
+  "servers": [
+    { "server": "prod", "ok": true, "pushed": 2, "pulled": 0, "skipped": 1, "conflicts": 0 },
+    { "server": "dev", "ok": false, "error": "E_TIMEOUT", "message": "push to dev exceeded 60s" }
+  ],
+  "pushed": 2,
+  "pulled": 0,
+  "skipped": 1,
   "conflicts": 0,
   "warnings": 1,
   "changes": [
     { "op": "push", "skill": "skill-a", "server": "prod", "before": "abc", "after": "def" }
+  ],
+  "backups": [
+    { "skill": "skill-a", "server": "prod", "backup_path": "/Users/me/.syncskill/.backups/skills/skill-a/pre-pull", "size_bytes": 4096 }
   ]
 }
 ```
+
+**`servers[]`（v2.6 新增，多 server best-effort 语义）**：多 server 命令（`push --all` / `pull --all` / `sync --all` / `sync`）按 config 顺序串行执行，一个 server 失败不阻塞后续 server。`servers[]` 按执行顺序列出每个 server 的独立结果。单 server 命令（`push prod`）`servers[]` 仅含一个条目。顶层 `ok` = 全部成功才 true；exit code = 第一个非 0 错误的 code。顶层 `pushed`/`pulled`/`skipped`/`conflicts` 是所有 server 的合计。
+
+`backups[]`（**v2.4 B1**）列出本次 pull / sync 中创建的所有 sidecar backup。每个条目对应一次成功创建（rsync 写盘前）：
+
+- `skill` / `server`：定位信息
+- `backup_path`：绝对路径,等于 `<syncDir>/.backups/skills/<skill>/pre-pull`(syncDir 默认 `~/.syncskill/`,受 `SYNCSKILL_DIR` 覆盖)。v2.7.1 起所有读写统一走此路径,无 legacy 兼容路径
+- `size_bytes`：备份目录总字节数（best-effort，cpSync 失败时仍含部分文件）
+
+未触发 sidecar backup 的 pull（`--no-pull-backup`、本地 skill 不存在、push 命令未涉及 pull 阶段）→ `backups: []`。push 命令永远是 `[]`（push 不写本地）；pull / sync 视情况而定。
+
+**Takeover warnings**：push 遇到远端非 symlink 真目录时输出 `W_TAKEOVER_NEEDED` warning 事件（不阻断），hint 指向 `remote takeover <server> <skill>`。详见 §3.18。
+
+#### 11.6.16 `remote <action> <server> ...`
+
+**`refresh <server>`**：
+
+```json
+{
+  "server": "prod",
+  "backup_path": "~/.syncskill/receivers/prod.json",
+  "created": false,
+  "discovered_agents": [
+    { "name": "claude", "path": "~/.claude/skills", "preexisting_skills": ["foo", "bar"] },
+    { "name": "agents", "path": "~/.agents/skills", "preexisting_skills": [] }
+  ],
+  "added_agents": ["cursor"],
+  "added_skills_with_empty_links": ["new-skill-x"],
+  "managed_skills": ["foo"],
+  "remote_only_skills": ["bar"]
+}
+```
+
+字段含义：
+
+- `created` — 本次 refresh 是否创建了新 backup（首次 refresh = true；增量 refresh = false）
+- `discovered_agents` — 远端扫描到的全部 agent + 各自下面的 skill 名（preexisting_skills 含 symlink 与 real dir 混合）
+- `added_agents` — 本次合并新增到 `remote_agents` 的 agent 名（去重于已有）
+- `added_skills_with_empty_links` — 本次合并新增到 `links` 的 skill 名（默认空数组）
+- `managed_skills` — 远端 agent 下作为 symlink 存在的 skill（已被 syncskill 管理）
+- `remote_only_skills` — 远端 agent 下作为真目录存在的 skill（用户手动放置，未激活同步；需要 `remote link add` + `remote takeover` 才能接管，详见 §3.18）
+
+**`remote agent {add|rm} <server>` / `remote link {add|rm} <server>`**（config-edit）：
+
+```json
+{
+  "server": "prod",
+  "op": "agent.add",
+  "before": { "remote_agents": { "claude": "~/.claude/skills" } },
+  "after":  { "remote_agents": { "claude": "~/.claude/skills", "cursor": "~/.cursor/skills" } }
+}
+```
+
+**`remote show <server>`**：返回完整 backup JSON（§3.3 receiver 本地备份 schema）。backup 不存在时返回新建的空 backup。
+
+**`remote agent ls <server>` / `remote link ls <server>`**：返回各自子字段的内容（`remote_agents` 对象 / `links` 对象）。
+
+#### 11.6.17 `restore <skill>` (v2.4 R1)
+
+```json
+{
+  "skill": "my-skill",
+  "restored_from": "/Users/me/.syncskill/.backups/skills/my-skill/pre-pull",
+  "restored_to": "/Users/me/.syncskill/skills/my-skill",
+  "pre_restore_backup": "/Users/me/.syncskill/.backups/skills/my-skill/pre-restore",
+  "affected_servers": [
+    { "server": "prod", "status_set": "conflict", "direction_set": "conflict" },
+    { "server": "dev",  "status_set": "conflict", "direction_set": "conflict" }
+  ],
+  "skipped_servers": [
+    { "server": "staging", "reason": "skill not in manifest" }
+  ]
+}
+```
+
+字段含义：
+
+- `restored_from` / `restored_to`：sidecar backup 原路径与恢复目标
+- `pre_restore_backup`：restore 执行前对当前内容创建的安全兜底快照（用户可手动从此目录再次回滚）
+- `affected_servers[]`：实际被标记 `status=conflict + direction=conflict` 的 server。受 `--server` / `--all-servers` 控制
+- `skipped_servers[]`：范围内但 manifest 中没有该 skill 条目的 server（例：pull 后才出现的 manual skill 在其他 server 上从未同步过）
+
+`--dry-run` 模式输出同 schema，但 `restored_to` / `affected_servers` 表示 "would-be"，不实际写盘。
 
 ### 11.7 兼容性承诺
 
@@ -2408,7 +3140,9 @@ CLI flag 的环境变量等价。优先级：**显式 flag > 环境变量 > 内�
 | `SYNCSKILL_NO_INTERACTIVE` | `--no-interactive` | 设为 `1` 启用（CI 环境批量设置） |
 | `SYNCSKILL_JSON` | `--json` | 设为 `1` 启用 |
 | `SYNCSKILL_TIMEOUT` | `--timeout` | 默认网络超时秒数 |
-| `SYNCSKILL_LOG_LEVEL` | — | `error` / `warn` / `info` / `debug`（不影响 JSONL 契约，仅控制非结构化日志详细度） |
+| `SYNCSKILL_STRICT` | `--strict` | 设为 `1` 启用；多 target 命令 partial skip 升级为 exit 6（CI / 严格 AI agent 场景） |
+| `SYNCSKILL_PULL_BACKUP` | `--no-pull-backup`（取反） | **v2.4 B1**：设为 `0` 关闭 pull 写盘前的 sidecar backup；默认 `1` 启用。等价 `config.pull_backup` 字段；环境变量优先级高于 config，低于 CLI flag |
+| `SYNCSKILL_LOG_LEVEL` | — | `error` / `warn` / `info` / `debug`（不影响 JSONL 契约，仅控制非结构化日志详细度）。**v2.4**：`W_PULL_BACKUP_SKIPPED` / `W_PULL_BACKUP_CREATED` info 信号仅 `debug` 级别输出，避免污染正常 result |
 | `NO_COLOR` | — | 标准约定，关闭 ANSI 着色（text 模式） |
 
 **使用示例**：
@@ -2443,7 +3177,7 @@ SYNCSKILL_DIR=/tmp/sandbox-syncskill syncskill init
 
 **`syncskill --help --json`**：
 
-输出所有命令、子命令、flag、位置参数的结构化描述：
+输出所有命令、子命令、flag、位置参数的结构化描述，以及每个命令的 plan / result / resolutions JSON Schema（取代旧的 `syncskill schema <command>` 子命令）：
 
 ```json
 {
@@ -2454,9 +3188,25 @@ SYNCSKILL_DIR=/tmp/sandbox-syncskill syncskill init
       "aliases": ["i"],
       "args": [{ "name": "url-or-path", "required": false }],
       "flags": [
-        { "name": "--self", "type": "boolean", "description": "..." },
         { "name": "--name", "type": "string", "description": "..." }
-      ]
+      ],
+      "audience": "both",
+      "prefer": null,
+      "plan_schema": { "...": "..." },         // 该命令产出的 plan JSON Schema（仅 Tier 1）
+      "result_schema": { "...": "..." },       // result.summary.data 的 JSON Schema
+      "resolutions_schema": { "...": "..." }   // --resolutions 文件的 JSON Schema（仅 Tier 1）
+    },
+    {
+      "name": "link add",
+      "audience": "human",
+      "prefer": "link set",
+      "result_schema": { "...": "..." }
+    },
+    {
+      "name": "link set",
+      "audience": "agent",
+      "prefer": null,
+      "result_schema": { "...": "..." }
     }
   ],
   "global_flags": [
@@ -2466,20 +3216,27 @@ SYNCSKILL_DIR=/tmp/sandbox-syncskill syncskill init
 }
 ```
 
-**`syncskill schema <command>`**：
+- Tier 2 命令（见 §3.0.B.3）的 `plan_schema` / `resolutions_schema` 字段为 `null`，仅保留 `result_schema`（其结构与 `--dry-run --json` 输出对齐）。
+- 单命令查询：`syncskill <command> --help --json` 仅输出该命令对应的条目，避免 AI agent 解析全量树。
 
-输出该命令的 plan / result / data 完整 JSON Schema，给 AI agent 校验输入用：
+**`audience` / `prefer` 字段（v2.7）**：让 agent 在自省阶段直接知道"哪些子命令为我设计、遇到 human-only 子命令该改用哪个"。
 
-```bash
-syncskill schema install
-# → {
-#     "plan_schema": {...},      // 该命令产出的 plan JSON Schema
-#     "result_data_schema": {...}, // result.summary.data 的 schema
-#     "resolutions_schema": {...}  // --resolutions 文件的 schema
-#   }
-```
+| 字段 | 取值 | 含义 |
+|---|---|---|
+| `audience` | `"human"` / `"agent"` / `"both"` | 该命令的设计受众。`"human"` 子命令通常带交互/增量语义,agent 调用易引发并发覆盖;`"agent"` 子命令幂等、声明式;`"both"` 是中性接口。**默认 `"both"`**——只在 spec §3.1/§3.6 显式标注受众的命令才出现非 `"both"` 值 |
+| `prefer` | `string \| null` | 当 `audience: "human"` 时,推荐 agent 改用的等价命令(如 `"link set"`)。`null` = 无替代或当前命令本身就是首选 |
 
-**设计目的**：未来新增命令 / 修改 schema 时，skill prompt 无需更新——agent 启动时跑一次 `syncskill --help --json` 自动学习。
+**当前受众分类**(v2.7,据 §3.1 link 表 + §3.6 双轨设计):
+
+| 命令 | audience | prefer |
+|---|---|---|
+| `link edit` / `link add` / `link remove` / `link clear` / `unlink` | `human` | `link set` |
+| `link set` / `link build` / `link list` | `agent` | `null`(已是首选) |
+| 其余所有顶层命令(`install` / `update` / `push` / `pull` / `sync` / ...) | `both` | `null` |
+
+**agent 用法**:`syncskill --help --json` 后过滤 `audience !== "human"` 的命令列表作为"安全候选集";遇到 human 命令时按 `prefer` 字段重定向(若有)。
+
+**设计目的**：未来新增命令 / 修改 schema 时，skill prompt 无需更新——agent 启动时跑一次 `syncskill --help --json` 自动学习全部命令面 + schema + 受众分类。
 
 ### 11.11 JSON-only Config（自动迁移）
 
@@ -2487,20 +3244,31 @@ syncskill schema install
 
 **读取逻辑**：
 
-1. `--config <path>` / `$SYNCSKILL_CONFIG` 显式指定 → 用该文件
+1. `--config <path>` / `$SYNCSKILL_CONFIG` 显式指定 → 用该文件（必须以 `.json` 结尾）
 2. 默认目录下 `config.json` 存在 → 用 JSON
 3. 默认目录下 `config.yaml` 存在（旧版遗留）→ 读取并**自动迁移**（见下方）
 4. 两者都不存在 → 报错 `E_CONFIG_NOT_FOUND`
 
-**自动迁移**：任何 config 写操作（`config set`、`link set`、`install`、矩阵编辑器保存等）在首次写入时自动执行：
+**自动迁移**：`loadConfig()` 在每次读取时立即执行（**不等待首次写**，保证后续所有读路径都看到 JSON）：
 
-1. 读取 `config.yaml`
-2. 写入 `config.json`
-3. 删除 `config.yaml`
-4. 输出 `info` 事件：`Migrated config.yaml → config.json`
+1. 读取 `config.yaml`，解析为内存中的 `SyncSkillConfig`
+2. **立即**写 `config.json`（即使后续没有 mutate）
+3. 将原 `config.yaml` 重命名为 `config.yaml.migrated-<ISO timestamp>.bak`（用于回滚兜底；不会被任何命令自动清理）
+4. 输出 `info` 事件：`Migrated config.yaml → config.json (backup: config.yaml.migrated-...bak)`
+5. 返回内存对象给调用方继续命令逻辑
 
-迁移后所有后续操作只读写 `config.json`。用户无需手动操作。
+为什么"立即迁移"而非"延迟到首次写"：
+
+- AI agent 多次以纯只读命令（如 `status`、`diff`、`source list`）启动时，每次都重做 YAML→对象解析浪费 CPU
+- 不同 AI agent 在同一仓库读到的 config 路径必须确定（要么都 JSON 要么都 YAML），延迟迁移让"第一个写者"决定迁移时机，多 agent 并发不可预测
+- 立即迁移让 AI agent 在第一次 `loadConfig()` 后就拥有"确定性 JSON 单源真相"
+
+迁移后所有后续操作只读写 `config.json`。用户确认无问题后可手动删除 `.bak` 文件；`doctor --fix` 不负责清理。
+
+**保留时长**：YAML 自动迁移代码长期保留（不打 deprecation 警告），用于兜底极少量旧版用户在大版本跨度后升级时的配置可用性。仅在明确移除决策下线（届时由维护者手动从 §11.11 / 代码同步移除）。
 
 **`init` 命令**：直接创建 `config.json`（不创建 YAML）。
 
-**显式指定路径**：`--config /path/to/custom.yaml` 仍可用——按扩展名解析格式，但写入时保持原格式（不迁移用户显式指定的文件）。
+**显式指定路径**：`--config /path/to/custom.json` 必须以 `.json` 结尾。传入 `.yaml` / `.yml` / `.json5` / 其他任何非 `.json` 扩展名 → 立即报错 `E_CONFIG_FORMAT_UNSUPPORTED` + exit 2，hint：`Convert to JSON, or move the file to ~/.syncskill/config.yaml and rerun without --config to trigger auto-migration`。
+
+显式指定路径**不触发自动迁移**（迁移仅作用于默认目录 `~/.syncskill/` 或 `$SYNCSKILL_DIR`）。这是有意为之：当用户用 `--config` 指向自定义路径时，通常是测试/沙盒场景，不应在用户的非默认位置悄悄改写文件。需要把旧 YAML 迁过来的用户，先 `mv ./my-config.yaml ~/.syncskill/config.yaml` 再不带 `--config` 跑一次，让自动迁移产出 `~/.syncskill/config.json`，然后再 `--config /path/to/config.json` 显式引用即可。

@@ -3,12 +3,11 @@
 import { cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-import { Command, InvalidArgumentError } from 'commander';
-
 import { checkbox, select, confirm, input } from '@inquirer/prompts';
+import { Command, InvalidArgumentError, Option } from 'commander';
 import { createOutput, setGlobalOutput, getGlobalOutput } from './cli/index.js';
 import { loadEnvConfig, mergeWithFlags } from './cli/env.js';
-import { ExitCode } from './cli/exit-codes.js';
+import { ExitCode, errorCodeToExitCode } from './cli/exit-codes.js';
 import { createPlan, addAction, serializePlan, type Plan } from './cli/plan.js';
 import { withPlanExecute, type PlanExecuteOptions } from './cli/plan-execute.js';
 import type { Resolutions } from './cli/resolution.js';
@@ -23,13 +22,17 @@ async function selectTargetServers(
   allServers: string[],
   server: string | undefined,
   options: SelectServersOptions,
-  action: 'push' | 'pull'
+  action: 'push' | 'pull' | 'sync'
 ): Promise<string[] | null> {
   if (options.all) {
     return allServers;
   }
 
   if (server) {
+    if (!allServers.includes(server)) {
+      return failWithOutputError('E_SERVER_NOT_FOUND', `Server not found: ${server}`, 'Use `syncskill server list` to inspect configured servers');
+    }
+
     return [server];
   }
 
@@ -49,7 +52,11 @@ async function selectTargetServers(
     return null;
   }
 
-  const message = action === 'push' ? 'Select servers to push:' : 'Select servers to pull from:';
+  const message = action === 'push'
+    ? 'Select servers to push:'
+    : action === 'pull'
+      ? 'Select servers to pull from:'
+      : 'Select servers to sync:';
   const selected = await checkbox({
     message,
     choices: [
@@ -71,6 +78,7 @@ async function selectTargetServers(
 }
 
 import { applyResolution, reconcileManifest } from './core/conflict.js';
+import { computeDefaultLinkTargets } from './core/private-agents.js';
 import {
   autoDiagnoseConfig,
   diagnoseConfig,
@@ -81,7 +89,7 @@ import {
   type RepairOptions
 } from './config/config-doctor.js';
 import { installSyncskillSkill, installFromSource } from './install.js';
-import { expandTargetAgents, getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
+import { expandTargetAgents, getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
 import { createPromptApi, runConfigUi } from './config/config-ui.js';
 import { collectLinkStatus, discoverSkills, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
 import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './core/manifest.js';
@@ -115,7 +123,7 @@ import {
 import { pullFromServer, pullFromServers, pushToServers, syncServers, type PullResult, type PushResult } from './core/sync_engine.js';
 import { formatDashboardSummary, loadDashboardSummary } from './dashboard.js';
 
-function shouldSkipAutoRefresh(command: Command): boolean {
+function getCommandPath(command: Command): string {
   const commandPath: string[] = [];
   let current: Command | null = command;
 
@@ -128,6 +136,10 @@ function shouldSkipAutoRefresh(command: Command): boolean {
     }
   }
 
+  return commandPath.join(' ');
+}
+
+function shouldSkipAutoRefresh(command: Command): boolean {
   const skipCommands = [
     'init',
     'config',
@@ -138,7 +150,231 @@ function shouldSkipAutoRefresh(command: Command): boolean {
     'config remote',
     'refresh'
   ];
-  return skipCommands.includes(commandPath.join(' '));
+  return skipCommands.includes(getCommandPath(command));
+}
+
+function normalizeConfiguredTargets(targets: string[]): string[] {
+  if (targets.includes('*')) {
+    return ['*'];
+  }
+
+  return [...new Set(targets)].sort();
+}
+
+function buildPlanRefMap(plan: Plan, op: string): Map<string, string> {
+  const refs = new Map<string, string>();
+
+  for (const action of plan.actions) {
+    if (action.op !== op || typeof action.id !== 'string' || typeof action.skill !== 'string') {
+      continue;
+    }
+
+    if (typeof action.agent === 'string') {
+      refs.set(`${action.skill}:${action.agent}`, action.id);
+      continue;
+    }
+
+    refs.set(action.skill, action.id);
+  }
+
+  return refs;
+}
+
+function summarizeRemovedLinks(
+  config: SyncSkillConfig,
+  ownedSkills: string[],
+  plan: Plan
+): Array<{ skill: string; agents: string[]; plan_ref?: string }> {
+  const refs = buildPlanRefMap(plan, 'remove.unlink');
+
+  return ownedSkills
+    .map((skill) => {
+      const agents = expandTargetAgents(config, config.links[skill] ?? []);
+      if (agents.length === 0) {
+        return null;
+      }
+
+      return {
+        skill,
+        agents,
+        ...(refs.get(skill) ? { plan_ref: refs.get(skill) } : {})
+      };
+    })
+    .filter((item): item is { skill: string; agents: string[]; plan_ref?: string } => item !== null);
+}
+
+function buildSourceRemovePlan(ownedSkills: string[]): Plan {
+  let plan = createPlan('source remove');
+
+  for (const skill of ownedSkills) {
+    plan = addAction(plan, { op: 'remove.unlink', skill });
+  }
+
+  return plan;
+}
+
+function buildLinkBuildPlan(homeDir: string, config: SyncSkillConfig, staleBySkill: StaleLinksBySkill): Plan {
+  let plan = createPlan('link build');
+  const { skillsDir } = getSyncPaths(homeDir);
+
+  for (const skill of Object.keys(config.links).sort()) {
+    const agents = expandTargetAgents(config, config.links[skill] ?? []);
+
+    for (const agent of agents) {
+      plan = addAction(plan, {
+        op: 'create-symlink',
+        skill,
+        agent,
+        from: join(skillsDir, skill),
+        to: join(resolveAgentPath(config.agents[agent], homeDir), skill)
+      });
+    }
+  }
+
+  for (const skill of Object.keys(staleBySkill).sort()) {
+    for (const stale of [...staleBySkill[skill]].sort((left, right) => left.agent.localeCompare(right.agent))) {
+      plan = addAction(plan, {
+        op: 'remove-symlink',
+        skill: stale.skill,
+        agent: stale.agent,
+        path: stale.path
+      });
+    }
+  }
+
+  return plan;
+}
+
+function summarizeLinkBuild(
+  homeDir: string,
+  config: SyncSkillConfig,
+  linkResults: Array<{ skill: string; agent: string }>,
+  removedLinks: Array<{ skill: string; agent: string; path: string }>,
+  plan: Plan
+): {
+  changes: Array<{
+    skill: string;
+    config_before: string[];
+    config_after: string[];
+    symlinks_created: Array<{ agent: string; path: string; plan_ref?: string }>;
+    symlinks_removed: Array<{ agent: string; path: string; plan_ref?: string }>;
+  }>;
+} {
+  const createRefs = buildPlanRefMap(plan, 'create-symlink');
+  const removeRefs = buildPlanRefMap(plan, 'remove-symlink');
+  const skills = new Set<string>([
+    ...Object.keys(config.links),
+    ...linkResults.map((result) => result.skill),
+    ...removedLinks.map((result) => result.skill)
+  ]);
+
+  const changes = [...skills]
+    .sort()
+    .map((skill) => {
+      const configTargets = normalizeConfiguredTargets(config.links[skill] ?? []);
+      const symlinksCreated = linkResults
+        .filter((result) => result.skill === skill)
+        .sort((left, right) => left.agent.localeCompare(right.agent))
+        .map((result) => ({
+          agent: result.agent,
+          path: join(resolveAgentPath(config.agents[result.agent], homeDir), skill),
+          ...(createRefs.get(`${result.skill}:${result.agent}`)
+            ? { plan_ref: createRefs.get(`${result.skill}:${result.agent}`) }
+            : {})
+        }));
+      const symlinksRemoved = removedLinks
+        .filter((result) => result.skill === skill)
+        .sort((left, right) => left.agent.localeCompare(right.agent))
+        .map((result) => ({
+          agent: result.agent,
+          path: result.path,
+          ...(removeRefs.get(`${result.skill}:${result.agent}`)
+            ? { plan_ref: removeRefs.get(`${result.skill}:${result.agent}`) }
+            : {})
+        }));
+
+      if (symlinksCreated.length === 0 && symlinksRemoved.length === 0) {
+        return null;
+      }
+
+      return {
+        skill,
+        config_before: configTargets,
+        config_after: configTargets,
+        symlinks_created: symlinksCreated,
+        symlinks_removed: symlinksRemoved
+      };
+    })
+    .filter((item): item is {
+      skill: string;
+      config_before: string[];
+      config_after: string[];
+      symlinks_created: Array<{ agent: string; path: string; plan_ref?: string }>;
+      symlinks_removed: Array<{ agent: string; path: string; plan_ref?: string }>;
+    } => item !== null);
+
+  return { changes };
+}
+
+function collectRemovedLinks(
+  staleBySkill: StaleLinksBySkill,
+  removedPaths: string[]
+): Array<{ skill: string; agent: string; path: string }> {
+  const removedPathSet = new Set(removedPaths);
+
+  return Object.values(staleBySkill)
+    .flat()
+    .filter((link) => removedPathSet.has(link.path))
+    .sort((left, right) => {
+      if (left.skill !== right.skill) {
+        return left.skill.localeCompare(right.skill);
+      }
+      return left.agent.localeCompare(right.agent);
+    });
+}
+
+function summarizeDeletedPaths(homeDir: string, sourceName: string, ownedSkills: string[]): string[] {
+  const { skillsDir, syncDir } = getSyncPaths(homeDir);
+
+  return [
+    ...ownedSkills.map((skill) => join(skillsDir, skill)),
+    join(syncDir, '.sources', sourceName)
+  ];
+}
+
+function summarizeSourceRemoval(
+  homeDir: string,
+  name: string,
+  action: RemovalAction,
+  config: SyncSkillConfig,
+  ownedSkills: string[]
+): Record<string, unknown> {
+  const plan = buildSourceRemovePlan(ownedSkills);
+
+  if (action === RemovalAction.ConvertToLocal) {
+    return {
+      name,
+      mode: 'keep-files',
+      converted_to_local: true,
+      deleted_paths: [],
+      removed_skills: [],
+      removed_links: []
+    };
+  }
+
+  return {
+    name,
+    mode: action === RemovalAction.RemoveAll ? 'completely' : 'keep-files',
+    deleted_paths: action === RemovalAction.RemoveAll ? summarizeDeletedPaths(homeDir, name, ownedSkills) : [],
+    removed_skills: ownedSkills,
+    removed_links: summarizeRemovedLinks(config, ownedSkills, plan)
+  };
+}
+
+interface StaleLinkCleanupSummary {
+  staleBySkill: StaleLinksBySkill;
+  removed: Array<{ skill: string; agent: string; path: string }>;
+  errors: string[];
 }
 
 function formatPullRows(result: PullResult): string[] {
@@ -159,6 +395,11 @@ function formatSkillRows(action: 'pull', result: PullResult): string[];
 function formatSkillRows(action: 'push', result: PushResult): string[];
 function formatSkillRows(action: 'pull' | 'push', result: PullResult | PushResult): string[] {
   return action === 'pull' ? formatPullRows(result as PullResult) : formatPushRows(result as PushResult);
+}
+
+function isNoInteractive(program: Command): true | undefined {
+  const options = program.opts<{ noInteractive?: boolean; interactive?: boolean }>();
+  return options.noInteractive === true || options.interactive === false ? true : undefined;
 }
 
 function failForNoInteractive(hint?: string): never {
@@ -186,6 +427,66 @@ function parseInteger(value: string): number {
   return parsed;
 }
 
+function parseOnConflict(value: string): 'keep-local' | 'keep-remote' | 'skip' | 'abort' {
+  if (value === 'keep-local' || value === 'keep-remote' || value === 'skip' || value === 'abort') {
+    return value;
+  }
+
+  throw new InvalidArgumentError('Expected one of: keep-local, keep-remote, skip, abort');
+}
+
+function failWithOutputError(code: string, message: string, hint?: string): never {
+  try {
+    const output = getGlobalOutput();
+    const exitCode = output.error(code, message, hint ? { hint } : undefined);
+    output.result(false, { error: code });
+    process.exit(exitCode);
+  } catch {
+    console.error(message);
+    if (hint) {
+      console.error(`Hint: ${hint}`);
+    }
+    process.exit(errorCodeToExitCode(code));
+  }
+}
+
+function parseStructuredError(error: unknown): { code: string; message: string } | null {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  const match = error.message.match(/^(E_[A-Z_]+):\s*(.*)$/s);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    code: match[1],
+    message: match[2] || error.message
+  };
+}
+
+function handleSyncCommandError(error: unknown): never {
+  const parsed = parseStructuredError(error);
+  if (!parsed) {
+    throw error;
+  }
+
+  if (parsed.code === 'E_SERVER_NOT_FOUND') {
+    return failWithOutputError(parsed.code, parsed.message, 'Use `syncskill server list` to inspect configured servers');
+  }
+
+  if (parsed.code === 'E_CONFLICT') {
+    return failWithOutputError(parsed.code, parsed.message);
+  }
+
+  if (parsed.code === 'E_NEEDS_INPUT') {
+    return failWithOutputError(parsed.code, parsed.message, 'Use --cross-server-policy / --on-conflict, or remove --no-interactive');
+  }
+
+  throw error;
+}
+
 // Install-specific plan actions
 type InstallAction =
   | { op: 'install-self'; to: string }
@@ -196,12 +497,20 @@ async function buildInstallPlan(
   urlOrPath: string | undefined,
   options: { self?: boolean; yes?: boolean }
 ): Promise<Plan> {
-  const plan = createPlan('install');
+  let plan = createPlan('install');
   const { skillsDir } = getSyncPaths(homeDir);
 
   if (options.self || urlOrPath === 'self') {
     const targetPath = join(skillsDir, 'syncskill');
-    return addAction(plan, { op: 'install-self', to: targetPath } satisfies InstallAction);
+    plan = addAction(plan, { op: 'install-self', to: targetPath } satisfies InstallAction);
+
+    const config = await loadConfig(homeDir);
+    const targets = config.links['syncskill'] ?? (await computeDefaultLinkTargets(homeDir, config)).targets;
+    const agents = expandTargetAgents(config, targets);
+
+    if (agents.length > 0) {
+      plan = addAction(plan, { op: 'link-skill', skill: 'syncskill', agents } satisfies InstallAction);
+    }
   }
 
   return plan;
@@ -210,50 +519,125 @@ async function buildInstallPlan(
 async function executeInstallPlan(
   homeDir: string,
   plan: Plan,
-  _resolutions: Resolutions
+  _resolutions: Resolutions,
+  deprecations: string[] = []
 ): Promise<void> {
-  for (const action of plan.actions) {
-    if (action.op === 'install-self') {
-      const result = await installSyncskillSkill(homeDir);
-      const output = getGlobalOutput();
-      if (result.alreadyInstalled) {
-        output.info('syncskill skill already installed');
-      } else {
-        output.change('add', 'skill', 'syncskill', { target: result.installedPath });
-        if (result.linkedAgents?.length) {
-          output.info(`Linked to: ${result.linkedAgents.join(', ')}`);
+  const output = getGlobalOutput();
+  const installAction = plan.actions.find((action) => action.op === 'install-self');
+  const linkAction = plan.actions.find((action) => action.op === 'link-skill' && action.skill === 'syncskill');
+
+  if (!installAction || installAction.op !== 'install-self') {
+    output.result(true, {});
+    return;
+  }
+
+  const result = await installSyncskillSkill(homeDir);
+  let summary: Record<string, unknown>;
+
+  if (result.alreadyInstalled) {
+    output.info('syncskill skill already installed');
+    summary = {
+      installed: false,
+      skill: 'syncskill',
+      alreadyInstalled: true,
+      linkedAgents: result.linkedAgents ?? [],
+      ...(deprecations.length > 0 ? { deprecations } : {}),
+      data: {
+        skills: {
+          already_installed: ['syncskill']
         }
       }
+    };
+  } else {
+    output.change('add', 'skill', 'syncskill', { target: result.installedPath });
+    if (result.linkedAgents?.length) {
+      output.info(`Linked to: ${result.linkedAgents.join(', ')}`);
     }
+    summary = {
+      installed: true,
+      skill: 'syncskill',
+      path: result.installedPath,
+      linkedAgents: result.linkedAgents ?? [],
+      ...(deprecations.length > 0 ? { deprecations } : {}),
+      data: {
+        skills: {
+          installed: [
+            {
+              name: 'syncskill',
+              path: result.installedPath,
+              ...(installAction.id ? { plan_ref: installAction.id } : {})
+            }
+          ]
+        },
+        links_created: (result.linkedAgents ?? []).map((agent) => ({
+          skill: 'syncskill',
+          agent,
+          ...(linkAction?.id ? { plan_ref: linkAction.id } : {})
+        }))
+      }
+    };
   }
+
+  output.result(true, summary);
 }
 
 /**
  * Build CLI introspection data for --help --json.
  * See spec §11.10 for schema.
  */
+function getCommandMetadata(commandPath: string): { audience: 'human' | 'agent' | 'both'; prefer: string | null } {
+  switch (commandPath) {
+    case 'link edit':
+    case 'link add':
+    case 'link remove':
+    case 'link clear':
+    case 'unlink':
+      return { audience: 'human', prefer: 'link set' };
+    case 'link set':
+    case 'link build':
+    case 'link list':
+      return { audience: 'agent', prefer: null };
+    default:
+      return { audience: 'both', prefer: null };
+  }
+}
+
+function isVisibleOption(option: Option): boolean {
+  return (option as Option & { hidden?: boolean }).hidden !== true;
+}
+
+function buildCommandIntrospection(command: Command, parentPath?: string): object {
+  const commandPath = parentPath ? `${parentPath} ${command.name()}` : command.name();
+  const metadata = getCommandMetadata(commandPath);
+
+  return {
+    name: command.name(),
+    aliases: command.aliases(),
+    description: command.description(),
+    arguments: command.registeredArguments.map(arg => ({
+      name: arg.name(),
+      required: arg.required,
+      description: arg.description,
+    })),
+    options: command.options.filter(isVisibleOption).map(opt => ({
+      flags: opt.flags,
+      description: opt.description,
+      required: opt.required,
+      defaultValue: opt.defaultValue ?? null,
+    })),
+    audience: metadata.audience,
+    prefer: metadata.prefer,
+    ...(command.commands.length > 0 ? { commands: command.commands.map(child => buildCommandIntrospection(child, commandPath)) } : {})
+  };
+}
+
 function buildCliIntrospection(program: Command): object {
   return {
     name: program.name(),
     version: program.version(),
     description: program.description(),
-    commands: program.commands.map(cmd => ({
-      name: cmd.name(),
-      aliases: cmd.aliases(),
-      description: cmd.description(),
-      arguments: cmd.registeredArguments.map(arg => ({
-        name: arg.name(),
-        required: arg.required,
-        description: arg.description,
-      })),
-      options: cmd.options.map(opt => ({
-        flags: opt.flags,
-        description: opt.description,
-        required: opt.required,
-        defaultValue: opt.defaultValue ?? null,
-      })),
-    })),
-    globalOptions: program.options.map(opt => ({
+    commands: program.commands.map(cmd => buildCommandIntrospection(cmd)),
+    globalOptions: program.options.filter(isVisibleOption).map(opt => ({
       flags: opt.flags,
       description: opt.description,
       required: opt.required,
@@ -270,9 +654,10 @@ export function createProgram(homeDir?: string): Command {
     .option('--json', 'Output in JSONL format for machine consumption')
     .option('--no-interactive', 'Disable interactive prompts')
     .option('--plan', 'Output plan without executing')
-    .option('--plan-file <path>', 'Write plan to file, then execute')
-    .option('--apply <path>', 'Execute a pre-generated plan file')
-    .option('--resolutions <path>', 'Provide resolutions file')
+    .option('--apply <path|->', 'Execute a pre-generated plan file or read plan from stdin')
+    .addOption(new Option('--apply-stdin').hideHelp())
+    .option('--resolutions <path|->', 'Provide resolutions file or read resolutions from stdin')
+    .addOption(new Option('--resolutions-stdin').hideHelp())
     .option('--sync-dir <path>', 'Override ~/.syncskill directory')
     .option('--config <path>', 'Override config file path')
     .option('--no-refresh', 'Skip automatic manifest refresh before commands')
@@ -307,7 +692,7 @@ export function createProgram(homeDir?: string): Command {
         json: mergedConfig.json,
         noColor: mergedConfig.noColor,
       });
-      output.setCommand(actionCommand.name());
+      output.setCommand(getCommandPath(actionCommand) || actionCommand.name());
       setGlobalOutput(output);
 
       if (shouldSkipAutoRefresh(actionCommand)) {
@@ -349,7 +734,6 @@ export function createProgram(homeDir?: string): Command {
       branch?: string;
       yes?: boolean;
       _planMode?: boolean;
-      _planFile?: string;
       _applyPath?: string;
       _resolutionsPath?: string;
     }) => {
@@ -358,18 +742,27 @@ export function createProgram(homeDir?: string): Command {
       const rootOptions = program.opts<{
         noInteractive?: boolean;
         plan?: boolean;
-        planFile?: string;
         apply?: string;
+        applyStdin?: boolean;
         resolutions?: string;
+        resolutionsStdin?: boolean;
       }>();
+      const deprecatedApplyStdin = rootOptions.applyStdin ? '-' : undefined;
+      const deprecatedResolutionsStdin = rootOptions.resolutionsStdin ? '-' : undefined;
       const planMode = options._planMode ?? rootOptions.plan;
-      const planFile = options._planFile ?? rootOptions.planFile;
-      const applyPath = options._applyPath ?? rootOptions.apply;
-      const resolutionsPath = options._resolutionsPath ?? rootOptions.resolutions;
+      const applyPath = options._applyPath ?? rootOptions.apply ?? deprecatedApplyStdin;
+      const resolutionsPath = options._resolutionsPath ?? rootOptions.resolutions ?? deprecatedResolutionsStdin;
+
+      if (rootOptions.applyStdin) {
+        output.info('Deprecated alias: use --apply -', { deprecated: '--apply-stdin', replacement: '--apply -' });
+      }
+      if (rootOptions.resolutionsStdin) {
+        output.info('Deprecated alias: use --resolutions -', { deprecated: '--resolutions-stdin', replacement: '--resolutions -' });
+      }
 
       if (!urlOrPath && !options.self) {
         if (process.stdout.isTTY) {
-          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+          if (isNoInteractive(program)) {
             failForNoInteractive();
           }
 
@@ -397,21 +790,28 @@ export function createProgram(homeDir?: string): Command {
 
       const selfPathExists = urlOrPath === 'self' ? await pathExists(resolve('./self')) : false;
       const isSelfInstall = options.self || (urlOrPath === 'self' && !selfPathExists);
-      const isPlanOperation = Boolean(planMode || planFile || applyPath);
+      const isPlanOperation = Boolean(planMode || applyPath);
       const isSimpleCase = Boolean(options.self || urlOrPath === 'self');
 
       if (isPlanOperation && isSimpleCase) {
         const planOptions: PlanExecuteOptions = {
           plan: planMode,
-          planFile,
           apply: applyPath,
           resolutions: resolutionsPath,
           yes: options.yes
         };
 
+        const deprecations: string[] = [];
+        if (rootOptions.applyStdin) {
+          deprecations.push('--apply-stdin');
+        }
+        if (rootOptions.resolutionsStdin) {
+          deprecations.push('--resolutions-stdin');
+        }
+
         const result = await withPlanExecute({
           buildPlan: () => buildInstallPlan(resolvedHomeDir, urlOrPath, options),
-          executePlan: (plan, resolutions) => executeInstallPlan(resolvedHomeDir, plan, resolutions),
+          executePlan: (plan, resolutions) => executeInstallPlan(resolvedHomeDir, plan, resolutions, deprecations),
           options: planOptions
         });
 
@@ -472,7 +872,7 @@ export function createProgram(homeDir?: string): Command {
 
           console.log(`\nFound ${skills.length} skill(s):\n`);
 
-          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+          if (isNoInteractive(program)) {
             failForNoInteractive();
           }
 
@@ -503,7 +903,7 @@ export function createProgram(homeDir?: string): Command {
   const configCommand = program.command('config').description('Manage syncskill config');
 
   configCommand.action(async () => {
-    if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+    if (isNoInteractive(program)) {
       failForNoInteractive();
     }
 
@@ -545,7 +945,7 @@ export function createProgram(homeDir?: string): Command {
     .command('link')
     .description('Edit skill → agent links (matrix editor) [deprecated: use "link" instead]')
     .action(async () => {
-      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+      if (isNoInteractive(program)) {
         failForNoInteractive();
       }
 
@@ -557,7 +957,7 @@ export function createProgram(homeDir?: string): Command {
     .command('server')
     .description('Manage remote servers')
     .action(async () => {
-      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+      if (isNoInteractive(program)) {
         failForNoInteractive();
       }
 
@@ -568,7 +968,7 @@ export function createProgram(homeDir?: string): Command {
     .command('remote')
     .description('Edit skill → server sync mapping (matrix editor)')
     .action(async () => {
-      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+      if (isNoInteractive(program)) {
         failForNoInteractive();
       }
 
@@ -628,7 +1028,7 @@ export function createProgram(homeDir?: string): Command {
             console.log(`\n[dry-run] Would migrate ${unmanaged.length} skill(s) to ~/.syncskill/skills/`);
           }
         } else if (options.migrateUnmanaged) {
-          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+          if (isNoInteractive(program)) {
             failForNoInteractive();
           }
 
@@ -732,7 +1132,7 @@ export function createProgram(homeDir?: string): Command {
     .action(async () => {
       await ensureLinkCommandReady();
 
-      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+      if (isNoInteractive(program)) {
         failForNoInteractive();
       }
 
@@ -768,7 +1168,7 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+      if (isNoInteractive(program)) {
         failForNoInteractive();
       }
 
@@ -889,7 +1289,7 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (!options.yes) {
-        if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+        if (isNoInteractive(program)) {
           failForNoInteractive();
         }
 
@@ -910,24 +1310,30 @@ export function createProgram(homeDir?: string): Command {
     });
 
   linkCommand
-    .command('apply')
+    .command('build')
+    .alias('apply')
     .description('Reconcile symlinks to match config')
     .option('--dry-run', 'Preview changes without applying')
     .option('-y, --yes', 'Auto-confirm stale link removal')
     .action(async (options: { dryRun?: boolean; yes?: boolean }) => {
-      await ensureLinkCommandReady();
+      setCommandName('link build');
+      const output = getGlobalOutput();
+      const config = await ensureLinkCommandReady();
 
       if (options.dryRun) {
-        console.log('[dry-run] Would link all configured skills');
+        output.info('[dry-run] Would link all configured skills');
         const staleBySkill = await findStaleLinks(resolvedHomeDir);
         await displayStaleLinksPreview(staleBySkill);
         return;
       }
 
+      const staleBySkill = await findStaleLinks(resolvedHomeDir);
+      const plan = buildLinkBuildPlan(resolvedHomeDir, config, staleBySkill);
       const results = await linkConfiguredSkills(resolvedHomeDir, { all: true });
       const skillCount = new Set(results.map(r => r.skill)).size;
-      console.log(`✓ Linked ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
-      await handleStaleLinksReconciliation(resolvedHomeDir, undefined, options);
+      output.info(`Linked ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
+      const cleanupSummary = await handleStaleLinksReconciliation(resolvedHomeDir, undefined, options);
+      output.result(true, summarizeLinkBuild(resolvedHomeDir, config, results, cleanupSummary.removed, plan));
     });
 
   program
@@ -951,7 +1357,7 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (!options.yes) {
-        if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+        if (isNoInteractive(program)) {
           failForNoInteractive();
         }
 
@@ -994,30 +1400,34 @@ export function createProgram(homeDir?: string): Command {
     homeDir: string,
     skillNames: string[] | undefined,
     options: { dryRun?: boolean; yes?: boolean }
-  ): Promise<void> {
+  ): Promise<StaleLinkCleanupSummary> {
+    const output = getGlobalOutput();
     const staleBySkill = await findStaleLinks(homeDir, skillNames);
     const allStale = Object.values(staleBySkill).flat();
 
-    if (allStale.length === 0) return;
+    if (allStale.length === 0) {
+      return { staleBySkill, removed: [], errors: [] };
+    }
 
     const config = await loadConfig(homeDir);
 
-    // Single skill: simpler output
     if (skillNames && skillNames.length === 1) {
       const skillName = skillNames[0];
       const staleLinks = staleBySkill[skillName] ?? [];
-      if (staleLinks.length === 0) return;
+      if (staleLinks.length === 0) {
+        return { staleBySkill, removed: [], errors: [] };
+      }
 
       const agents = staleLinks.map(l => l.agent).join(', ');
 
       if (options.dryRun) {
-        console.log(`\n[dry-run] Would remove ${skillName} from: ${agents}`);
-        return;
+        output.info(`[dry-run] Would remove ${skillName} from: ${agents}`);
+        return { staleBySkill, removed: [], errors: [] };
       }
 
       let shouldRemove = options.yes;
       if (!shouldRemove) {
-        if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+        if (isNoInteractive(program)) {
           failForNoInteractive();
         }
 
@@ -1027,33 +1437,39 @@ export function createProgram(homeDir?: string): Command {
         });
       }
 
-      if (shouldRemove) {
-        const result = await reconcileStaleLinks(homeDir, skillNames, config);
-        if (result.removed.length > 0) {
-          console.log('✓ Removed');
-        }
-        if (result.errors.length > 0) {
-          console.log(`✗ Failed to remove ${result.errors.length} link(s)`);
-        }
+      if (!shouldRemove) {
+        return { staleBySkill, removed: [], errors: [] };
       }
-      return;
+
+      const result = await reconcileStaleLinks(homeDir, skillNames, config);
+      if (result.removed.length > 0) {
+        output.info('Removed stale links');
+      }
+      if (result.errors.length > 0) {
+        output.info(`Failed to remove ${result.errors.length} link(s)`);
+      }
+
+      return {
+        staleBySkill,
+        removed: collectRemovedLinks(staleBySkill, result.removed),
+        errors: result.errors
+      };
     }
 
-    // Batch: grouped output
-    console.log('\nLinks to remove (no longer in config):');
+    output.info('Links to remove (no longer in config):');
     for (const [skillName, links] of Object.entries(staleBySkill)) {
       const agents = links.map(l => l.agent).join(', ');
-      console.log(`  ${skillName}: ${agents}`);
+      output.info(`  ${skillName}: ${agents}`);
     }
 
     if (options.dryRun) {
-      console.log(`\n[dry-run] Would remove ${allStale.length} link${allStale.length !== 1 ? 's' : ''}`);
-      return;
+      output.info(`[dry-run] Would remove ${allStale.length} link${allStale.length !== 1 ? 's' : ''}`);
+      return { staleBySkill, removed: [], errors: [] };
     }
 
     let shouldRemove = options.yes;
     if (!shouldRemove) {
-      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+      if (isNoInteractive(program)) {
         failForNoInteractive();
       }
 
@@ -1063,16 +1479,27 @@ export function createProgram(homeDir?: string): Command {
       });
     }
 
-    if (shouldRemove) {
-      // For batch, pass empty array to check all skills
-      const result = await reconcileStaleLinks(homeDir, [], config);
-      if (result.removed.length > 0) {
-        console.log(`✓ Removed ${result.removed.length} link${result.removed.length !== 1 ? 's' : ''}`);
-      }
-      if (result.errors.length > 0) {
-        console.log(`✗ Failed to remove ${result.errors.length} link(s)`);
-      }
+    if (!shouldRemove) {
+      return { staleBySkill, removed: [], errors: [] };
     }
+
+    const result = await reconcileStaleLinks(homeDir, [], config);
+    if (result.removed.length > 0) {
+      output.info(`Removed ${result.removed.length} stale link${result.removed.length !== 1 ? 's' : ''}`);
+    }
+    if (result.errors.length > 0) {
+      output.info(`Failed to remove ${result.errors.length} link(s)`);
+    }
+
+    return {
+      staleBySkill,
+      removed: collectRemovedLinks(staleBySkill, result.removed),
+      errors: result.errors
+    };
+  }
+
+  function setCommandName(name: string): void {
+    getGlobalOutput().setCommand(name);
   }
 
   const sourceCommand = program.command('source').description('Manage external skill sources and source recovery');
@@ -1110,6 +1537,8 @@ export function createProgram(homeDir?: string): Command {
     .description('Remove a configured source')
     .option('--force', 'Skip confirmation prompts')
     .action(async (name: string, options: { force?: boolean }) => {
+      setCommandName('source remove');
+      const output = getGlobalOutput();
       const config = await loadConfig(resolvedHomeDir);
       const sourceRaw = config.sources[name];
 
@@ -1118,28 +1547,25 @@ export function createProgram(homeDir?: string): Command {
         process.exit(1);
       }
 
-      // Extract source type from the raw config object
       const sourceType = (sourceRaw as Record<string, unknown>).type;
       const isGitSource = sourceType === 'git';
 
       const ownershipState = await loadSkillOwnershipState(resolvedHomeDir);
       const localSkills = new Set(await listLocalSkillNames(resolvedHomeDir));
       const orphans = findOrphanSkills(name, config, ownershipState, localSkills);
-
-      // Show affected skills
       const ownedSkills = Object.entries(ownershipState.owners)
         .filter(([, owner]) => owner === name)
-        .map(([skill]) => skill);
+        .map(([skill]) => skill)
+        .sort();
 
       if (ownedSkills.length > 0) {
-        console.log(`\nSkills provided by source "${name}":`);
+        output.info(`Skills provided by source "${name}":`);
         for (const skill of ownedSkills) {
           const isOrphan = orphans.includes(skill);
-          console.log(`  - ${skill}${isOrphan ? ' (orphan - only from this source)' : ''}`);
+          output.info(`  - ${skill}${isOrphan ? ' (orphan - only from this source)' : ''}`);
         }
-        console.log('');
       } else {
-        console.log(`\nSource "${name}" provides no skills.\n`);
+        output.info(`Source "${name}" provides no skills.`);
       }
 
       let action: RemovalAction;
@@ -1147,8 +1573,6 @@ export function createProgram(homeDir?: string): Command {
       if (options.force) {
         action = RemovalAction.RemoveAll;
       } else {
-        // Unified options for all source types
-        // Non-git sources filter out the convert option since @inquirer/prompts doesn't support disabled
         const choices = [
           ...(isGitSource
             ? [
@@ -1175,14 +1599,13 @@ export function createProgram(homeDir?: string): Command {
         action = choice;
       }
 
-      // Double confirmation for destructive actions
       if (action === RemovalAction.RemoveAll && orphans.length > 0) {
         const confirmed = await confirm({
           message: `This will permanently delete ${orphans.length} orphan skill(s). Continue?`,
           default: false,
         });
         if (!confirmed) {
-          console.log('Cancelled.');
+          output.info('Cancelled.');
           return;
         }
       }
@@ -1191,15 +1614,17 @@ export function createProgram(homeDir?: string): Command {
 
       switch (action) {
         case RemovalAction.ConvertToLocal:
-          console.log(`Converted source "${name}" to local type.`);
+          output.info(`Converted source "${name}" to local type.`);
           break;
         case RemovalAction.RemoveConfigKeepFiles:
-          console.log(`Removed source "${name}" (skill files kept on disk).`);
+          output.info(`Removed source "${name}" (skill files kept on disk).`);
           break;
         case RemovalAction.RemoveAll:
-          console.log(`Removed source "${name}" and all associated files.`);
+          output.info(`Removed source "${name}" and all associated files.`);
           break;
       }
+
+      output.result(true, summarizeSourceRemoval(resolvedHomeDir, name, action, config, ownedSkills));
     });
 
   const serverCommand = program.command('server').description('Manage and inspect remote sync servers');
@@ -1236,7 +1661,7 @@ export function createProgram(homeDir?: string): Command {
     .command('remote')
     .description('Edit skill → server sync mapping (matrix editor)')
     .action(async () => {
-      if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+      if (isNoInteractive(program)) {
         failForNoInteractive();
       }
 
@@ -1340,7 +1765,7 @@ export function createProgram(homeDir?: string): Command {
 
         // If no options at all, enter interactive mode
         if (!side && !options.diff) {
-          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+          if (isNoInteractive(program)) {
             failForNoInteractive();
           }
 
@@ -1408,7 +1833,7 @@ export function createProgram(homeDir?: string): Command {
 
         // If user chose "Show diff first" in interactive mode, ask again after showing diff
         if (showDiffThenAsk && resolved && !side) {
-          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+          if (isNoInteractive(program)) {
             failForNoInteractive();
           }
 
@@ -1483,24 +1908,48 @@ export function createProgram(homeDir?: string): Command {
     .option('--all', 'Pull from all configured servers')
     .option('--dry-run', 'Preview changes without pulling')
     .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
+    .option('--cross-server-policy <policy>', 'How to resolve cross-server conflicts: first-wins, last-wins, abort, prompt, or server:<name>')
+    .option('--on-conflict <policy>', 'How to resolve per-server conflicts: keep-local, keep-remote, skip, abort', parseOnConflict)
     .option('-y, --yes', 'Skip confirmation prompts')
-    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; yes?: boolean }) => {
-      const config = await loadConfig(resolvedHomeDir);
-      // Auto-check config health
-      const { skillsDir } = getSyncPaths(resolvedHomeDir);
-      await autoDiagnoseConfig(config, skillsDir);
+    .action(async (
+      server: string | undefined,
+      options: {
+        all?: boolean;
+        dryRun?: boolean;
+        timeout?: number;
+        yes?: boolean;
+        crossServerPolicy?: string;
+        onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
+      }
+    ) => {
+      try {
+        const config = await loadConfig(resolvedHomeDir);
+        const { skillsDir } = getSyncPaths(resolvedHomeDir);
+        await autoDiagnoseConfig(config, skillsDir);
 
-      const allServers = Object.keys(config.servers).sort();
+        const allServers = Object.keys(config.servers).sort();
+        const targetServers = await selectTargetServers(allServers, server, {
+          ...options,
+          noInteractive: isNoInteractive(program)
+        }, 'pull');
+        if (!targetServers) return;
 
-      const targetServers = await selectTargetServers(allServers, server, options, 'pull');
-      if (!targetServers) return;
+        const results = await pullFromServers(resolvedHomeDir, targetServers, {
+          dryRun: options.dryRun,
+          timeout: options.timeout,
+          yes: options.yes,
+          noInteractive: isNoInteractive(program),
+          crossServerPolicy: options.crossServerPolicy,
+          onConflict: options.onConflict
+        });
 
-      const results = await pullFromServers(resolvedHomeDir, targetServers, { dryRun: options.dryRun, timeout: options.timeout });
-
-      for (const result of results) {
-        for (const line of formatSkillRows('pull', result)) {
-          console.log(line);
+        for (const result of results) {
+          for (const line of formatSkillRows('pull', result)) {
+            console.log(line);
+          }
         }
+      } catch (error) {
+        handleSyncCommandError(error);
       }
     });
 
@@ -1510,47 +1959,76 @@ export function createProgram(homeDir?: string): Command {
     .option('--all', 'Sync all configured servers')
     .option('--dry-run', 'Preview changes without syncing')
     .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
-    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number }) => {
-      // Auto-check config health
-      const config = await loadConfig(resolvedHomeDir);
-      const { skillsDir } = getSyncPaths(resolvedHomeDir);
-      await autoDiagnoseConfig(config, skillsDir);
-
-      const servers = options.all || server === undefined ? undefined : [server];
-      const results = await syncServers(resolvedHomeDir, servers, { dryRun: options.dryRun, timeout: options.timeout });
-
-      for (const result of results) {
-        for (const line of formatSkillRows('pull', result.pull)) {
-          console.log(line);
-        }
+    .option('--cross-server-policy <policy>', 'How to resolve cross-server conflicts: first-wins, last-wins, abort, prompt, or server:<name>')
+    .option('--on-conflict <policy>', 'How to resolve per-server conflicts: keep-local, keep-remote, skip, abort', parseOnConflict)
+    .option('-y, --yes', 'Skip confirmation prompts')
+    .action(async (
+      server: string | undefined,
+      options: {
+        all?: boolean;
+        dryRun?: boolean;
+        timeout?: number;
+        yes?: boolean;
+        crossServerPolicy?: string;
+        onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
       }
+    ) => {
+      try {
+        const config = await loadConfig(resolvedHomeDir);
+        const { skillsDir } = getSyncPaths(resolvedHomeDir);
+        await autoDiagnoseConfig(config, skillsDir);
 
-      for (const result of results) {
-        for (const line of formatSkillRows('push', result.push)) {
-          console.log(line);
-        }
-      }
+        const allServers = Object.keys(config.servers).sort();
+        const globalOptions = program.opts<{ refresh: boolean }>();
+        const targetServers = await selectTargetServers(allServers, server, {
+          ...options,
+          noInteractive: isNoInteractive(program)
+        }, 'sync');
+        if (!targetServers) return;
 
-      // Aggregate and display conflicts
-      const allConflicts: Array<{ server: string; skill: string }> = [];
-      for (const result of results) {
-        for (const skill of result.pull.conflicted_skills) {
-          allConflicts.push({ server: result.server, skill });
-        }
-        for (const skill of result.push.conflicted_skills) {
-          // Avoid duplicates (same skill might conflict in both pull and push)
-          if (!allConflicts.some(c => c.server === result.server && c.skill === skill)) {
-            allConflicts.push({ server: result.server, skill });
+        const results = await syncServers(resolvedHomeDir, targetServers, {
+          dryRun: options.dryRun,
+          noRefresh: !globalOptions.refresh,
+          timeout: options.timeout,
+          yes: options.yes,
+          noInteractive: isNoInteractive(program),
+          crossServerPolicy: options.crossServerPolicy,
+          onConflict: options.onConflict
+        });
+
+        for (const result of results) {
+          for (const line of formatSkillRows('pull', result.pull)) {
+            console.log(line);
           }
         }
-      }
 
-      if (allConflicts.length > 0) {
-        console.log('\nConflicts skipped:');
-        for (const c of allConflicts) {
-          console.log(`  ${c.skill} (${c.server})`);
+        for (const result of results) {
+          for (const line of formatSkillRows('push', result.push)) {
+            console.log(line);
+          }
         }
-        console.log('\nRun `syncskill resolve <skill>` to resolve conflicts.');
+
+        const allConflicts: Array<{ server: string; skill: string }> = [];
+        for (const result of results) {
+          for (const skill of result.pull.conflicted_skills) {
+            allConflicts.push({ server: result.server, skill });
+          }
+          for (const skill of result.push.conflicted_skills) {
+            if (!allConflicts.some(c => c.server === result.server && c.skill === skill)) {
+              allConflicts.push({ server: result.server, skill });
+            }
+          }
+        }
+
+        if (allConflicts.length > 0) {
+          console.log('\nConflicts skipped:');
+          for (const c of allConflicts) {
+            console.log(`  ${c.skill} (${c.server})`);
+          }
+          console.log('\nRun `syncskill resolve <skill>` to resolve conflicts.');
+        }
+      } catch (error) {
+        handleSyncCommandError(error);
       }
     });
 
@@ -1630,7 +2108,7 @@ export function createProgram(homeDir?: string): Command {
 
       for (const item of allItems) {
         const shouldFix = options.yes || (await (async () => {
-          if (program.opts<{ noInteractive?: boolean }>().noInteractive) {
+          if (isNoInteractive(program)) {
             failForNoInteractive();
           }
 

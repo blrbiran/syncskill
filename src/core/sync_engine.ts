@@ -17,7 +17,7 @@ import {
   type ManifestHistoryEntry,
   type ServerManifest
 } from './manifest.js';
-import { confirm } from '@inquirer/prompts';
+import { confirm, select } from '@inquirer/prompts';
 import {
   createTransportRuntime,
   deleteRemoteSkills,
@@ -36,7 +36,23 @@ export interface SyncEngineOptions {
   dryRun?: boolean;
   noRefresh?: boolean;
   yes?: boolean;
+  noInteractive?: boolean;
   timeout?: number;
+  onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
+  crossServerPolicy?: string;
+  skipPullSkillsByServer?: Record<string, string[]>;
+  preferLocalSkillsByServer?: Record<string, string[]>;
+}
+
+type ResolvedCrossServerPolicy = 'first-wins' | 'last-wins' | 'abort' | 'prompt' | { type: 'server'; server: string };
+
+interface CrossServerConflict {
+  skill: string;
+  servers: string[];
+}
+
+function createSyncEngineError(code: 'E_CONFLICT' | 'E_SERVER_NOT_FOUND' | 'E_NEEDS_INPUT', message: string): Error {
+  return new Error(`${code}: ${message}`);
 }
 
 async function collectLocalFileList(dir: string): Promise<string[]> {
@@ -95,19 +111,253 @@ export interface SyncResult {
   push: PushResult;
 }
 
+function resolveSingleServerConflictPolicy(
+  configuredPolicy: ConflictResolution,
+  override?: SyncEngineOptions['onConflict']
+): ConflictResolution {
+  if (override === 'keep-local') {
+    return 'keep-local';
+  }
+
+  if (override === 'keep-remote') {
+    return 'keep-remote';
+  }
+
+  return configuredPolicy;
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
+function mergeSkillMaps(
+  left?: Record<string, string[]>,
+  right?: Record<string, string[]>
+): Record<string, string[]> | undefined {
+  const merged = new Map<string, string[]>();
+
+  for (const [server, skills] of Object.entries(left ?? {})) {
+    merged.set(server, [...skills]);
+  }
+
+  for (const [server, skills] of Object.entries(right ?? {})) {
+    merged.set(server, uniqueSorted([...(merged.get(server) ?? []), ...skills]));
+  }
+
+  return merged.size > 0 ? Object.fromEntries(merged) : undefined;
+}
+
+function resolvePreferredLocalSkills(
+  manifest: ServerManifest,
+  skills: string[],
+  updatedAt: string
+): ServerManifest {
+  let current = reconcileManifest(manifest);
+
+  for (const skill of uniqueSorted(skills)) {
+    if (!current.skills[skill] || current.skills[skill]?.direction !== 'conflict') {
+      continue;
+    }
+
+    current = applyResolution(current, skill, 'local', updatedAt);
+  }
+
+  return current;
+}
+
+function parseCrossServerPolicy(
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  policy: string | undefined,
+  yes: boolean | undefined
+): ResolvedCrossServerPolicy {
+  if (!policy || policy.length === 0) {
+    return yes ? 'abort' : 'prompt';
+  }
+
+  if (policy === 'first-wins' || policy === 'last-wins' || policy === 'abort' || policy === 'prompt') {
+    return policy;
+  }
+
+  if (!policy.startsWith('server:')) {
+    throw createSyncEngineError('E_SERVER_NOT_FOUND', `Server not found: ${policy}. Use server:${policy}`);
+  }
+
+  const server = policy.slice('server:'.length);
+  if (!server || !(server in config.servers)) {
+    throw createSyncEngineError('E_SERVER_NOT_FOUND', `Server not found: ${server}`);
+  }
+
+  return { type: 'server', server };
+}
+
+function detectCrossServerConflicts(
+  manifests: Array<{ server: string; manifest: ServerManifest }>,
+  targetServers: string[]
+): CrossServerConflict[] {
+  const bySkill = new Map<string, Array<{ server: string; hash: string }>>();
+
+  for (const { server, manifest } of manifests) {
+    for (const [skill, state] of Object.entries(manifest.skills)) {
+      if (typeof state.remote_hash !== 'string') {
+        continue;
+      }
+
+      const entries = bySkill.get(skill) ?? [];
+      entries.push({ server, hash: state.remote_hash });
+      bySkill.set(skill, entries);
+    }
+  }
+
+  return [...bySkill.entries()]
+    .map(([skill, entries]) => {
+      const distinctHashes = new Set(entries.map((entry) => entry.hash));
+      if (entries.length < 2 || distinctHashes.size < 2) {
+        return null;
+      }
+
+      return {
+        skill,
+        servers: targetServers.filter((server) => entries.some((entry) => entry.server === server))
+      } satisfies CrossServerConflict;
+    })
+    .filter((value): value is CrossServerConflict => value !== null)
+    .sort((left, right) => left.skill.localeCompare(right.skill));
+}
+
+async function chooseConflictWinner(
+  conflict: CrossServerConflict,
+  policy: ResolvedCrossServerPolicy,
+  options: SyncEngineOptions
+): Promise<string> {
+  if (policy === 'abort') {
+    throw createSyncEngineError(
+      'E_CONFLICT',
+      `Cross-server conflict for skill ${conflict.skill}: ${conflict.servers.join(', ')}`
+    );
+  }
+
+  if (policy === 'first-wins') {
+    return conflict.servers[0] as string;
+  }
+
+  if (policy === 'last-wins') {
+    return conflict.servers[conflict.servers.length - 1] as string;
+  }
+
+  if (typeof policy === 'object') {
+    if (!conflict.servers.includes(policy.server)) {
+      throw createSyncEngineError(
+        'E_CONFLICT',
+        `Cross-server conflict for skill ${conflict.skill} does not include selected server ${policy.server}`
+      );
+    }
+
+    return policy.server;
+  }
+
+  if (options.noInteractive) {
+    throw createSyncEngineError('E_NEEDS_INPUT', `Cross-server conflict for skill ${conflict.skill} requires a winner`);
+  }
+
+  try {
+    return await select({
+      message: `Choose which server wins for skill "${conflict.skill}"`,
+      choices: [
+        ...conflict.servers.map((server) => ({ name: server, value: server })),
+        { name: 'Abort', value: '__abort__' }
+      ]
+    }).then((value) => {
+      if (value === '__abort__') {
+        throw createSyncEngineError(
+          'E_CONFLICT',
+          `Cross-server conflict for skill ${conflict.skill}: ${conflict.servers.join(', ')}`
+        );
+      }
+
+      return value;
+    });
+  } catch (error) {
+    if (error instanceof Error && /^E_(CONFLICT|NEEDS_INPUT):/.test(error.message)) {
+      throw error;
+    }
+
+    throw createSyncEngineError('E_NEEDS_INPUT', `Cross-server conflict for skill ${conflict.skill} requires a winner`);
+  }
+}
+
+async function planCrossServerResolution(
+  homeDir: string,
+  targetServers: string[],
+  options: SyncEngineOptions
+): Promise<{
+  skipPullSkillsByServer?: Record<string, string[]>;
+  preferLocalSkillsByServer?: Record<string, string[]>;
+}> {
+  if (targetServers.length < 2) {
+    return {};
+  }
+
+  const config = await loadConfig(homeDir);
+  const policy = parseCrossServerPolicy(config, options.crossServerPolicy, options.yes);
+  const runtime = options.runtime ?? createTransportRuntime();
+  const manifests: Array<{ server: string; manifest: ServerManifest }> = [];
+
+  for (const serverName of targetServers) {
+    const server = getConfiguredServer(config, serverName);
+    const updated = await prepareManifest(homeDir, server, runtime, options.now);
+    manifests.push({ server: serverName, manifest: updated.manifest });
+  }
+
+  const conflicts = detectCrossServerConflicts(manifests, targetServers);
+  if (conflicts.length === 0) {
+    return {};
+  }
+  const skipPullSkillsByServer = new Map<string, string[]>();
+  const preferLocalSkillsByServer = new Map<string, string[]>();
+
+  for (const conflict of conflicts) {
+    const winner = await chooseConflictWinner(conflict, policy, options);
+
+    for (const server of conflict.servers) {
+      if (server === winner) {
+        continue;
+      }
+
+      skipPullSkillsByServer.set(server, uniqueSorted([...(skipPullSkillsByServer.get(server) ?? []), conflict.skill]));
+      preferLocalSkillsByServer.set(server, uniqueSorted([...(preferLocalSkillsByServer.get(server) ?? []), conflict.skill]));
+    }
+  }
+
+  return {
+    skipPullSkillsByServer: skipPullSkillsByServer.size > 0 ? Object.fromEntries(skipPullSkillsByServer) : undefined,
+    preferLocalSkillsByServer: preferLocalSkillsByServer.size > 0 ? Object.fromEntries(preferLocalSkillsByServer) : undefined,
+  };
+}
+
 export async function pushToServers(homeDir: string, servers?: string[], options: SyncEngineOptions = {}): Promise<PushResult[]> {
   const config = await loadConfig(homeDir);
   const targetServers = resolveTargetServers(config, servers);
   const runtime = options.runtime ?? createTransportRuntime();
   const results: PushResult[] = [];
+  const configuredConflictPolicy = resolveSingleServerConflictPolicy(config.conflict_resolution, options.onConflict);
 
   for (const serverName of targetServers) {
     const server = getConfiguredServer(config, serverName);
     const updated = await prepareManifest(homeDir, server, runtime, options.now);
-    const manifest = applyConflictPolicy(updated.manifest, config.conflict_resolution, updated.updatedAt);
+    let manifest = applyConflictPolicy(updated.manifest, configuredConflictPolicy, updated.updatedAt);
+
+    const preferredLocalSkills = options.preferLocalSkillsByServer?.[serverName] ?? [];
+    if (preferredLocalSkills.length > 0) {
+      manifest = resolvePreferredLocalSkills(manifest, preferredLocalSkills, updated.updatedAt);
+    }
+
     const conflictedSkills = listSkillsByDirection(manifest, 'conflict');
     const pushedSkills = listSkillsByDirection(manifest, 'push');
     const pullSkills = listSkillsByDirection(manifest, 'pull');
+
+    if (options.onConflict === 'abort' && conflictedSkills.length > 0) {
+      throw createSyncEngineError('E_CONFLICT', `Content conflict on ${serverName}: ${conflictedSkills.join(', ')}`);
+    }
 
     // Print warnings for skills that have remote changes
     for (const skill of pullSkills) {
@@ -268,11 +518,34 @@ export async function pullFromServer(homeDir: string, serverName: string, option
   const server = getConfiguredServer(config, serverName);
   const runtime = options.runtime ?? createTransportRuntime();
   const updated = await prepareManifest(homeDir, server, runtime, options.now);
-  const manifest = applyConflictPolicy(updated.manifest, config.conflict_resolution, updated.updatedAt);
-  const conflictedSkills = listSkillsByDirection(manifest, 'conflict');
-  const pulledSkills = listSkillsByDirection(manifest, 'pull');
+  let manifest = applyConflictPolicy(
+    updated.manifest,
+    resolveSingleServerConflictPolicy(config.conflict_resolution, options.onConflict),
+    updated.updatedAt
+  );
 
-  // Dry-run mode: show what would happen without executing
+  const preferredLocalSkills = options.preferLocalSkillsByServer?.[serverName] ?? [];
+  if (preferredLocalSkills.length > 0) {
+    manifest = resolvePreferredLocalSkills(manifest, preferredLocalSkills, updated.updatedAt);
+  }
+
+  const conflictedSkills = listSkillsByDirection(manifest, 'conflict');
+  if (options.onConflict === 'abort' && conflictedSkills.length > 0) {
+    throw createSyncEngineError('E_CONFLICT', `Content conflict on ${serverName}: ${conflictedSkills.join(', ')}`);
+  }
+
+  const skippedCrossServerSkills = new Set(options.skipPullSkillsByServer?.[serverName] ?? []);
+  const skippedConflictSkills = options.onConflict === 'skip' ? conflictedSkills : [];
+  const reportedConflicts = options.onConflict === 'skip' ? [] : conflictedSkills;
+  const pulledSkillsForExecution = listSkillsByDirection(manifest, 'pull').filter(
+    (skill) => !skippedCrossServerSkills.has(skill) && !skippedConflictSkills.includes(skill)
+  );
+  const skippedResultSkills = uniqueSorted([
+    ...listSkillsByDirection(manifest, 'skip'),
+    ...[...skippedCrossServerSkills],
+    ...skippedConflictSkills
+  ]);
+
   if (options.dryRun) {
     console.log(`\n[dry-run] pull from ${serverName}:\n`);
 
@@ -280,7 +553,7 @@ export async function pullFromServer(homeDir: string, serverName: string, option
     let totalModified = 0;
     let totalDeleted = 0;
 
-    for (const skill of pulledSkills) {
+    for (const skill of pulledSkillsForExecution) {
       const state = manifest.skills[skill];
       const isNew = state.remote_hash && !state.local_hash;
       const isDelete = !state.remote_hash && state.local_hash;
@@ -297,50 +570,46 @@ export async function pullFromServer(homeDir: string, serverName: string, option
       }
     }
 
-    for (const skill of conflictedSkills) {
+    for (const skill of reportedConflicts) {
       console.log(`  ! ${skill} (conflict)`);
     }
 
-    if (pulledSkills.length === 0 && conflictedSkills.length === 0) {
+    if (pulledSkillsForExecution.length === 0 && reportedConflicts.length === 0) {
       console.log('  (no changes)');
     } else {
-      // Summary line
       const parts: string[] = [];
       if (totalAdded > 0) parts.push(`${totalAdded} added`);
       if (totalModified > 0) parts.push(`${totalModified} modified`);
       if (totalDeleted > 0) parts.push(`${totalDeleted} deleted`);
-      if (conflictedSkills.length > 0) parts.push(`${conflictedSkills.length} conflict(s)`);
+      if (reportedConflicts.length > 0) parts.push(`${reportedConflicts.length} conflict(s)`);
 
-      const skillCount = pulledSkills.length + conflictedSkills.length;
+      const skillCount = pulledSkillsForExecution.length + reportedConflicts.length;
       console.log(`\nSummary: ${skillCount} skill(s), ${parts.join(', ')}`);
     }
 
-    // Skip actual pull, return result with empty pulled_skills
     return {
       server: serverName,
       pulled_skills: [],
-      skipped_skills: [...pulledSkills, ...listSkillsByDirection(manifest, 'skip')],
-      conflicted_skills: conflictedSkills,
+      skipped_skills: uniqueSorted([...pulledSkillsForExecution, ...skippedResultSkills]),
+      conflicted_skills: reportedConflicts,
       manifest
     };
   }
 
-  // Resolve pull target paths from registry (source skills go to their source path)
   const registry = await loadSkillsRegistry(homeDir);
-  for (const skill of pulledSkills) {
+  for (const skill of pulledSkillsForExecution) {
     const entry = registry.skills[skill];
-    // Use registry path if available, otherwise default to ~/.syncskill/skills/
     const targetPath = entry?.path ?? join(getSkillsDir(homeDir), skill);
     await pullSkillDirectory(server, skill, targetPath, runtime);
   }
 
-  const localHashes = pulledSkills.length === 0 ? {} : await buildLocalSkillHashes(homeDir);
+  const localHashes = pulledSkillsForExecution.length === 0 ? {} : await buildLocalSkillHashes(homeDir);
   const refreshedManifest = reconcileManifest({
     ...manifest,
     skills: Object.fromEntries(
       Object.entries(manifest.skills).map(([skill, state]) => [
         skill,
-        pulledSkills.includes(skill)
+        pulledSkillsForExecution.includes(skill)
           ? {
               ...state,
               local_hash: localHashes[skill] ?? state.local_hash
@@ -349,15 +618,15 @@ export async function pullFromServer(homeDir: string, serverName: string, option
       ])
     )
   });
-  const finalizedManifest = finalizePulledSkills(refreshedManifest, pulledSkills, updated.updatedAt);
+  const finalizedManifest = finalizePulledSkills(refreshedManifest, pulledSkillsForExecution, updated.updatedAt);
 
   await persistManifestState(homeDir, updated.previousManifest, finalizedManifest, updated.updatedAt);
 
   return {
     server: server.name,
-    pulled_skills: pulledSkills,
-    skipped_skills: listSkillsByDirection(finalizedManifest, 'skip'),
-    conflicted_skills: conflictedSkills,
+    pulled_skills: pulledSkillsForExecution,
+    skipped_skills: uniqueSorted([...listSkillsByDirection(finalizedManifest, 'skip'), ...skippedResultSkills]),
+    conflicted_skills: reportedConflicts,
     manifest: finalizedManifest
   };
 }
@@ -365,10 +634,16 @@ export async function pullFromServer(homeDir: string, serverName: string, option
 export async function pullFromServers(homeDir: string, servers?: string[], options: SyncEngineOptions = {}): Promise<PullResult[]> {
   const config = await loadConfig(homeDir);
   const targetServers = resolveTargetServers(config, servers);
+  const planned = await planCrossServerResolution(homeDir, targetServers, options);
+  const resolvedOptions: SyncEngineOptions = {
+    ...options,
+    skipPullSkillsByServer: mergeSkillMaps(options.skipPullSkillsByServer, planned.skipPullSkillsByServer),
+    preferLocalSkillsByServer: mergeSkillMaps(options.preferLocalSkillsByServer, planned.preferLocalSkillsByServer)
+  };
   const results: PullResult[] = [];
 
   for (const serverName of targetServers) {
-    results.push(await pullFromServer(homeDir, serverName, options));
+    results.push(await pullFromServer(homeDir, serverName, resolvedOptions));
   }
 
   return results;
@@ -377,13 +652,19 @@ export async function pullFromServers(homeDir: string, servers?: string[], optio
 export async function syncServers(homeDir: string, servers?: string[], options: SyncEngineOptions = {}): Promise<SyncResult[]> {
   const config = await loadConfig(homeDir);
   const targetServers = resolveTargetServers(config, servers);
+  const planned = await planCrossServerResolution(homeDir, targetServers, options);
+  const resolvedOptions: SyncEngineOptions = {
+    ...options,
+    skipPullSkillsByServer: mergeSkillMaps(options.skipPullSkillsByServer, planned.skipPullSkillsByServer),
+    preferLocalSkillsByServer: mergeSkillMaps(options.preferLocalSkillsByServer, planned.preferLocalSkillsByServer)
+  };
   const pulls: PullResult[] = [];
 
   for (const serverName of targetServers) {
-    pulls.push(await pullFromServer(homeDir, serverName, options));
+    pulls.push(await pullFromServer(homeDir, serverName, resolvedOptions));
   }
 
-  const pushes = await pushToServers(homeDir, targetServers, options);
+  const pushes = await pushToServers(homeDir, targetServers, resolvedOptions);
 
   return targetServers.map((serverName) => {
     const pull = pulls.find((result) => result.server === serverName);

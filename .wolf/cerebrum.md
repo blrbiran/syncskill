@@ -56,5 +56,6 @@
 - **[2026-05-16]** 支持 `--force --dry-run` 组合预览强制更新的影响
 - **[2026-05-21]** v2 spec 删除所有 deprecated CLI 形态（link 旧形态、source add/update、scan --migrate），因为 syncskill 未正式发布，无向后兼容负担
 - **[2026-05-21]** Config 格式改为 JSON-only（原 YAML）：任何 config 写操作自动迁移 YAML → JSON 并删除旧 `config.yaml`。AI agent 处理 JSON 更可靠（无缩进歧义）
+- **[2026-06-02]** Commander 的否定布尔选项 `--no-interactive` 在运行时体现为 `interactive=false`，不是 `noInteractive=true`。CLI 透传到 engine 前需要统一成显式 `noInteractive`，未设置时保持 `undefined`，避免回归测试和运行时语义漂移。
 - **[2026-05-21]** Link 命令双轨设计：人类用 verb（edit/add/remove/clear），AI agent 用 declarative（set + apply）。`set` 幂等可重放，避免多 agent 并发覆盖
 - **[2026-05-21]** `installFromSource()` 直接复用 `addSourceFromUrl()`；当前 `install` 已覆盖 `source add` 的核心持久化入口（含 git/http/local/archive source 建档），删除 `source add` 不需要额外保留独立逻辑
