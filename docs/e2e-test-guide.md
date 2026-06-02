@@ -16,7 +16,7 @@ e2eTest("init creates config file", async () => {
     .setup();
 
   await ctx.run("syncskill", "init", "-y", "--skip-self");
-  await ctx.assertFileExists(".syncskill/config.yaml");
+  await ctx.assertFileExists(".syncskill/config.json");
 });
 ```
 
@@ -172,7 +172,7 @@ const result = await ctx.exec("git", ["status"]);
 
 ```typescript
 // Read file
-const content = await ctx.readFile(".syncskill/config.yaml");
+const content = await ctx.readFile(".syncskill/config.json");
 
 // Write file
 await ctx.writeFile(".syncskill/skills/my-skill/SKILL.md", "# Updated\n");
@@ -237,11 +237,11 @@ await ctx.assertIsSymlink("my-skill", "claude");
 await ctx.assertIsRealDir("my-skill", "claude");
 
 // File existence
-await ctx.assertFileExists(".syncskill/config.yaml");
+await ctx.assertFileExists(".syncskill/config.json");
 await ctx.assertFileNotExists(".syncskill/skills/deleted");
 
 // File content
-await ctx.assertFileContains(".syncskill/config.yaml", "version: 1");
+await ctx.assertFileContains(".syncskill/config.json", '"version": 1');
 
 // Config state
 await ctx.assertSourceExists("my-repo");
@@ -268,7 +268,7 @@ e2eTest("init creates default structure", async () => {
 
   await ctx.run("syncskill", "init", "-y", "--skip-self");
 
-  await ctx.assertFileExists(".syncskill/config.yaml");
+  await ctx.assertFileExists(".syncskill/config.json");
   await ctx.assertFileExists(".syncskill/skills");
 
   const config = await ctx.readConfig();
