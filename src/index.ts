@@ -1712,10 +1712,10 @@ export function createProgram(homeDir?: string): Command {
     });
 
 
-  // Top-level alias for 'source update'
+  // Top-level source refresh command
   program
     .command('update [name]')
-    .description('Update source(s) — alias for "source update"')
+    .description('Update configured source(s)')
     .option('--all', 'Update all configured sources')
     .option('-y, --yes', 'Skip confirmation prompts, auto-skip dirty sources')
     .option('--force', 'Force update dirty sources (backs up first)')

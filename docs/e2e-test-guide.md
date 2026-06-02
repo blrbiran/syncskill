@@ -352,10 +352,10 @@ e2eTest("link build reconciles stale links", async () => {
 });
 ```
 
-### Testing source update
+### Testing top-level update
 
 ```typescript
-e2eTest("source update pulls latest changes", async () => {
+e2eTest("top-level update pulls latest changes", async () => {
   const ctx = await new E2EScenario()
     .withAgents("claude")
     .withInit()
@@ -376,7 +376,7 @@ e2eTest("source update pulls latest changes", async () => {
   expect(result.success).toBe(true);
 });
 
-e2eTest("source update detects dirty state", async () => {
+e2eTest("top-level update detects dirty state", async () => {
   const ctx = await new E2EScenario()
     .withAgents("claude")
     .withInit()
