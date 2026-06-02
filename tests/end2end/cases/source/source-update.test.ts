@@ -39,18 +39,6 @@ describe('top-level update', () => {
       config.links = { 'my-skill': ['*'] };
       await ctx.writeConfig(config);
 
-      // Write registry
-      await ctx.writeRegistry({
-        skills: {
-          'my-skill': {
-            path: join(checkoutDir, 'my-skill'),
-            origin: 'test-source',
-            type: 'git',
-            status: 'active',
-          },
-        },
-      });
-
       // Verify initial content
       const initialContent = await ctx.readFile('.syncskill/.sources/test-source/checkout/my-skill/SKILL.md');
       expect(initialContent).toBe('# Version 1');

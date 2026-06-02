@@ -231,16 +231,12 @@ describe('skills-registry generation', () => {
 
     // Create config with agent and link
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: { claude: join(homeDir, '.claude', 'skills') },
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, { claude: join(homeDir, '.claude', 'skills') }),
         links: { 'test-skill': ['claude'] },
-        sources: {},
-        servers: {},
-        conflict_resolution: 'manual',
-      })
+      },
+      homeDir
     );
 
     // Run link build
@@ -249,10 +245,10 @@ describe('skills-registry generation', () => {
     // Check skills-registry.json was created
     const registryPath = join(syncDir, 'skills-registry.json');
     const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
-    expect(registry.version).toBe(1);
-    expect(registry.skills['test-skill']).toBeDefined();
-    expect(registry.skills['test-skill'].origin).toBe('manual');
-    expect(registry.skills['test-skill'].status).toBe('active');
+    expect(registry).toEqual({
+      version: 2,
+      http_baselines: {}
+    });
   });
 
   it('generates skills-registry.json after scan', async () => {
@@ -270,16 +266,12 @@ describe('skills-registry generation', () => {
     await writeFile(join(skillsDir, 'new-skill', 'SKILL.md'), '# New');
 
     // Create minimal config
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: { claude: agentDir },
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, { claude: agentDir }),
         links: {},
-        sources: {},
-        servers: {},
-        conflict_resolution: 'manual',
-      })
+      },
+      homeDir
     );
 
     // Run scan
@@ -288,8 +280,10 @@ describe('skills-registry generation', () => {
     // Check skills-registry.json was created
     const registryPath = join(syncDir, 'skills-registry.json');
     const registry = JSON.parse(await readFile(registryPath, 'utf-8'));
-    expect(registry.skills['new-skill']).toBeDefined();
-    expect(registry.skills['new-skill'].status).toBe('active');
+    expect(registry).toEqual({
+      version: 2,
+      http_baselines: {}
+    });
   });
 });
 
@@ -307,11 +301,9 @@ describe('same-repo merge detection', () => {
 
     // Create config with existing source
     await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, {}),
         links: { skill1: ['*'] },
         sources: {
           'repo-skill1': {
@@ -320,9 +312,8 @@ describe('same-repo merge detection', () => {
             path: 'skills/skill1',
           },
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
+      },
+      homeDir
     );
 
     // Test findExistingSourceByUrl directly
