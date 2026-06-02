@@ -49,9 +49,9 @@ export async function installSyncskillSkill(homeDir: string): Promise<InstallSyn
     await saveConfig(config, homeDir);
   }
 
-  await linkConfiguredSkills(homeDir, { all: false, skillName: 'syncskill' });
+  const linkResults = await linkConfiguredSkills(homeDir, { all: false, skillName: 'syncskill' });
 
-  const linkedAgents = Object.keys(config.agents);
+  const linkedAgents = [...new Set(linkResults.map((result) => result.agent))].sort();
 
   return {
     alreadyInstalled: false,
@@ -93,19 +93,22 @@ export async function installFromSource(
   });
 
   const config = await loadConfig(homeDir);
-  const linkedAgents = Object.keys(config.agents);
+  const linkedAgentSet = new Set<string>();
 
   const installedSkills: string[] = [];
   for (const [skillName, agents] of Object.entries(config.links)) {
     if (agents.length > 0) {
-      await linkConfiguredSkills(homeDir, { all: false, skillName });
+      const linkResults = await linkConfiguredSkills(homeDir, { all: false, skillName });
       installedSkills.push(skillName);
+      for (const result of linkResults) {
+        linkedAgentSet.add(result.agent);
+      }
     }
   }
 
   return {
     sourceName: result.name,
     installedSkills,
-    linkedAgents
+    linkedAgents: [...linkedAgentSet].sort()
   };
 }

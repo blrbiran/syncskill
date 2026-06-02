@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getEmbeddedSkillPath, installFromSource, installSyncskillSkill } from '../../src/install.js';
 
@@ -152,6 +152,66 @@ describe('install module', () => {
       // This test verifies the function signature exists
       expect(typeof installFromSource).toBe('function');
       expect(installFromSource.length).toBeGreaterThanOrEqual(2); // 2 required params, options has default
+    });
+
+    it('reports actual linked agents instead of raw config targets', async () => {
+      const tempDir = join(import.meta.dirname, `../../.test-tmp-install-source-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const homeDir = join(tempDir, 'home');
+
+      await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
+      await writeFile(
+        join(homeDir, '.syncskill', 'config.json'),
+        JSON.stringify(
+          {
+            version: 1,
+            conflict_resolution: 'manual',
+            agents: {
+              claude: '~/.claude/skills',
+              cursor: '~/.cursor/skills'
+            },
+            links: { demo: ['*'] },
+            servers: {},
+            sources: {},
+          },
+          null,
+          2
+        )
+      );
+
+      try {
+        vi.resetModules();
+        const addSourceFromUrl = vi.fn().mockResolvedValue({
+          name: 'demo-source',
+          source: { type: 'git', url: 'https://example.com/demo.git', path: '.' }
+        });
+        const linkConfiguredSkills = vi.fn().mockResolvedValue([
+          { skill: 'demo', agent: 'cursor', state: 'linked' },
+          { skill: 'demo', agent: 'claude', state: 'linked' }
+        ]);
+
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl }));
+        vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
+
+        const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
+        const result = await mockedInstallFromSource(homeDir, 'https://example.com/demo.git');
+
+        expect(addSourceFromUrl).toHaveBeenCalledWith(homeDir, 'https://example.com/demo.git', {
+          name: undefined,
+          path: undefined,
+          skillSubdir: undefined,
+          branch: undefined,
+          skipPrompt: undefined,
+          onSelectSkills: undefined
+        });
+        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo' });
+        expect(result.installedSkills).toEqual(['demo']);
+        expect(result.linkedAgents).toEqual(['claude', 'cursor']);
+      } finally {
+        vi.doUnmock('../../src/source.js');
+        vi.doUnmock('../../src/linker.js');
+        vi.resetModules();
+        await rm(tempDir, { recursive: true, force: true });
+      }
     });
 
     it('should throw error for invalid URL format', async () => {
