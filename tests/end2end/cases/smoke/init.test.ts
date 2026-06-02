@@ -32,7 +32,7 @@ describe('E2E Smoke Tests', () => {
       .setup();
 
     try {
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
 
       await ctx.assertLinked('test-skill', ['claude', 'agents']);
     } finally {
