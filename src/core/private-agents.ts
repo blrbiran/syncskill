@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { getGlobalOutput } from '../cli/output.js';
 import { pathExists } from '../utils/utils.js';
 
 export interface ComputeLinkTargetsConfig {
@@ -42,6 +43,14 @@ export interface EnsureSharedDirResult {
   path: string;
 }
 
+function tryGetOutput() {
+  try {
+    return getGlobalOutput();
+  } catch {
+    return null;
+  }
+}
+
 const ENSURE_SHARED_DIR_TIMEOUT_MS = 2000;
 
 /**
@@ -78,7 +87,7 @@ export async function ensureSharedSkillsDirectory(
     ]);
 
     if (existsResult === 'timeout') {
-      console.warn('Warning: Checking ~/.agents/skills/ timed out after 2s');
+      tryGetOutput()?.warning('SHARED_DIR_TIMEOUT', 'Checking ~/.agents/skills/ timed out after 2s');
       return null;
     }
 
@@ -94,17 +103,18 @@ export async function ensureSharedSkillsDirectory(
     ]);
 
     if (mkdirResult === 'timeout') {
-      console.warn('Warning: Creating ~/.agents/skills/ timed out after 2s');
+      tryGetOutput()?.warning('SHARED_DIR_TIMEOUT', 'Creating ~/.agents/skills/ timed out after 2s');
       return null;
     }
 
-    console.log('Created ~/.agents/skills/');
-    console.log('  This is the standard shared skills directory for agents that support it.');
-    console.log('  Skills linked here are available to: claude, windsurf, codex, ...');
+    const output = tryGetOutput();
+    output?.info('Created ~/.agents/skills/');
+    output?.info('This is the standard shared skills directory for agents that support it.');
+    output?.info('Skills linked here are available to: claude, windsurf, codex, ...');
 
     return { created: true, path: sharedDir };
   } catch {
-    console.warn('Warning: Failed to ensure ~/.agents/skills/ directory');
+    tryGetOutput()?.warning('SHARED_DIR_FAILED', 'Failed to ensure ~/.agents/skills/ directory');
     return null;
   }
 }
