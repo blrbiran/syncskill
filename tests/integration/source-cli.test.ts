@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { stringify } from 'yaml';
 import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -87,6 +87,122 @@ describe('source CLI', () => {
     expect(output).toContain('local-zeta (local)');
     expect(output).toContain('zeta (git)');
     expect(output).toContain('url:     https://example.com/zeta.git');
+  });
+
+  it('source remove emits JSON summary for complete removal', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-remove-json-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const skillsDir = join(syncDir, 'skills');
+    const sourceDir = join(syncDir, '.sources', 'demo');
+    const agentDir = join(homeDir, '.claude', 'skills');
+
+    await mkdir(join(skillsDir, 'skill-a'), { recursive: true });
+    await writeFile(join(skillsDir, 'skill-a', 'SKILL.md'), '# skill-a');
+    await mkdir(join(sourceDir, 'materialized', 'skill-a'), { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    await symlink(join(skillsDir, 'skill-a'), join(agentDir, 'skill-a'));
+    await writeFile(
+      join(sourceDir, 'state.json'),
+      JSON.stringify({ materialized_skills: ['skill-a'], updated_at: '2026-06-02T00:00:00.000Z' })
+    );
+    await mkdir(join(syncDir, '.sources'), { recursive: true });
+    await writeFile(join(syncDir, '.sources', 'skills.json'), JSON.stringify({ owners: { 'skill-a': 'demo' } }));
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, { claude: agentDir }),
+        links: { 'skill-a': ['claude'] },
+        sources: {
+          demo: {
+            type: 'git',
+            url: 'https://example.com/demo.git',
+            path: '.'
+          }
+        }
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', 'source', 'remove', 'demo', '--force'], { from: 'node' });
+
+    const events = consoleLog.mock.calls.map((call) => JSON.parse(call[0] as string));
+    const resultEvent = events.find((event) => event.type === 'result');
+    expect(resultEvent.command).toBe('source remove');
+    expect(resultEvent.ok).toBe(true);
+    expect(resultEvent.summary).toMatchObject({
+      name: 'demo',
+      mode: 'completely',
+      removed_skills: ['skill-a'],
+      removed_links: [
+        {
+          skill: 'skill-a',
+          agents: ['claude'],
+          plan_ref: 'a1'
+        }
+      ]
+    });
+    expect(resultEvent.summary.deleted_paths).toEqual(
+      expect.arrayContaining([
+        join(skillsDir, 'skill-a'),
+        join(syncDir, '.sources', 'demo')
+      ])
+    );
+  });
+
+  it('link build emits JSON summary with symlink plan refs', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-build-json-'));
+    tempDirs.push(homeDir);
+    const syncDir = join(homeDir, '.syncskill');
+    const skillsDir = join(syncDir, 'skills');
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const cursorDir = join(homeDir, '.cursor', 'skills');
+
+    await mkdir(join(skillsDir, 'skill-a'), { recursive: true });
+    await writeFile(join(skillsDir, 'skill-a', 'SKILL.md'), '# skill-a');
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(cursorDir, { recursive: true });
+    await symlink(join(skillsDir, 'skill-a'), join(cursorDir, 'skill-a'));
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, { claude: claudeDir, cursor: cursorDir }),
+        links: { 'skill-a': ['claude'] }
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', 'link', 'build', '-y'], { from: 'node' });
+
+    const events = consoleLog.mock.calls.map((call) => JSON.parse(call[0] as string));
+    const resultEvent = events.find((event) => event.type === 'result');
+    expect(resultEvent.command).toBe('link build');
+    expect(resultEvent.ok).toBe(true);
+    expect(resultEvent.summary).toEqual({
+      changes: [
+        {
+          skill: 'skill-a',
+          config_before: ['claude'],
+          config_after: ['claude'],
+          symlinks_created: [
+            {
+              agent: 'claude',
+              path: join(claudeDir, 'skill-a'),
+              plan_ref: 'a1'
+            }
+          ],
+          symlinks_removed: [
+            {
+              agent: 'cursor',
+              path: join(cursorDir, 'skill-a'),
+              plan_ref: 'a2'
+            }
+          ]
+        }
+      ]
+    });
   });
 });
 
