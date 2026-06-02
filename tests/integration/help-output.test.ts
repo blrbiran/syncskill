@@ -102,6 +102,7 @@ describe('help output', () => {
     const pullCmd = program.commands.find(c => c.name() === 'pull');
     const syncCmd = program.commands.find(c => c.name() === 'sync');
     const scanCmd = program.commands.find(c => c.name() === 'scan');
+    const doctorCmd = program.commands.find(c => c.name() === 'doctor');
 
     expect(sourceCmd?.description()).toBe('Manage external skill sources and source recovery');
     expect(sourceCmd?.commands.find(c => c.name() === 'add')).toBeUndefined();
@@ -109,6 +110,7 @@ describe('help output', () => {
     expect(sourceCmd?.commands.find(c => c.name() === 'restore')).toBeUndefined();
     expect(scanCmd?.options.map(o => o.long)).toContain('--migrate-unmanaged');
     expect(scanCmd?.options.map(o => o.long)).not.toContain('--migrate');
+    expect(doctorCmd?.description()).toBe('Diagnose and repair config issues');
     expect(pushCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
     expect(pullCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
     expect(syncCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');

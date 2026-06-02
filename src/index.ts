@@ -2312,7 +2312,7 @@ export function createProgram(homeDir?: string): Command {
 
   program
     .command('doctor')
-    .description('Diagnose and repair config.yaml issues')
+    .description('Diagnose and repair config issues')
     .option('--fix', 'Interactively fix issues')
     .option('--dry-run', 'Preview fixes without applying')
     .option('-y, --yes', 'Auto-fix all issues without prompting')
