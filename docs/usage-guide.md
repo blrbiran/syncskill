@@ -401,7 +401,7 @@ Typical remote flow:
 
 1. Configure servers in `~/.syncskill/config.json`
 2. Optionally validate SSH access outside syncskill
-3. Run `syncskill refresh --remote --status alpha` to update remote manifest state
+3. Run `syncskill refresh --remote alpha` to update remote manifest state
 4. Run `syncskill push alpha` to publish local changes
 5. Run `syncskill pull alpha` to fetch remote changes
 6. Run `syncskill sync --all` for full pull-then-push orchestration

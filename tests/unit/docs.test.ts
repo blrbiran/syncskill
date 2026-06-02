@@ -65,6 +65,8 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('syncskill server list');
     expect(usageGuide).toContain('syncskill server show alpha');
     expect(usageGuide).toContain('syncskill refresh --remote alpha');
+    expect(usageGuide).not.toContain('refresh --status');
+    expect(usageGuide).not.toContain('refresh --remote --status');
     expect(usageGuide).toContain('npm link');
     expect(usageGuide).toContain('syncskill sync --all');
     expect(usageGuide).toContain('node dist/index.js --help');
