@@ -1252,7 +1252,7 @@ async function syncSource(
   await saveSourceState(homeDir, name, nextState);
   await saveSkillOwnershipState(homeDir, nextOwnership);
 
-  // Update last_update_hash for HTTP sources after successful update
+  // Refresh HTTP baselines after successful update
   if (source.type === 'http') {
     await updateRegistryHashesForHttp(homeDir, name, skillsDir, materializedSkills);
   }

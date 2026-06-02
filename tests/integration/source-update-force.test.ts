@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import { saveConfig, loadConfig, getSyncPaths, createDefaultConfig } from '../../src/config/config.js';
 import { updateSource, materializeSource } from '../../src/source.js';
 import { hashSkillDirectory } from '../../src/core/manifest.js';
-import { loadSkillsRegistry, saveSkillsRegistry } from '../../src/core/skills-registry.js';
+import { loadSkillsRegistryV2, saveSkillsRegistryV2 } from '../../src/core/skills-registry.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -156,25 +156,25 @@ describe('update --force source handling', () => {
       await mkdir(join(skillsDir, 'http-skill'), { recursive: true });
       await writeFile(join(skillsDir, 'http-skill', 'SKILL.md'), '# HTTP Skill Original\n');
 
-      // Create registry entry with last_update_hash
-      const registry = await loadSkillsRegistry(homeDir);
-      registry.skills['http-skill'] = {
-        path: join(skillsDir, 'http-skill'),
-        origin: 'http-source',
-        type: 'http',
-        status: 'active',
-        last_update_hash: 'original-hash-value'
+      // Create persisted HTTP baseline entry
+      const registry = await loadSkillsRegistryV2(homeDir);
+      registry.http_baselines['http-skill'] = {
+        hash: 'original-hash-value',
+        source: 'http-source'
       };
-      await saveSkillsRegistry(homeDir, registry);
+      await saveSkillsRegistryV2(homeDir, registry);
 
-      // Modify the skill locally (hash will differ from last_update_hash)
+      // Modify the skill locally (hash will differ from the persisted baseline)
       await writeFile(join(skillsDir, 'http-skill', 'SKILL.md'), '# HTTP Skill MODIFIED\n');
 
       // The detectHttpDirty function should detect this as dirty
       // We can't easily test top-level update for HTTP without an HTTP server,
-      // but we can verify the registry structure is correct for dirty detection
-      const updatedRegistry = await loadSkillsRegistry(homeDir);
-      expect(updatedRegistry.skills['http-skill'].last_update_hash).toBe('original-hash-value');
+      // but we can verify the persisted baseline structure used for dirty detection
+      const updatedRegistry = await loadSkillsRegistryV2(homeDir);
+      expect(updatedRegistry.http_baselines['http-skill']).toEqual({
+        hash: 'original-hash-value',
+        source: 'http-source'
+      });
     });
   });
 
@@ -445,15 +445,12 @@ describe('update --force source handling', () => {
         });
 
         const initialHash = await hashSkillDirectory(join(skillsDir, 'http-skill'));
-        const registry = await loadSkillsRegistry(homeDir);
-        registry.skills['http-skill'] = {
-          path: join(skillsDir, 'http-skill'),
-          origin: 'http-source',
-          type: 'http',
-          status: 'active',
-          last_update_hash: initialHash
+        const registry = await loadSkillsRegistryV2(homeDir);
+        registry.http_baselines['http-skill'] = {
+          hash: initialHash,
+          source: 'http-source'
         };
-        await saveSkillsRegistry(homeDir, registry);
+        await saveSkillsRegistryV2(homeDir, registry);
 
         await writeFile(join(skillsDir, 'http-skill', 'SKILL.md'), '# HTTP local edit\n');
 

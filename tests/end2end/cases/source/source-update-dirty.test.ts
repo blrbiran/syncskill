@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect } from 'vitest';
+import { hashSkillDirectory } from '../../../../src/core/manifest.js';
 import { e2eTest, E2EScenario, modifySkillInGitRepo } from '../../framework/index.js';
 
 describe('top-level update dirty state', () => {
@@ -58,30 +59,6 @@ describe('top-level update dirty state', () => {
         updated_at: new Date().toISOString(),
       }), 'utf8');
 
-      // Write registry
-      await ctx.writeRegistry({
-        skills: {
-          'skill-a': {
-            path: join(checkoutDir, 'skill-a'),
-            origin: 'test-source',
-            type: 'git',
-            status: 'active',
-          },
-          'skill-b': {
-            path: join(checkoutDir, 'skill-b'),
-            origin: 'test-source',
-            type: 'git',
-            status: 'active',
-          },
-          'skill-c': {
-            path: join(checkoutDir, 'skill-c'),
-            origin: 'test-source',
-            type: 'git',
-            status: 'active',
-          },
-        },
-      });
-
       // Make skill-a dirty by modifying locally (uncommitted change in checkout)
       await writeFile(
         join(checkoutDir, 'skill-a', 'SKILL.md'),
@@ -124,32 +101,33 @@ describe('top-level update dirty state', () => {
       await mkdir(httpSkillDir, { recursive: true });
       await writeFile(join(httpSkillDir, 'SKILL.md'), '# HTTP Skill Original', 'utf8');
 
-      // Create registry with last_update_hash (simulating HTTP source installation)
+      const initialHash = await hashSkillDirectory(httpSkillDir);
+
+      // Create registry with persisted HTTP baseline (simulating HTTP source installation)
       await ctx.writeRegistry({
-        skills: {
+        version: 2,
+        http_baselines: {
           'http-skill': {
-            path: httpSkillDir,
-            origin: 'http-source',
-            type: 'http',
-            status: 'active',
-            last_update_hash: 'original-hash-12345',
+            hash: initialHash,
+            source: 'http-source',
           },
         },
       });
 
-      // Verify the registry has the hash field
+      // Verify the registry has the baseline entry
       const registry = (await ctx.readRegistry()) as {
-        skills?: Record<string, { last_update_hash?: string; path?: string; origin?: string }>;
+        version?: number;
+        http_baselines?: Record<string, { hash?: string; source?: string }>;
       };
-      const skillEntry = registry.skills?.['http-skill'];
+      const skillEntry = registry.http_baselines?.['http-skill'];
       expect(skillEntry).toBeDefined();
-      expect(skillEntry?.last_update_hash).toBe('original-hash-12345');
+      expect(skillEntry).toEqual({ hash: initialHash, source: 'http-source' });
 
       // Modify the installed skill locally (makes it dirty - hash will differ)
       await ctx.writeFile('.syncskill/skills/http-skill/SKILL.md', '# HTTP Skill - MODIFIED LOCALLY');
 
-      // The last_update_hash field enables hash-based dirty detection for HTTP sources.
-      // When update runs, it compares current hash against last_update_hash.
+      // The persisted HTTP baseline enables hash-based dirty detection for HTTP sources.
+      // When update runs, it compares the current hash against the saved baseline.
       // Since we modified the file, the hash will differ, triggering dirty detection.
 
       // Verify the skill was modified
@@ -158,12 +136,13 @@ describe('top-level update dirty state', () => {
 
       // Verify registry structure is intact
       const finalRegistry = (await ctx.readRegistry()) as {
-        skills?: Record<string, { last_update_hash?: string; origin?: string; type?: string }>;
+        version?: number;
+        http_baselines?: Record<string, { hash?: string; source?: string }>;
       };
-      const httpSkill = finalRegistry.skills?.['http-skill'];
+      const httpSkill = finalRegistry.http_baselines?.['http-skill'];
       expect(httpSkill).toBeDefined();
-      expect(httpSkill?.origin).toBe('http-source');
-      expect(httpSkill?.type).toBe('http');
+      expect(httpSkill?.source).toBe('http-source');
+      expect(httpSkill?.hash).toBe(initialHash);
     } finally {
       await ctx.cleanup();
     }
@@ -210,18 +189,6 @@ describe('top-level update dirty state', () => {
         materialized_skills: ['my-skill'],
         updated_at: new Date().toISOString(),
       }), 'utf8');
-
-      // Write registry
-      await ctx.writeRegistry({
-        skills: {
-          'my-skill': {
-            path: join(checkoutDir, 'my-skill'),
-            origin: 'test-source',
-            type: 'git',
-            status: 'active',
-          },
-        },
-      });
 
       // Make skill dirty by modifying locally
       const localModification = '# Version 1 - LOCAL CHANGES';

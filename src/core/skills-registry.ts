@@ -13,7 +13,7 @@ export interface SkillRegistryEntry {
   ignored_reason?: 'duplicate' | 'user-choice' | 'conflict';
   ignored_at?: string;
   kept_by?: string;
-  last_update_hash?: string;  // Only for HTTP sources, used for dirty detection
+  last_update_hash?: string;  // Legacy v1 HTTP baseline kept for migration compatibility
 }
 
 export interface HttpBaseline {
@@ -179,7 +179,7 @@ export function removeHttpBaselineV2(registry: SkillsRegistryV2, skillName: stri
 }
 
 /**
- * @deprecated Use isSkillIgnoredV2 instead. This function will be removed in v3.
+ * @deprecated Ignored state now lives in config.sources[*].ignore[]. Kept only for v1 compatibility.
  */
 export function isSkillIgnored(registry: SkillsRegistry, skillName: string): boolean {
   const entry = registry.skills[skillName];
@@ -208,7 +208,7 @@ export function getActiveSkills(registry: SkillsRegistry): Record<string, SkillR
 }
 
 /**
- * @deprecated Use SkillsRegistryV2.ignored instead.
+ * @deprecated Ignored state now lives in config.sources[*].ignore[]. Kept only for v1 compatibility.
  */
 export function getIgnoredSkills(registry: SkillsRegistry): Record<string, SkillRegistryEntry> {
   const ignored: Record<string, SkillRegistryEntry> = {};
@@ -241,7 +241,7 @@ export function addActiveSkill(
 }
 
 /**
- * @deprecated Use ignoreSkillV2 instead.
+ * @deprecated Ignored state now lives in config.sources[*].ignore[]. Kept only for v1 fixtures/migrations.
  */
 export function addIgnoredSkill(
   registry: SkillsRegistry,
@@ -268,7 +268,7 @@ export function addIgnoredSkill(
 }
 
 /**
- * @deprecated v2 registry does not track skill existence. Use unignoreSkillV2 to restore ignored skills.
+ * @deprecated v2 registry does not track skill existence. Kept only for legacy v1 compatibility.
  */
 export function removeSkill(registry: SkillsRegistry, skillName: string): SkillsRegistry {
   const { [skillName]: _, ...rest } = registry.skills;
@@ -276,7 +276,7 @@ export function removeSkill(registry: SkillsRegistry, skillName: string): Skills
 }
 
 /**
- * @deprecated Use unignoreSkillV2 instead.
+ * @deprecated Ignored state now lives in config.sources[*].ignore[]. Kept only for v1 compatibility.
  */
 export function activateSkill(registry: SkillsRegistry, skillName: string): SkillsRegistry {
   const entry = registry.skills[skillName];
@@ -293,7 +293,7 @@ export function activateSkill(registry: SkillsRegistry, skillName: string): Skil
 }
 
 /**
- * @deprecated Use ignoreSkillV2 instead.
+ * @deprecated Ignored state now lives in config.sources[*].ignore[]. Kept only for v1 compatibility.
  */
 export function ignoreSkill(
   registry: SkillsRegistry,
