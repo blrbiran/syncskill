@@ -82,6 +82,13 @@ describe('syncskill doctor', () => {
     expect(stdout).toContain('missing-skill');
   });
 
+  it('rejects removed rebuild-registry flag', async () => {
+    const { stderr, code } = await runDoctor(['--rebuild-registry']);
+
+    expect(code).not.toBe(0);
+    expect(stderr).toContain("unknown option '--rebuild-registry'");
+  });
+
   describe('auto-check integration', () => {
     it('warns when running link with config issues', async () => {
       const agentDir = join(homeDir, '.claude', 'skills');

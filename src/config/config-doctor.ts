@@ -240,7 +240,7 @@ export async function checkRegistryHealth(
       severity: 'warning',
       message: 'skills-registry.json does not exist',
       path: 'skills-registry.json',
-      suggestion: 'Run `syncskill doctor --rebuild-registry` to create'
+      suggestion: 'Run `syncskill link build` to regenerate skills-registry.json'
     });
     return items;
   }
@@ -256,7 +256,7 @@ export async function checkRegistryHealth(
       severity: 'warning',
       message: 'skills-registry.json is corrupt or invalid',
       path: 'skills-registry.json',
-      suggestion: 'Run `syncskill doctor --rebuild-registry` to rebuild'
+      suggestion: 'Run `syncskill link build` to regenerate skills-registry.json'
     });
     return items;
   }
@@ -285,7 +285,7 @@ export async function checkRegistryHealth(
         severity: 'warning',
         message: `Skill "${skillName}" exists but is not in registry`,
         path: `registry.${skillName}`,
-        suggestion: 'Run `syncskill doctor --rebuild-registry` to add'
+        suggestion: 'Run `syncskill link build` to regenerate skills-registry.json'
       });
     }
   }

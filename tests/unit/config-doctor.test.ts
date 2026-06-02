@@ -231,6 +231,7 @@ describe('checkRegistryHealth', () => {
     expect(items).toHaveLength(1);
     expect(items[0].code).toBe(DiagnosticCode.REGISTRY_MISSING);
     expect(items[0].severity).toBe('warning');
+    expect(items[0].suggestion).toBe('Run `syncskill link build` to regenerate skills-registry.json');
   });
 
   // Note: REGISTRY_CORRUPT is not currently reachable because loadSkillsRegistry
@@ -285,7 +286,9 @@ describe('checkRegistryHealth', () => {
 
     const items = await checkRegistryHealth(homeDir, baseConfig, skillsDir);
 
-    expect(items.some((i) => i.code === DiagnosticCode.REGISTRY_ORPHAN)).toBe(true);
+    const orphanItem = items.find((i) => i.code === DiagnosticCode.REGISTRY_ORPHAN);
+    expect(orphanItem).toBeDefined();
+    expect(orphanItem?.suggestion).toBe('Run `syncskill link build` to regenerate skills-registry.json');
   });
 
   it('returns empty array when registry is healthy', async () => {
