@@ -7,7 +7,6 @@
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 import { describe, expect } from 'vitest';
 import { e2eTest, E2EScenario } from '../../framework/index.js';
 
@@ -15,7 +14,7 @@ describe('receiver update', () => {
   e2eTest('push updates receiver when local version changes', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withSkill('my-skill', '# My Skill\n')
       .withMockServer({ name: 'server1', skills: [] })
       .setup();
@@ -30,7 +29,7 @@ describe('receiver update', () => {
           remote_syncskill_dir: ctx.getMockServerPath('server1') + '/.syncskill',
         },
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Simulate first push: receiver deployed to server
       const serverPath = ctx.getMockServerPath('server1');
@@ -72,7 +71,7 @@ export function processSync() { return 'v1'; }
   e2eTest('push force-updates receiver with --update-receiver flag', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withSkill('my-skill', '# My Skill\n')
       .withMockServer({ name: 'server1', skills: [] })
       .setup();
@@ -87,7 +86,7 @@ export function processSync() { return 'v1'; }
           remote_syncskill_dir: ctx.getMockServerPath('server1') + '/.syncskill',
         },
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Simulate receiver already deployed
       const serverPath = ctx.getMockServerPath('server1');

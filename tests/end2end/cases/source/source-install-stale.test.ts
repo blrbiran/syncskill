@@ -2,7 +2,7 @@
 /**
  * E2E tests for install when stale checkout exists.
  *
- * Scenario 5: config.yaml has no source entry, but ~/.syncskill/sources/
+ * Scenario 5: config.json has no source entry, but ~/.syncskill/.sources/
  * already contains a git checkout. Re-running install should handle this
  * gracefully instead of failing with git clone error.
  */
@@ -17,7 +17,7 @@ describe('install with stale checkout', () => {
     // Currently fails with git clone error when checkout already exists
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('stale-repo', {
         skills: ['stale-skill'],
         skillContents: { 'stale-skill': '# Stale Skill\n' },
@@ -64,7 +64,7 @@ describe('install with stale checkout', () => {
     // Currently fails because git clone fails when directory exists
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('clean-repo', {
         skills: ['new-skill'],
         skillContents: { 'new-skill': '# New Skill\n' },
@@ -104,7 +104,7 @@ describe('install with stale checkout', () => {
     // Currently fails because install doesn't check remote URL of existing checkout
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('correct-repo', {
         skills: ['correct-skill'],
         skillContents: { 'correct-skill': '# Correct Skill\n' },

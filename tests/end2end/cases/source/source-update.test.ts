@@ -1,7 +1,6 @@
 // tests/end2end/cases/source/source-update.test.ts
 import { symlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 import { describe, expect } from 'vitest';
 import { e2eTest, E2EScenario, modifySkillInGitRepo } from '../../framework/index.js';
 
@@ -38,7 +37,7 @@ describe('source update', () => {
         },
       };
       config.links = { 'my-skill': ['*'] };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Write registry
       await ctx.writeRegistry({
@@ -104,24 +103,20 @@ describe('source update', () => {
     }
   });
 
-  e2eTest('update is alias for source update', async () => {
+  e2eTest('update is available as a top-level command', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
       .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
-      // Run both help commands
       const updateHelp = await ctx.run('syncskill', 'update', '--help');
-      const sourceUpdateHelp = await ctx.run('syncskill', 'source', 'update', '--help');
+      const sourceHelp = await ctx.run('syncskill', 'source', '--help');
 
-      // Both should succeed
       expect(updateHelp.success).toBe(true);
-      expect(sourceUpdateHelp.success).toBe(true);
-
-      // Both should show 'update' in output
+      expect(sourceHelp.success).toBe(true);
       expect(updateHelp.stdout).toContain('update');
-      expect(sourceUpdateHelp.stdout).toContain('update');
+      expect(sourceHelp.stdout).not.toContain('update [name]');
     } finally {
       await ctx.cleanup();
     }

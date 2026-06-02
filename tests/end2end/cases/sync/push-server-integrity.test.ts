@@ -7,7 +7,6 @@
  */
 import { mkdir, rm, writeFile, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 import { describe, expect } from 'vitest';
 import { e2eTest, E2EScenario } from '../../framework/index.js';
 
@@ -17,7 +16,7 @@ describe('push server integrity', () => {
     // push --all should restore the deleted skills
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withSkill('skill-a', '# Skill A Content\n')
       .withSkill('skill-b', '# Skill B Content\n')
       .withMockServer({ name: 'server1', skills: ['skill-a', 'skill-b'] })
@@ -33,7 +32,7 @@ describe('push server integrity', () => {
           remote_syncskill_dir: ctx.getMockServerPath('server1') + '/.syncskill',
         },
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Create manifest on server simulating previous push
       const serverPath = ctx.getMockServerPath('server1');
@@ -77,7 +76,7 @@ describe('push server integrity', () => {
     // Skills directory and agent symlinks should be updated
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withSkill('skill-keep', '# Keep Skill\n')
       .withSkill('skill-add', '# Add Skill\n')
       .withSkill('skill-remove-a', '# Remove A\n')
@@ -100,7 +99,7 @@ describe('push server integrity', () => {
           remote_syncskill_dir: ctx.getMockServerPath('server1') + '/.syncskill',
         },
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Create local manifest for server1 (simulating previous sync state)
       const localManifest = {
@@ -153,7 +152,7 @@ describe('push server integrity', () => {
     // Push should push local state to server, not pull server state back
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('my-repo', {
         skills: ['shared-skill'],
         skillContents: { 'shared-skill': '# Original Content\n' },
@@ -189,7 +188,7 @@ describe('push server integrity', () => {
           remote_syncskill_dir: ctx.getMockServerPath('server1') + '/.syncskill',
         },
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Write server skill with modified content
       const serverPath = ctx.getMockServerPath('server1');

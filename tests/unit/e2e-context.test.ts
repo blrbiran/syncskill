@@ -62,9 +62,9 @@ describe('E2EContext', () => {
     const ctx = new E2EContext(tempDir, rootDir);
 
     await mkdir(join(tempDir, '.syncskill'), { recursive: true });
-    await writeFile(join(tempDir, '.syncskill', 'config.yaml'), 'version: 1');
+    await writeFile(join(tempDir, '.syncskill', 'config.json'), '{"version":1}');
 
-    await expect(ctx.assertFileExists('.syncskill/config.yaml')).resolves.not.toThrow();
+    await expect(ctx.assertFileExists('.syncskill/config.json')).resolves.not.toThrow();
   });
 
   it('assertFileExists fails for missing file', async () => {
@@ -96,6 +96,27 @@ describe('E2EContext', () => {
   });
 
   describe('E2EContext new methods', () => {
+    it('writeConfig writes config.json', async () => {
+      const { E2EContext } = await import('../end2end/framework/context.js');
+      const homeDir = join(tmpdir(), `e2e-ctx-test-${Date.now()}`);
+      tempDirs.push(homeDir);
+      await mkdir(join(homeDir, '.syncskill'), { recursive: true });
+
+      const ctx = new E2EContext(homeDir, '/fake/project');
+
+      const config = {
+        version: 1,
+        links: {
+          'test-skill': ['claude'],
+        },
+      };
+
+      await ctx.writeConfig(config);
+
+      const content = await ctx.readFile('.syncskill/config.json');
+      expect(JSON.parse(content)).toEqual(config);
+    });
+
     it('writeRegistry writes skills-registry.json', async () => {
       const { E2EContext } = await import('../end2end/framework/context.js');
       const homeDir = join(tmpdir(), `e2e-ctx-test-${Date.now()}`);
@@ -126,7 +147,7 @@ describe('E2EContext', () => {
       const { E2EContext } = await import('../end2end/framework/context.js');
       const homeDir = join(tmpdir(), `e2e-ctx-test-${Date.now()}`);
       tempDirs.push(homeDir);
-      const backupDir = join(homeDir, '.syncskill', 'backups', 'my-source', 'my-skill');
+      const backupDir = join(homeDir, '.syncskill', '.backups', 'sources', 'my-source', 'pre-update', 'my-skill');
       await mkdir(backupDir, { recursive: true });
       await writeFile(join(backupDir, 'SKILL.md'), '# Backup\n', 'utf8');
 

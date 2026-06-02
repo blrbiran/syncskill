@@ -1,7 +1,6 @@
 // tests/end2end/cases/link/link-reconcile.test.ts
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 import { describe, expect } from 'vitest';
 import { e2eTest, E2EScenario } from '../../framework/index.js';
 
@@ -11,12 +10,12 @@ describe('link reconcile', () => {
       .withAgents('claude', 'agents', 'qwen')
       .withSkill('my-skill')
       .withLinks({ 'my-skill': ['*'] })
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
-      // Run link --all, should link to all agents
-      const linkResult1 = await ctx.run('syncskill', 'link', '--all');
+      // Run link build, should link to all agents
+      const linkResult1 = await ctx.run('syncskill', 'link', 'build');
       expect(linkResult1.success).toBe(true);
 
       // Verify linked to all agents
@@ -25,10 +24,10 @@ describe('link reconcile', () => {
       // Change config to only link to claude
       const config = (await ctx.readConfig()) as Record<string, unknown>;
       config.links = { 'my-skill': ['claude'] };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
-      // Run link --all again with -y to auto-confirm removal
-      const linkResult2 = await ctx.run('syncskill', 'link', '--all', '-y');
+      // Run link build again with -y to auto-confirm removal
+      const linkResult2 = await ctx.run('syncskill', 'link', 'build', '-y');
       expect(linkResult2.success).toBe(true);
 
       // Verify only claude has the link, others should be removed
@@ -44,12 +43,12 @@ describe('link reconcile', () => {
       .withAgents('claude', 'agents', 'qwen')
       .withSkills(['skill-one', 'skill-two'])
       .withLinks({ 'skill-one': ['*'], 'skill-two': ['*'] })
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
-      // Run link --all, both skills linked to all agents
-      const linkResult1 = await ctx.run('syncskill', 'link', '--all');
+      // Run link build, both skills linked to all agents
+      const linkResult1 = await ctx.run('syncskill', 'link', 'build');
       expect(linkResult1.success).toBe(true);
 
       // Verify both skills linked to all agents
@@ -59,10 +58,10 @@ describe('link reconcile', () => {
       // Change skill-one config to only link to claude
       const config = (await ctx.readConfig()) as Record<string, unknown>;
       config.links = { 'skill-one': ['claude'], 'skill-two': ['*'] };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
-      // Run link for skill-one only with -y to auto-confirm removal
-      const linkResult2 = await ctx.run('syncskill', 'link', 'skill-one', '-y');
+      // Run link set for skill-one only with -y to auto-confirm stale removal
+      const linkResult2 = await ctx.run('syncskill', 'link', 'set', 'skill-one', 'claude', '-y');
       expect(linkResult2.success).toBe(true);
 
       // Verify skill-one only in claude, removed from others
@@ -81,7 +80,7 @@ describe('link reconcile', () => {
       .withAgents('claude', 'agents')
       .withSkill('my-skill')
       .withLinks({ 'my-skill': ['claude'] })
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
@@ -90,8 +89,8 @@ describe('link reconcile', () => {
       await mkdir(agentsSkillDir, { recursive: true });
       await writeFile(join(agentsSkillDir, 'SKILL.md'), '# User created skill', 'utf8');
 
-      // Run link --all
-      const linkResult = await ctx.run('syncskill', 'link', '--all');
+      // Run link build
+      const linkResult = await ctx.run('syncskill', 'link', 'build');
       expect(linkResult.success).toBe(true);
 
       // Verify real directory in agents is preserved
@@ -110,7 +109,7 @@ describe('link reconcile', () => {
       .withAgents('claude', 'agents')
       .withSkill('my-skill')
       .withLinks({ 'my-skill': ['claude'] })
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
@@ -125,12 +124,12 @@ describe('link reconcile', () => {
       await symlink(externalDir, join(agentsSkillsDir, 'external-skill'));
 
       // Also create a syncskill-managed symlink in agents that should be cleaned
-      // (This simulates a previous link --all when agents was in the link config)
+      // (This simulates a previous link build when agents was in the link config)
       const managedSkillPath = ctx.getPath('.syncskill', 'skills', 'my-skill');
       await symlink(managedSkillPath, join(agentsSkillsDir, 'my-skill'));
 
-      // Run link --all with -y to auto-confirm removal
-      const linkResult = await ctx.run('syncskill', 'link', '--all', '-y');
+      // Run link build with -y to auto-confirm removal
+      const linkResult = await ctx.run('syncskill', 'link', 'build', '-y');
       expect(linkResult.success).toBe(true);
 
       // Verify external symlink is preserved

@@ -10,7 +10,6 @@
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 import { describe, expect } from 'vitest';
 import { e2eTest, E2EScenario } from '../../framework/index.js';
 
@@ -83,7 +82,7 @@ describe('source update http', () => {
         ...((config.sources as Record<string, unknown>) ?? {}),
         'git-repo': { type: 'git', url: gitUrl, path: '.' },
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Run update --all with dry-run or check output
       const updateResult = await ctx.run('syncskill', 'update', '--all', '-y');
@@ -128,7 +127,7 @@ describe('source update http', () => {
         'keep-skill': ['*'],
         'remove-skill': ['*'],
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Write state file
       const stateFile = join(ctx.syncskillDir, '.sources', 'shrinking-repo', 'state.json');
@@ -155,24 +154,21 @@ describe('source update http', () => {
 });
 
 describe('update alias', () => {
-  e2eTest('syncskill update is alias for syncskill source update', async () => {
-    // Scenario 3.2: update should be top-level alias
+  e2eTest('syncskill update is available as a top-level command', async () => {
+    // Scenario 3.2: update should be top-level command
     const ctx = await new E2EScenario()
       .withAgents('claude')
       .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
-      // Both commands should show help
       const updateHelp = await ctx.run('syncskill', 'update', '--help');
-      const sourceUpdateHelp = await ctx.run('syncskill', 'source', 'update', '--help');
+      const sourceHelp = await ctx.run('syncskill', 'source', '--help');
 
       expect(updateHelp.success).toBe(true);
-      expect(sourceUpdateHelp.success).toBe(true);
-
-      // Both should show update-related content
+      expect(sourceHelp.success).toBe(true);
       expect(updateHelp.stdout).toMatch(/update/i);
-      expect(sourceUpdateHelp.stdout).toMatch(/update/i);
+      expect(sourceHelp.stdout).not.toContain('update [name]');
     } finally {
       await ctx.cleanup();
     }

@@ -18,14 +18,14 @@ describe('pull target paths', () => {
   e2eTest('manual skill in skills dir can be updated and relinked', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withSkill('manual-skill', '# Original Content\n')
       .withLinks({ 'manual-skill': ['*'] })
       .setup();
 
     try {
       // Link the manual skill first
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('manual-skill', ['claude']);
 
       // Simulate "pulled" content by directly writing to the expected location
@@ -37,7 +37,7 @@ describe('pull target paths', () => {
       );
 
       // Verify link command still works with the updated content
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('manual-skill', ['claude']);
 
       // Verify content is at expected path
@@ -51,7 +51,7 @@ describe('pull target paths', () => {
   e2eTest('source skill in .sources checkout dir can be updated and relinked', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withArchive('http-pack.zip', { skills: ['http-skill'] })
       .setup();
 
@@ -66,11 +66,10 @@ describe('pull target paths', () => {
       // Manually add the skill to links config (simulating what sync would do)
       const config = (await ctx.readConfig()) as Record<string, unknown>;
       config.links = { 'http-skill': ['*'] };
-      const { stringify } = await import('yaml');
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Link the skill
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('http-skill', ['claude']);
 
       // Simulate "pulled" content update
@@ -82,7 +81,7 @@ describe('pull target paths', () => {
       );
 
       // Verify link still works after update
-      await ctx.run('syncskill', 'link', 'http-skill');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('http-skill', ['claude']);
 
       // Verify content was updated
@@ -96,7 +95,7 @@ describe('pull target paths', () => {
   e2eTest('multiple skills from same source share checkout directory', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withArchive('multi-skills.zip', { skills: ['skill-a', 'skill-b', 'skill-c'] })
       .setup();
 
@@ -113,11 +112,10 @@ describe('pull target paths', () => {
       // Manually add skills to links config
       const config = (await ctx.readConfig()) as Record<string, unknown>;
       config.links = { 'skill-a': ['*'], 'skill-b': ['*'], 'skill-c': ['*'] };
-      const { stringify } = await import('yaml');
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Link all skills
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('skill-a', ['claude']);
       await ctx.assertLinked('skill-b', ['claude']);
       await ctx.assertLinked('skill-c', ['claude']);
@@ -127,7 +125,7 @@ describe('pull target paths', () => {
       await writeFile(join(skillAPath, 'SKILL.md'), '# Updated A\n', 'utf8');
 
       // Relink just skill-a
-      await ctx.run('syncskill', 'link', 'skill-a');
+      await ctx.run('syncskill', 'link', 'build');
 
       // Verify all skills are still linked
       await ctx.assertLinked('skill-a', ['claude']);
@@ -145,14 +143,14 @@ describe('pull target paths', () => {
   e2eTest('symlink target points to correct skill directory', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withSkill('target-skill', '# Target Skill\n')
       .withLinks({ 'target-skill': ['*'] })
       .setup();
 
     try {
       // Link the skill
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('target-skill', ['claude']);
 
       // Verify symlink points to the correct directory in .syncskill/skills/
@@ -180,13 +178,13 @@ describe('pull target paths', () => {
   e2eTest('pull places git source skill in sources dir', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('my-repo', { skills: ['git-skill'] })
       .setup();
 
     try {
       // Simulate post-pull state: skill exists in sources directory
-      const sourcesDir = join(ctx.syncskillDir, 'sources', 'my-repo');
+      const sourcesDir = join(ctx.syncskillDir, '.sources', 'my-repo', 'checkout');
       const skillSourcePath = join(sourcesDir, 'git-skill');
       await mkdir(skillSourcePath, { recursive: true });
       await writeFile(join(skillSourcePath, 'SKILL.md'), '# Git Skill Content\n', 'utf8');
@@ -206,28 +204,27 @@ describe('pull target paths', () => {
         },
       });
 
-      // Verify registry shows path contains .syncskill/sources/my-repo
+      // Verify registry shows path contains .syncskill/.sources/my-repo/checkout
       const registry = (await ctx.readRegistry()) as {
         skills: Record<string, { path: string }>;
       };
       expect(registry.skills['git-skill']).toBeDefined();
-      expect(registry.skills['git-skill'].path).toContain('.syncskill/sources/my-repo');
+      expect(registry.skills['git-skill'].path).toContain('.syncskill/.sources/my-repo/checkout');
 
       // Manually add link config
       const config = (await ctx.readConfig()) as Record<string, unknown>;
       config.links = { 'git-skill': ['*'] };
-      const { stringify } = await import('yaml');
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Link the skill
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('git-skill', ['claude']);
 
       // Simulate pulled content update
       await writeFile(join(skillSourcePath, 'SKILL.md'), '# Pulled from git\n', 'utf8');
 
       // Relink after update
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('git-skill', ['claude']);
 
       // Verify content via symlink
@@ -241,7 +238,7 @@ describe('pull target paths', () => {
   e2eTest('pull places local source skill in external path', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
@@ -267,8 +264,7 @@ describe('pull target paths', () => {
         },
       ];
       config.links = { 'local-skill': ['*'] };
-      const { stringify } = await import('yaml');
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Write registry with skill pointing to external path
       await ctx.writeRegistry({
@@ -281,7 +277,7 @@ describe('pull target paths', () => {
       });
 
       // Link the skill
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('local-skill', ['claude']);
 
       // Verify agent symlink points to .syncskill/skills/local-skill

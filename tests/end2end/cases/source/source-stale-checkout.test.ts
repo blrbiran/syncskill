@@ -1,7 +1,6 @@
 // tests/end2end/cases/source/source-stale-checkout.test.ts
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 import { describe, expect } from 'vitest';
 import { e2eTest, E2EScenario } from '../../framework/index.js';
 
@@ -49,9 +48,9 @@ describe('stale checkout handling', () => {
         },
       };
       config.links = { 'my-skill': ['*'] };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
-      // Run source update to trigger stale detection and re-clone
+      // Run top-level update to trigger stale detection and re-clone
       const updateResult = await ctx.run('syncskill', 'update', 'correct-repo', '-y');
       expect(updateResult.success).toBe(true);
 
@@ -104,9 +103,9 @@ describe('stale checkout handling', () => {
         },
       };
       config.links = { 'fresh-skill': ['*'] };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
-      // Run source update to trigger stale detection and cleanup
+      // Run top-level update to trigger stale detection and cleanup
       const updateResult = await ctx.run('syncskill', 'update', 'new-repo', '-y');
       expect(updateResult.success).toBe(true);
 

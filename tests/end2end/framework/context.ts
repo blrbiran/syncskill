@@ -285,6 +285,15 @@ export class E2EContext {
   }
 
   /**
+   * Write config.json.
+   */
+  async writeConfig(config: unknown): Promise<void> {
+    const configPath = join(this.syncskillDir, 'config.json');
+    await mkdir(this.syncskillDir, { recursive: true });
+    await writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
+  }
+
+  /**
    * Read and parse skills-registry.json.
    */
   async readRegistry(): Promise<unknown> {
@@ -309,7 +318,7 @@ export class E2EContext {
    * Assert that a backup exists for a source/skill.
    */
   async assertBackupExists(sourceName: string, skillName: string): Promise<void> {
-    const backupPath = join(this.syncskillDir, 'backups', sourceName, skillName);
+    const backupPath = join(this.syncskillDir, '.backups', 'sources', sourceName, 'pre-update', skillName);
     try {
       await access(backupPath);
     } catch {

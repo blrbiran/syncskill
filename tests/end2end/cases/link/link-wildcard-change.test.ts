@@ -8,7 +8,6 @@
  */
 import { mkdir, symlink, writeFile, lstat, access } from 'node:fs/promises';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 import { describe, expect } from 'vitest';
 import { e2eTest, E2EScenario } from '../../framework/index.js';
 
@@ -18,12 +17,12 @@ describe('link wildcard to specific', () => {
       .withAgents('claude', 'agents', 'qwen', 'aone_copilot')
       .withSkill('algorithmic-art', '# Algorithmic Art Skill\n')
       .withLinks({ 'algorithmic-art': ['*'] })
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
       // First link with wildcard - should link to all agents
-      const linkResult1 = await ctx.run('syncskill', 'link', '--all');
+      const linkResult1 = await ctx.run('syncskill', 'link', 'build');
       expect(linkResult1.success).toBe(true);
 
       // Verify linked to all agents
@@ -35,10 +34,10 @@ describe('link wildcard to specific', () => {
       // Change config to only link to claude
       const config = (await ctx.readConfig()) as Record<string, unknown>;
       config.links = { 'algorithmic-art': ['claude'] };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
-      // Run link --all again (should clean up stale symlinks)
-      const linkResult2 = await ctx.run('syncskill', 'link', '--all', '-y');
+      // Run link build again (should clean up stale symlinks)
+      const linkResult2 = await ctx.run('syncskill', 'link', 'build', '-y');
       expect(linkResult2.success).toBe(true);
 
       // Verify only claude has the link now
@@ -57,21 +56,21 @@ describe('link wildcard to specific', () => {
       .withAgents('claude', 'agents', 'qwen')
       .withSkill('my-skill', '# My Skill\n')
       .withLinks({ 'my-skill': ['*'] })
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
       // Link with wildcard
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('my-skill', ['claude', 'agents', 'qwen']);
 
       // Change to claude only
       const config = (await ctx.readConfig()) as Record<string, unknown>;
       config.links = { 'my-skill': ['claude'] };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
-      // Run link for single skill (not --all)
-      const result = await ctx.run('syncskill', 'link', 'my-skill', '-y');
+      // Run link set for a single skill
+      const result = await ctx.run('syncskill', 'link', 'set', 'my-skill', 'claude', '-y');
       expect(result.success).toBe(true);
 
       // Verify claude has link, others do not
@@ -87,12 +86,12 @@ describe('link wildcard to specific', () => {
       .withAgents('claude', 'qwen')
       .withSkill('shared-skill', '# Shared Skill\n')
       .withLinks({ 'shared-skill': ['*'] })
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
       // Link with wildcard
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('shared-skill', ['claude', 'qwen']);
 
       // Replace qwen symlink with real directory (user's own version)
@@ -108,10 +107,10 @@ describe('link wildcard to specific', () => {
       // Change config to claude only
       const config = (await ctx.readConfig()) as Record<string, unknown>;
       config.links = { 'shared-skill': ['claude'] };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
-      // Run link --all
-      const result = await ctx.run('syncskill', 'link', '--all', '-y');
+      // Run link build
+      const result = await ctx.run('syncskill', 'link', 'build', '-y');
       expect(result.success).toBe(true);
 
       // Verify claude still linked
@@ -131,12 +130,12 @@ describe('link wildcard to specific', () => {
       .withAgents('claude', 'qwen')
       .withSkill('managed-skill', '# Managed Skill\n')
       .withLinks({ 'managed-skill': ['*'] })
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
       // Link with wildcard
-      await ctx.run('syncskill', 'link', '--all');
+      await ctx.run('syncskill', 'link', 'build');
       await ctx.assertLinked('managed-skill', ['claude', 'qwen']);
 
       // Create unmanaged symlink in qwen pointing to external location
@@ -161,10 +160,10 @@ describe('link wildcard to specific', () => {
       // Change config to claude only
       const config = (await ctx.readConfig()) as Record<string, unknown>;
       config.links = { 'managed-skill': ['claude'] };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
-      // Run link --all
-      const result = await ctx.run('syncskill', 'link', '--all', '-y');
+      // Run link build
+      const result = await ctx.run('syncskill', 'link', 'build', '-y');
       expect(result.success).toBe(true);
 
       // Verify claude still linked
@@ -189,7 +188,7 @@ describe('link wildcard to specific', () => {
       .withAgents('claude') // Only claude configured
       .withSkill('my-skill', '# My Skill\n')
       .withLinks({ 'my-skill': ['claude'] })
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
@@ -202,8 +201,8 @@ describe('link wildcard to specific', () => {
       const skillPath = join(ctx.syncskillDir, 'skills', 'my-skill');
       await symlink(skillPath, join(qwenSkillsDir, 'my-skill'));
 
-      // Run link --all
-      const result = await ctx.run('syncskill', 'link', '--all');
+      // Run link build
+      const result = await ctx.run('syncskill', 'link', 'build');
       expect(result.success).toBe(true);
 
       // Claude should have the link

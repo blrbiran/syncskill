@@ -2,7 +2,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { symlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 import { describe, expect } from 'vitest';
 import { e2eTest, E2EScenario, modifySkillInGitRepo } from '../../framework/index.js';
 
@@ -10,7 +9,7 @@ describe('source update dirty state', () => {
   e2eTest('update detects dirty git multiskill repo', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('test-source', {
         skills: ['skill-a', 'skill-b', 'skill-c'],
         skillContents: {
@@ -50,7 +49,7 @@ describe('source update dirty state', () => {
         'skill-b': ['*'],
         'skill-c': ['*'],
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Write source state (required for dirty detection - previousSkills.length > 0)
       const stateFile = join(sourceDir, 'state.json');
@@ -94,8 +93,10 @@ describe('source update dirty state', () => {
       const workDir = ctx.getGitSourceWorkDir('test-source');
       await modifySkillInGitRepo(workDir, 'skill-a', '# Skill A Version 2');
 
-      // Run update command with -y (should skip dirty)
-      const updateResult = await ctx.run('syncskill', 'update', 'test-source', '-y');
+      // Run update command with -y (single-target dirty skip exits 6)
+      const updateResult = await ctx.run('syncskill', ['update', 'test-source', '-y'], { expectedExitCode: 6 });
+      expect(updateResult.exitCode).toBe(6);
+      expect(updateResult.success).toBe(false);
 
       // Verify output mentions dirty/skip for skill-a
       const output = updateResult.stdout + updateResult.stderr;
@@ -112,7 +113,7 @@ describe('source update dirty state', () => {
   e2eTest('update detects dirty http source by hash', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .setup();
 
     try {
@@ -168,10 +169,10 @@ describe('source update dirty state', () => {
     }
   });
 
-  e2eTest('update force creates backup', async () => {
+  e2eTest('update force stashes dirty git source before update', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('test-source', {
         skills: ['my-skill'],
         skillContents: { 'my-skill': '# Version 1' },
@@ -201,7 +202,7 @@ describe('source update dirty state', () => {
         },
       };
       config.links = { 'my-skill': ['*'] };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Write source state (required for dirty detection - previousSkills.length > 0)
       const stateFile = join(sourceDir, 'state.json');
@@ -234,8 +235,8 @@ describe('source update dirty state', () => {
       const updateResult = await ctx.run('syncskill', 'update', '--force', '-y', 'test-source');
       expect(updateResult.success).toBe(true);
 
-      // Verify backup was created
-      await ctx.assertBackupExists('test-source', 'my-skill');
+      const stashResult = await ctx.exec('git', ['-C', checkoutDir, 'stash', 'show', '-p', 'stash@{0}']);
+      expect(stashResult.stdout).toContain('LOCAL CHANGES');
 
       // Verify content was updated to remote version
       const updatedContent = await ctx.readFile('.syncskill/.sources/test-source/checkout/my-skill/SKILL.md');

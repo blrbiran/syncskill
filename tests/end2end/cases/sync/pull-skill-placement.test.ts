@@ -11,7 +11,6 @@
  */
 import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { stringify } from 'yaml';
 import { describe, expect } from 'vitest';
 import { e2eTest, E2EScenario } from '../../framework/index.js';
 
@@ -19,7 +18,7 @@ describe('pull skill placement', () => {
   e2eTest('pull places manual skill in skills dir', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withSkill('manual-skill', '# Original Manual Skill\n')
       .withMockServer({ name: 'server1', skills: ['manual-skill'] })
       .setup();
@@ -34,7 +33,7 @@ describe('pull skill placement', () => {
           remote_syncskill_dir: ctx.getMockServerPath('server1') + '/.syncskill',
         },
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Write registry marking skill as manual type
       await ctx.writeRegistry({
@@ -74,7 +73,7 @@ describe('pull skill placement', () => {
   e2eTest('pull places git skill in sources checkout dir', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withGitSource('my-repo', {
         skills: ['git-skill'],
         skillContents: { 'git-skill': '# Original Git Skill\n' },
@@ -105,7 +104,7 @@ describe('pull skill placement', () => {
           remote_syncskill_dir: ctx.getMockServerPath('server1') + '/.syncskill',
         },
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Write registry
       await ctx.writeRegistry({
@@ -151,7 +150,7 @@ describe('pull skill placement', () => {
   e2eTest('pull places http skill in sources checkout dir', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withArchive('http-pack.zip', { skills: ['http-skill'] })
       .withMockServer({ name: 'server1', skills: ['http-skill'] })
       .setup();
@@ -173,7 +172,7 @@ describe('pull skill placement', () => {
           remote_syncskill_dir: ctx.getMockServerPath('server1') + '/.syncskill',
         },
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Modify on server
       const serverPath = ctx.getMockServerPath('server1');
@@ -202,7 +201,7 @@ describe('pull skill placement', () => {
   e2eTest('pull places local skill via symlink to external path', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
-      .withInit({ skipScan: true, skipSkill: true })
+      .withInit({ skipScan: true, skipSelf: true })
       .withMockServer({ name: 'server1', skills: ['local-skill'] })
       .setup();
 
@@ -232,7 +231,7 @@ describe('pull skill placement', () => {
           remote_syncskill_dir: ctx.getMockServerPath('server1') + '/.syncskill',
         },
       };
-      await ctx.writeFile('.syncskill/config.yaml', stringify(config));
+      await ctx.writeConfig(config);
 
       // Write registry
       await ctx.writeRegistry({
