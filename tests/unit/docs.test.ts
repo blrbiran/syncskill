@@ -8,8 +8,9 @@ const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 describe('ship-readiness docs', () => {
   it('top-level docs exist and link the expected entrypoints', async () => {
-    const [readme, configGuide, usageGuide, designGuide, skillDoc] = await Promise.all([
+    const [readme, docsReadme, configGuide, usageGuide, designGuide, skillDoc] = await Promise.all([
       readFile(join(rootDir, 'README.md'), 'utf8'),
+      readFile(join(rootDir, 'docs', 'README.md'), 'utf8'),
       readFile(join(rootDir, 'docs', 'config-guide.md'), 'utf8'),
       readFile(join(rootDir, 'docs', 'usage-guide.md'), 'utf8'),
       readFile(join(rootDir, 'docs', 'design-guide.md'), 'utf8'),
@@ -34,6 +35,11 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('--no-interactive');
     expect(readme).toContain('link set');
     expect(readme).toContain('link build');
+    expect(readme).toContain('syncskill install <url-or-path> [--path <dir>]');
+    expect(readme).toContain('repo-relative skills subdirectory inside the source checkout');
+
+    expect(docsReadme).toContain('syncskill link build');
+    expect(docsReadme).toContain('remove stale symlinks');
 
     expect(configGuide).toContain('# Configuration Guide');
     expect(configGuide).toContain('version');

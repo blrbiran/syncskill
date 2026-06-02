@@ -91,7 +91,7 @@ syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 | `syncskill source list` / `ls` | List configured sources |
 | `syncskill update [name\|--all] [--force] [--dry-run]` | Refresh source content |
 | `syncskill source remove <name>` | Remove a source (interactive) |
-| `syncskill install <url-or-path>` | Install and register a source from git, HTTP archive, local directory, or archive file |
+| `syncskill install <url-or-path> [--path <dir>]` | Install and register a source from git, HTTP archive, local directory, or archive file; `--path` selects the repo-relative skills subdirectory inside the source checkout |
 
 In v2, `source add`, `source update`, and `source restore` were removed. Use `install` to add new sources and top-level `update` to refresh them.
 

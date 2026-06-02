@@ -17,7 +17,7 @@ Documentation for the syncskill CLI tool.
 - **Command reference**: See [Usage Guide](usage-guide.md) or run `syncskill --help` (notably, `link build` reconciles configured links and `unlink <skill>` removes all links for that skill)
 - **Config file format**: See [Configuration Guide](config-guide.md#configuration-shape)
 - **Remote sync setup**: See [Usage Guide - Remote Sync Workflow](usage-guide.md#remote-sync-workflow)
-- **Stale symlink cleanup**: The `link` command automatically reconciles and removes stale symlinks
+- **Stale symlink cleanup**: Run `syncskill link build` to reconcile configured links and remove stale symlinks
 - **Dirty source recovery**: See top-level `update --force` and the `~/.syncskill/.backups/` sidecar backup notes in the guides below
 - **Install UX**: In a TTY, `syncskill install` opens an interactive menu instead of only showing help
 
