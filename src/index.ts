@@ -918,8 +918,8 @@ export function createProgram(homeDir?: string): Command {
     .alias('i')
     .description('Install skill(s). Use "self" for built-in skill; URL/path for external source')
     .option('--name <name>', 'Source name (for URL/path)')
-    .option('--path <path>', 'Storage path for source files')
-    .option('--skill-subdir <dir>', 'Subdirectory within source containing skills')
+    .option('--path <path>', 'Subdirectory within source containing skills')
+    .option('--skill-subdir <dir>', 'Alias for --path')
     .option('--branch <branch>', 'Git branch')
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (urlOrPath: string | undefined, options: {

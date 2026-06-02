@@ -103,6 +103,7 @@ describe('help output', () => {
     const syncCmd = program.commands.find(c => c.name() === 'sync');
     const scanCmd = program.commands.find(c => c.name() === 'scan');
     const doctorCmd = program.commands.find(c => c.name() === 'doctor');
+    const installCmd = program.commands.find(c => c.name() === 'install');
 
     expect(sourceCmd?.description()).toBe('Manage external skill sources and source recovery');
     expect(sourceCmd?.commands.find(c => c.name() === 'add')).toBeUndefined();
@@ -111,6 +112,8 @@ describe('help output', () => {
     expect(scanCmd?.options.map(o => o.long)).toContain('--migrate-unmanaged');
     expect(scanCmd?.options.map(o => o.long)).not.toContain('--migrate');
     expect(doctorCmd?.description()).toBe('Diagnose and repair config issues');
+    expect(installCmd?.options.find(o => o.long === '--path')?.description).toBe('Subdirectory within source containing skills');
+    expect(installCmd?.options.find(o => o.long === '--skill-subdir')?.description).toBe('Alias for --path');
     expect(pushCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
     expect(pullCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
     expect(syncCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
