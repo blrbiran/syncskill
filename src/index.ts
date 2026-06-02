@@ -380,6 +380,7 @@ interface StaleLinkCleanupSummary {
 function formatPullRows(result: PullResult): string[] {
   return [
     ...result.pulled_skills.map((skill: string) => `${skill}\t${result.server}\tpull\tin-sync`),
+    ...(result.deleted_skills ?? []).map((skill: string) => `${skill}\t${result.server}\tdelete\tin-sync`),
     ...result.conflicted_skills.map((skill: string) => `${skill}\t${result.server}\tconflict\tconflict`)
   ];
 }
@@ -435,6 +436,14 @@ function parseOnConflict(value: string): 'keep-local' | 'keep-remote' | 'skip' |
   throw new InvalidArgumentError('Expected one of: keep-local, keep-remote, skip, abort');
 }
 
+function parseOnDeletion(value: string): 'keep-local' | 'delete' | 'prompt' {
+  if (value === 'keep-local' || value === 'delete' || value === 'prompt') {
+    return value;
+  }
+
+  throw new InvalidArgumentError('Expected one of: keep-local, delete, prompt');
+}
+
 function failWithOutputError(code: string, message: string, hint?: string): never {
   try {
     const output = getGlobalOutput();
@@ -481,7 +490,7 @@ function handleSyncCommandError(error: unknown): never {
   }
 
   if (parsed.code === 'E_NEEDS_INPUT') {
-    return failWithOutputError(parsed.code, parsed.message, 'Use --cross-server-policy / --on-conflict, or remove --no-interactive');
+    return failWithOutputError(parsed.code, parsed.message, 'Use --cross-server-policy / --on-conflict / --on-deletion, or remove --no-interactive');
   }
 
   throw error;
@@ -1910,6 +1919,7 @@ export function createProgram(homeDir?: string): Command {
     .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
     .option('--cross-server-policy <policy>', 'How to resolve cross-server conflicts: first-wins, last-wins, abort, prompt, or server:<name>')
     .option('--on-conflict <policy>', 'How to resolve per-server conflicts: keep-local, keep-remote, skip, abort', parseOnConflict)
+    .option('--on-deletion <policy>', 'How to handle remote deletions: keep-local, delete, prompt', parseOnDeletion)
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (
       server: string | undefined,
@@ -1920,6 +1930,7 @@ export function createProgram(homeDir?: string): Command {
         yes?: boolean;
         crossServerPolicy?: string;
         onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
+        onDeletion?: 'keep-local' | 'delete' | 'prompt';
       }
     ) => {
       try {
@@ -1940,7 +1951,8 @@ export function createProgram(homeDir?: string): Command {
           yes: options.yes,
           noInteractive: isNoInteractive(program),
           crossServerPolicy: options.crossServerPolicy,
-          onConflict: options.onConflict
+          onConflict: options.onConflict,
+          onDeletion: options.onDeletion
         });
 
         for (const result of results) {
@@ -1961,6 +1973,7 @@ export function createProgram(homeDir?: string): Command {
     .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
     .option('--cross-server-policy <policy>', 'How to resolve cross-server conflicts: first-wins, last-wins, abort, prompt, or server:<name>')
     .option('--on-conflict <policy>', 'How to resolve per-server conflicts: keep-local, keep-remote, skip, abort', parseOnConflict)
+    .option('--on-deletion <policy>', 'How to handle remote deletions: keep-local, delete, prompt', parseOnDeletion)
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (
       server: string | undefined,
@@ -1971,6 +1984,7 @@ export function createProgram(homeDir?: string): Command {
         yes?: boolean;
         crossServerPolicy?: string;
         onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
+        onDeletion?: 'keep-local' | 'delete' | 'prompt';
       }
     ) => {
       try {
@@ -1993,7 +2007,8 @@ export function createProgram(homeDir?: string): Command {
           yes: options.yes,
           noInteractive: isNoInteractive(program),
           crossServerPolicy: options.crossServerPolicy,
-          onConflict: options.onConflict
+          onConflict: options.onConflict,
+          onDeletion: options.onDeletion
         });
 
         for (const result of results) {

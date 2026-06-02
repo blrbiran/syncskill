@@ -159,11 +159,87 @@ describe('sync CLI', () => {
       yes: undefined,
       noInteractive: undefined,
       crossServerPolicy: undefined,
-      onConflict: undefined
+      onConflict: undefined,
+      onDeletion: undefined
     });
     expect(consoleLog.mock.calls).toEqual([
       ['remote-docs\talpha\tpull\tin-sync'],
       ['welcome\talpha\tpush\tin-sync']
+    ]);
+  });
+
+  it('sync forwards on-deletion to engine and prints delete rows', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const syncServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'syncServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pull: {
+          server: 'alpha',
+          pulled_skills: [],
+          deleted_skills: ['removed-skill'],
+          skipped_skills: [],
+          conflicted_skills: [],
+          manifest: {
+            version: 1,
+            server: 'alpha',
+            updated_at: '2026-05-01T02:30:00.000Z',
+            skills: {}
+          }
+        },
+        push: {
+          server: 'alpha',
+          pushed_skills: [],
+          skipped_skills: [],
+          conflicted_skills: [],
+          manifest: {
+            version: 1,
+            server: 'alpha',
+            updated_at: '2026-05-01T02:30:00.000Z',
+            skills: {}
+          }
+        }
+      }
+    ]);
+
+    await createProgram(homeDir).parseAsync([
+      'node',
+      'syncskill',
+      '--no-refresh',
+      'sync',
+      'alpha',
+      '--on-deletion',
+      'delete'
+    ], { from: 'node' });
+
+    expect(syncServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], {
+      dryRun: undefined,
+      noRefresh: true,
+      timeout: undefined,
+      yes: undefined,
+      noInteractive: undefined,
+      crossServerPolicy: undefined,
+      onConflict: undefined,
+      onDeletion: 'delete'
+    });
+    expect(consoleLog.mock.calls).toEqual([
+      ['removed-skill\talpha\tdelete\tin-sync']
     ]);
   });
 
@@ -212,7 +288,8 @@ describe('sync CLI', () => {
       yes: true,
       noInteractive: undefined,
       crossServerPolicy: undefined,
-      onConflict: undefined
+      onConflict: undefined,
+      onDeletion: undefined
     });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpull\tin-sync'],
@@ -252,7 +329,9 @@ describe('sync CLI', () => {
       '--cross-server-policy',
       'server:alpha',
       '--on-conflict',
-      'abort'
+      'abort',
+      '--on-deletion',
+      'delete'
     ], { from: 'node' });
 
     expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], {
@@ -261,7 +340,8 @@ describe('sync CLI', () => {
       yes: undefined,
       noInteractive: true,
       crossServerPolicy: 'server:alpha',
-      onConflict: 'abort'
+      onConflict: 'abort',
+      onDeletion: 'delete'
     });
   });
 
@@ -303,7 +383,8 @@ describe('sync CLI', () => {
       yes: undefined,
       noInteractive: undefined,
       crossServerPolicy: undefined,
-      onConflict: undefined
+      onConflict: undefined,
+      onDeletion: undefined
     });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpull\tin-sync']
@@ -367,7 +448,8 @@ describe('sync CLI', () => {
       yes: undefined,
       noInteractive: undefined,
       crossServerPolicy: undefined,
-      onConflict: undefined
+      onConflict: undefined,
+      onDeletion: undefined
     });
   });
 
@@ -408,7 +490,8 @@ describe('sync CLI', () => {
       yes: undefined,
       noInteractive: undefined,
       crossServerPolicy: undefined,
-      onConflict: undefined
+      onConflict: undefined,
+      onDeletion: undefined
     });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpull\tin-sync']

@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getConfiguredServer, loadConfig, type ConfiguredServer, type ConflictResolution } from '../config/config.js';
@@ -15,6 +15,7 @@ import {
   saveManifestHistory,
   saveServerManifest,
   type ManifestHistoryEntry,
+  type ManifestSkillState,
   type ServerManifest
 } from './manifest.js';
 import { confirm, select } from '@inquirer/prompts';
@@ -39,6 +40,7 @@ export interface SyncEngineOptions {
   noInteractive?: boolean;
   timeout?: number;
   onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
+  onDeletion?: 'keep-local' | 'delete' | 'prompt';
   crossServerPolicy?: string;
   skipPullSkillsByServer?: Record<string, string[]>;
   preferLocalSkillsByServer?: Record<string, string[]>;
@@ -93,6 +95,7 @@ export interface PushResult {
 export interface PullResult {
   server: string;
   pulled_skills: string[];
+  deleted_skills?: string[];
   skipped_skills: string[];
   conflicted_skills: string[];
   manifest: ServerManifest;
@@ -540,6 +543,13 @@ export async function pullFromServer(homeDir: string, serverName: string, option
   const pulledSkillsForExecution = listSkillsByDirection(manifest, 'pull').filter(
     (skill) => !skippedCrossServerSkills.has(skill) && !skippedConflictSkills.includes(skill)
   );
+  const remoteDeletionCandidates = pulledSkillsForExecution.filter((skill) => isRemoteDeletionState(manifest.skills[skill]));
+  const pulledContentSkills = pulledSkillsForExecution.filter((skill) => !remoteDeletionCandidates.includes(skill));
+  const { deleteSkills: deletedSkillsForExecution, keepLocalSkills: keptLocalDeletionSkills } = await resolvePullDeletionActions(
+    serverName,
+    remoteDeletionCandidates,
+    options
+  );
   const skippedResultSkills = uniqueSorted([
     ...listSkillsByDirection(manifest, 'skip'),
     ...[...skippedCrossServerSkills],
@@ -553,79 +563,115 @@ export async function pullFromServer(homeDir: string, serverName: string, option
     let totalModified = 0;
     let totalDeleted = 0;
 
-    for (const skill of pulledSkillsForExecution) {
+    for (const skill of pulledContentSkills) {
       const state = manifest.skills[skill];
       const isNew = state.remote_hash && !state.local_hash;
-      const isDelete = !state.remote_hash && state.local_hash;
 
       if (isNew) {
         console.log(`  + ${skill} (new)`);
         totalAdded++;
-      } else if (isDelete) {
-        console.log(`  - ${skill} (deleted)`);
-        totalDeleted++;
       } else {
         console.log(`  ~ ${skill} (modified)`);
         totalModified++;
       }
     }
 
+    for (const skill of deletedSkillsForExecution) {
+      console.log(`  - ${skill} (deleted)`);
+      totalDeleted++;
+    }
+
+    for (const skill of keptLocalDeletionSkills) {
+      console.log(`  = ${skill} (kept local)`);
+    }
+
     for (const skill of reportedConflicts) {
       console.log(`  ! ${skill} (conflict)`);
     }
 
-    if (pulledSkillsForExecution.length === 0 && reportedConflicts.length === 0) {
+    if (
+      pulledContentSkills.length === 0 &&
+      deletedSkillsForExecution.length === 0 &&
+      keptLocalDeletionSkills.length === 0 &&
+      reportedConflicts.length === 0
+    ) {
       console.log('  (no changes)');
     } else {
       const parts: string[] = [];
       if (totalAdded > 0) parts.push(`${totalAdded} added`);
       if (totalModified > 0) parts.push(`${totalModified} modified`);
       if (totalDeleted > 0) parts.push(`${totalDeleted} deleted`);
+      if (keptLocalDeletionSkills.length > 0) parts.push(`${keptLocalDeletionSkills.length} kept local`);
       if (reportedConflicts.length > 0) parts.push(`${reportedConflicts.length} conflict(s)`);
 
-      const skillCount = pulledSkillsForExecution.length + reportedConflicts.length;
+      const skillCount =
+        pulledContentSkills.length + deletedSkillsForExecution.length + keptLocalDeletionSkills.length + reportedConflicts.length;
       console.log(`\nSummary: ${skillCount} skill(s), ${parts.join(', ')}`);
     }
 
     return {
       server: serverName,
       pulled_skills: [],
-      skipped_skills: uniqueSorted([...pulledSkillsForExecution, ...skippedResultSkills]),
+      deleted_skills: [],
+      skipped_skills: uniqueSorted([
+        ...pulledContentSkills,
+        ...deletedSkillsForExecution,
+        ...keptLocalDeletionSkills,
+        ...skippedResultSkills
+      ]),
       conflicted_skills: reportedConflicts,
       manifest
     };
   }
 
   const registry = await loadSkillsRegistry(homeDir);
-  for (const skill of pulledSkillsForExecution) {
+  for (const skill of pulledContentSkills) {
     const entry = registry.skills[skill];
     const targetPath = entry?.path ?? join(getSkillsDir(homeDir), skill);
     await pullSkillDirectory(server, skill, targetPath, runtime);
   }
 
-  const localHashes = pulledSkillsForExecution.length === 0 ? {} : await buildLocalSkillHashes(homeDir);
+  for (const skill of deletedSkillsForExecution) {
+    const entry = registry.skills[skill];
+    const targetPath = entry?.path ?? join(getSkillsDir(homeDir), skill);
+    await rm(targetPath, { recursive: true, force: true });
+  }
+
+  const localHashes = pulledContentSkills.length === 0 && deletedSkillsForExecution.length === 0 ? {} : await buildLocalSkillHashes(homeDir);
   const refreshedManifest = reconcileManifest({
     ...manifest,
     skills: Object.fromEntries(
       Object.entries(manifest.skills).map(([skill, state]) => [
         skill,
-        pulledSkillsForExecution.includes(skill)
+        pulledContentSkills.includes(skill)
           ? {
               ...state,
               local_hash: localHashes[skill] ?? state.local_hash
             }
-          : state
+          : deletedSkillsForExecution.includes(skill)
+            ? {
+                ...state,
+                local_hash: localHashes[skill] ?? null
+              }
+            : state
       ])
     )
   });
-  const finalizedManifest = finalizePulledSkills(refreshedManifest, pulledSkillsForExecution, updated.updatedAt);
+  let finalizedManifest = finalizePulledSkills(refreshedManifest, pulledContentSkills, updated.updatedAt);
+  finalizedManifest = detachKeptLocalDeletionSkills(finalizedManifest, keptLocalDeletionSkills, updated.updatedAt);
+  finalizedManifest = finalizePulledDeletionSkills(finalizedManifest, deletedSkillsForExecution, updated.updatedAt);
 
   await persistManifestState(homeDir, updated.previousManifest, finalizedManifest, updated.updatedAt);
 
   return {
     server: server.name,
-    pulled_skills: pulledSkillsForExecution,
-    skipped_skills: uniqueSorted([...listSkillsByDirection(finalizedManifest, 'skip'), ...skippedResultSkills]),
+    pulled_skills: pulledContentSkills,
+    deleted_skills: deletedSkillsForExecution,
+    skipped_skills: uniqueSorted([
+      ...listSkillsByDirection(finalizedManifest, 'skip').filter((skill) => !deletedSkillsForExecution.includes(skill)),
+      ...keptLocalDeletionSkills,
+      ...skippedResultSkills
+    ]),
     conflicted_skills: reportedConflicts,
     manifest: finalizedManifest
   };
@@ -761,6 +807,97 @@ function resolveConflicts(manifest: ServerManifest, take: 'local' | 'remote', up
   }
 
   return current;
+}
+
+function resolveDeletionPolicy(policy: SyncEngineOptions['onDeletion']): 'keep-local' | 'delete' | 'prompt' {
+  return policy ?? 'keep-local';
+}
+
+function isRemoteDeletionState(state: ManifestSkillState | undefined): boolean {
+  return state !== undefined && state.remote_hash === null && state.recorded_hash !== null && state.local_hash === state.recorded_hash;
+}
+
+async function resolvePullDeletionActions(
+  serverName: string,
+  deletionCandidates: string[],
+  options: SyncEngineOptions
+): Promise<{ deleteSkills: string[]; keepLocalSkills: string[] }> {
+  if (deletionCandidates.length === 0) {
+    return { deleteSkills: [], keepLocalSkills: [] };
+  }
+
+  const policy = resolveDeletionPolicy(options.onDeletion);
+  if (policy === 'delete') {
+    return { deleteSkills: deletionCandidates, keepLocalSkills: [] };
+  }
+
+  if (policy === 'keep-local') {
+    return { deleteSkills: [], keepLocalSkills: deletionCandidates };
+  }
+
+  if (options.noInteractive) {
+    throw createSyncEngineError('E_NEEDS_INPUT', `Remote deletion on ${serverName} requires a decision`);
+  }
+
+  const deleteSkills: string[] = [];
+  const keepLocalSkills: string[] = [];
+
+  for (const skill of deletionCandidates) {
+    let shouldDelete = false;
+
+    try {
+      shouldDelete = await confirm({
+        message: `Delete local skill "${skill}" removed from ${serverName}?`,
+        default: false
+      });
+    } catch {
+      shouldDelete = false;
+    }
+
+    if (shouldDelete) {
+      deleteSkills.push(skill);
+    } else {
+      keepLocalSkills.push(skill);
+    }
+  }
+
+  return { deleteSkills, keepLocalSkills };
+}
+
+function detachKeptLocalDeletionSkills(manifest: ServerManifest, skills: string[], updatedAt: string): ServerManifest {
+  if (skills.length === 0) {
+    return manifest;
+  }
+
+  return reconcileManifest({
+    ...manifest,
+    updated_at: updatedAt,
+    skills: { ...manifest.skills }
+  });
+}
+
+function finalizePulledDeletionSkills(manifest: ServerManifest, skills: string[], updatedAt: string): ServerManifest {
+  return reconcileManifest({
+    ...manifest,
+    updated_at: updatedAt,
+    skills: Object.fromEntries(
+      Object.entries(manifest.skills).map(([skill, state]) => {
+        if (!skills.includes(skill)) {
+          return [skill, state];
+        }
+
+        return [
+          skill,
+          {
+            ...state,
+            local_hash: null,
+            remote_hash: null,
+            recorded_hash: null
+          }
+        ];
+      })
+    )
+  });
 }
 
 function listSkillsByDirection(manifest: ServerManifest, direction: 'push' | 'pull' | 'skip' | 'conflict'): string[] {

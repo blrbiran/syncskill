@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -408,6 +408,118 @@ describe('sync engine orchestration', () => {
     expect(manifest.skills.welcome.direction).toBe('skip');
     expect(manifest.skills.welcome.status).toBe('in-sync');
     expect(manifest.skills.welcome.local_hash).toBe(manifest.skills.welcome.remote_hash);
+  });
+
+  it('pullFromServer deletes locally when remote deletion policy is delete', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+    await pushToServers(homeDir, ['alpha'], {
+      runtime: createRuntime({
+        remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00.000Z', skills: {} })
+      }),
+      now: '2026-05-01T05:30:00.000Z'
+    });
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T06:00:00.000Z', skills: {} })
+    });
+
+    const result = await pullFromServer(homeDir, 'alpha', {
+      runtime,
+      now: '2026-05-01T06:30:00.000Z',
+      onDeletion: 'delete'
+    });
+
+    expect(result.pulled_skills).toEqual([]);
+    expect(result.deleted_skills).toEqual(['welcome']);
+    expect(result.skipped_skills).not.toContain('welcome');
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.includes('export-skill'))).toBe(false);
+    await expect(access(skillDir)).rejects.toBeDefined();
+
+    const manifest = await loadServerManifest(homeDir, 'alpha');
+    expect(manifest.skills.welcome.local_hash).toBeNull();
+    expect(manifest.skills.welcome.remote_hash).toBeNull();
+    expect(manifest.skills.welcome.recorded_hash).toBeNull();
+    expect(manifest.skills.welcome.direction).toBe('skip');
+    expect(manifest.skills.welcome.status).toBe('in-sync');
+  });
+
+  it('pullFromServer keeps local files when remote deletion policy is keep-local', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+    await pushToServers(homeDir, ['alpha'], {
+      runtime: createRuntime({
+        remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00.000Z', skills: {} })
+      }),
+      now: '2026-05-01T06:30:00.000Z'
+    });
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T07:00:00.000Z', skills: {} })
+    });
+
+    const result = await pullFromServer(homeDir, 'alpha', {
+      runtime,
+      now: '2026-05-01T07:30:00.000Z',
+      onDeletion: 'keep-local'
+    });
+
+    expect(result.pulled_skills).toEqual([]);
+    expect(result.deleted_skills).toEqual([]);
+    expect(result.skipped_skills).toContain('welcome');
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.includes('export-skill'))).toBe(false);
+    await expect(access(skillDir)).resolves.toBeUndefined();
+
+    const manifest = await loadServerManifest(homeDir, 'alpha');
+    expect(manifest.skills.welcome.local_hash).not.toBeNull();
+    expect(manifest.skills.welcome.remote_hash).toBeNull();
+    expect(manifest.skills.welcome.recorded_hash).not.toBeNull();
+    expect(manifest.skills.welcome.direction).toBe('pull');
+    expect(manifest.skills.welcome.status).toBe('remote-changed');
   });
 
   it('pushToServers prints warning for skills with direction=pull', async () => {
