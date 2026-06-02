@@ -194,23 +194,6 @@ describe('pull target paths', () => {
       const { symlink } = await import('node:fs/promises');
       await symlink(skillSourcePath, join(skillsDir, 'git-skill'));
 
-      // Write registry with skill pointing to sources path
-      await ctx.writeRegistry({
-        skills: {
-          'git-skill': {
-            path: skillSourcePath,
-            source: 'my-repo',
-          },
-        },
-      });
-
-      // Verify registry shows path contains .syncskill/.sources/my-repo/checkout
-      const registry = (await ctx.readRegistry()) as {
-        skills: Record<string, { path: string }>;
-      };
-      expect(registry.skills['git-skill']).toBeDefined();
-      expect(registry.skills['git-skill'].path).toContain('.syncskill/.sources/my-repo/checkout');
-
       // Manually add link config
       const config = (await ctx.readConfig()) as Record<string, unknown>;
       config.links = { 'git-skill': ['*'] };
@@ -254,27 +237,17 @@ describe('pull target paths', () => {
       const { symlink, readlink } = await import('node:fs/promises');
       await symlink(skillExternalPath, skillsSymlink);
 
-      // Manually write config with source type: 'local' pointing to external path
+      // Manually write config with source type: 'local' pointing to the external root
       const config = (await ctx.readConfig()) as Record<string, unknown>;
-      config.sources = [
-        {
-          name: 'external-source',
+      config.sources = {
+        'external-source': {
           type: 'local',
-          path: externalPath,
+          url: externalPath,
+          path: '.',
         },
-      ];
+      };
       config.links = { 'local-skill': ['*'] };
       await ctx.writeConfig(config);
-
-      // Write registry with skill pointing to external path
-      await ctx.writeRegistry({
-        skills: {
-          'local-skill': {
-            path: skillExternalPath,
-            source: 'external-source',
-          },
-        },
-      });
 
       // Link the skill
       await ctx.run('syncskill', 'link', 'build');

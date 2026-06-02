@@ -35,17 +35,6 @@ describe('pull skill placement', () => {
       };
       await ctx.writeConfig(config);
 
-      // Write registry marking skill as manual type
-      await ctx.writeRegistry({
-        skills: {
-          'manual-skill': {
-            path: join(ctx.syncskillDir, 'skills', 'manual-skill'),
-            type: 'manual',
-            status: 'active',
-          },
-        },
-      });
-
       // Modify skill on server (simulating remote edit)
       const serverPath = ctx.getMockServerPath('server1');
       await writeFile(
@@ -105,18 +94,6 @@ describe('pull skill placement', () => {
         },
       };
       await ctx.writeConfig(config);
-
-      // Write registry
-      await ctx.writeRegistry({
-        skills: {
-          'git-skill': {
-            path: join(checkoutDir, 'git-skill'),
-            origin: 'my-repo',
-            type: 'git',
-            status: 'active',
-          },
-        },
-      });
 
       // Modify skill on server
       const serverPath = ctx.getMockServerPath('server1');
@@ -217,13 +194,13 @@ describe('pull skill placement', () => {
 
       // Setup config with local source
       const config = (await ctx.readConfig()) as Record<string, unknown>;
-      config.sources = [
-        {
-          name: 'external-tools',
+      config.sources = {
+        'external-tools': {
           type: 'local',
-          path: ctx.getPath('external-tools'),
+          url: ctx.getPath('external-tools'),
+          path: '.',
         },
-      ];
+      };
       config.links = { 'local-skill': ['*'] };
       config.servers = {
         server1: {
@@ -232,18 +209,6 @@ describe('pull skill placement', () => {
         },
       };
       await ctx.writeConfig(config);
-
-      // Write registry
-      await ctx.writeRegistry({
-        skills: {
-          'local-skill': {
-            path: externalPath,
-            origin: 'external-tools',
-            type: 'local',
-            status: 'active',
-          },
-        },
-      });
 
       // Modify on server
       const serverPath = ctx.getMockServerPath('server1');
