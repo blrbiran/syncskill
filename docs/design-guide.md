@@ -103,7 +103,7 @@ interface ReconcileResult {
 
 **Safety Guarantees:**
 
-1. **Only touches syncskill-managed symlinks** - A symlink is considered "managed" only if it points to a path under `~/.syncskill/skills/` or `~/.syncskill/sources/`. External symlinks are never modified.
+1. **Only touches syncskill-managed symlinks** - A symlink is considered "managed" only if it points to a path under `~/.syncskill/skills/`. External symlinks are never modified.
 
 2. **Never deletes real directories** - Uses `lstatSync()` to distinguish symlinks from directories. Real directories are always skipped, even if they have the same name as a skill.
 
@@ -148,6 +148,8 @@ Delta classification:
 ### `src/source.ts`
 
 Owns configured source definitions, source materialization, source state tracking, and ownership checks for skills imported from local, git, or http sources.
+
+Git and HTTP sources materialize internal checkouts under `~/.syncskill/.sources/<name>/checkout/`, while local directories are used in place and local archives are extracted into the same internal checkout layout.
 
 Git sources: Auto-detect default branch via `git ls-remote --symref`, then `git clone --single-branch --depth 1`.
 
@@ -194,7 +196,7 @@ Local state lives under `~/.syncskill/`:
 |------|---------|
 | `config.json` | User configuration |
 | `skills/` | Manually managed skills |
-| `sources/` | Cloned git/http sources |
+| `.sources/` | Internal source state and materialized checkouts |
 | `manifests/<server>.json` | Per-server reconciliation snapshots |
 | `manifest_history.json` | Hash change audit trail |
 | `skills-registry.json` | Skill origin and status tracking |

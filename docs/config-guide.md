@@ -42,7 +42,7 @@ Default layout:
 ~/.syncskill/
 ├── config.json                    # User configuration
 ├── skills/                        # Manually managed skills
-├── sources/                       # Cloned git/http sources
+├── .sources/                      # Internal source state and materialized checkouts
 ├── manifests/                     # Per-server sync state (JSON per server)
 │   └── <server>.json
 ├── manifest_history.json          # Hash change history
@@ -298,7 +298,7 @@ Supported source types:
 | Type | Description |
 |------|-------------|
 | `local` | Local filesystem directory |
-| `git` | Git repository (cloned to `~/.syncskill/sources/`) |
+| `git` | Git repository materialized under `~/.syncskill/.sources/<name>/checkout/` |
 | `http` | HTTP archive (`.tar.gz`, `.tgz`, `.tar.bz2`, `.tar.xz`, `.zip`) |
 
 Each source entry includes:
@@ -339,7 +339,8 @@ Example:
     },
     "archive-skills": {
       "type": "local",
-      "path": "~/.syncskill/sources/archive-skills",
+      "url": "~/.syncskill/.sources/archive-skills/checkout",
+      "path": ".",
       "archive_path": "~/Downloads/my-skills.tar.gz"
     }
   }
@@ -348,32 +349,22 @@ Example:
 
 ## Skills Registry
 
-The `skills-registry.json` file stores skill registry metadata used by syncskill:
+The current v2 `skills-registry.json` stores only ignored-skill metadata and HTTP dirty-detection baselines. Active skill ownership is derived from config plus the materialized filesystem state:
 
 ```json
 {
-  "version": 1,
-  "skills": {
-    "manual-skill": {
-      "path": "~/.syncskill/skills/manual-skill",
-      "origin": "manual",
-      "type": "manual",
-      "status": "active"
-    },
-    "source-skill": {
-      "path": "~/.syncskill/sources/my-repo/.claude/source-skill",
-      "origin": "my-repo",
-      "type": "git",
-      "status": "active"
-    },
+  "version": 2,
+  "ignored": {
     "ignored-skill": {
-      "path": "~/.syncskill/sources/repo/.claude/skills/ignored-skill",
-      "origin": "repo",
-      "type": "git",
-      "status": "ignored",
-      "ignored_reason": "duplicate",
+      "reason": "duplicate",
       "ignored_at": "2026-05-09T10:00:00Z",
-      "kept_by": "~/.syncskill/sources/repo/skills/ignored-skill"
+      "kept_by": "~/.syncskill/skills/kept-copy"
+    }
+  },
+  "http_baselines": {
+    "vendor-skill": {
+      "hash": "abc123def456",
+      "source": "vendor-docs"
     }
   }
 }

@@ -386,7 +386,7 @@ e2eTest("top-level update detects dirty state", async () => {
   await ctx.run("syncskill", "install", ctx.getGitSourceUrl("my-repo"), "-y");
 
   // Local modification
-  await ctx.writeFile(".syncskill/sources/my-repo/skill-a/SKILL.md", "# Modified\n");
+  await ctx.writeFile(".syncskill/.sources/my-repo/checkout/skill-a/SKILL.md", "# Modified\n");
 
   // Remote also modified
   await ctx.modifyGitSourceSkill("my-repo", "skill-a", "# Remote change\n");
