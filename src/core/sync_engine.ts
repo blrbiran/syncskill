@@ -951,8 +951,7 @@ function resolveTargetServers(
   config: Awaited<ReturnType<typeof loadConfig>>,
   servers?: string[]
 ): string[] {
-  const targetServers = servers === undefined || servers.length === 0 ? Object.keys(config.servers) : [...new Set(servers)];
-  return targetServers.sort();
+  return servers === undefined || servers.length === 0 ? Object.keys(config.servers) : [...new Set(servers)];
 }
 
 function getSkillsDir(homeDir: string): string {

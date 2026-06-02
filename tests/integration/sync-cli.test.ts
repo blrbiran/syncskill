@@ -67,7 +67,7 @@ describe('sync CLI', () => {
     ]);
   });
 
-  it('sync --all prints pull-all then push-all skill rows for the main path', async () => {
+  it('sync --all preserves configured server order for execution', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
     tempDirs.push(homeDir);
 
@@ -78,12 +78,12 @@ describe('sync CLI', () => {
         agents: {},
         links: {},
         servers: {
-          alpha: {
-            host: 'alpha.example.com',
-            remote_agents: {}
-          },
           beta: {
             host: 'beta.example.com',
+            remote_agents: {}
+          },
+          alpha: {
+            host: 'alpha.example.com',
             remote_agents: {}
           }
         },
@@ -152,7 +152,7 @@ describe('sync CLI', () => {
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'sync', '--all'], { from: 'node' });
 
-    expect(syncServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], {
+    expect(syncServersSpy).toHaveBeenCalledWith(homeDir, ['beta', 'alpha'], {
       dryRun: undefined,
       noRefresh: true,
       timeout: undefined,

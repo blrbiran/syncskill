@@ -48,6 +48,44 @@ function createRuntime(options: {
 describe('sync engine orchestration', () => {
   const tempDirs = useTempDirs();
 
+  it('pushToServers preserves configured server order when targeting all servers', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          beta: {
+            host: 'beta.example.com',
+            remote_agents: {}
+          },
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00.000Z', skills: {} })
+    });
+
+    const results = await pushToServers(homeDir, undefined, {
+      runtime,
+      now: '2026-05-01T00:30:00.000Z',
+      yes: false
+    });
+
+    expect(results.map((result) => result.server)).toEqual(['beta', 'alpha']);
+  });
+
   it('pushToServers uploads local-only changes and persists finalized manifest state', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
     tempDirs.push(homeDir);

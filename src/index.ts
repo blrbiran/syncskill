@@ -1892,7 +1892,7 @@ export function createProgram(homeDir?: string): Command {
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
       await autoDiagnoseConfig(config, skillsDir);
 
-      const allServers = Object.keys(config.servers).sort();
+      const allServers = Object.keys(config.servers);
 
       const targetServers = await selectTargetServers(allServers, server, options, 'push');
       if (!targetServers) return;
@@ -1938,7 +1938,7 @@ export function createProgram(homeDir?: string): Command {
         const { skillsDir } = getSyncPaths(resolvedHomeDir);
         await autoDiagnoseConfig(config, skillsDir);
 
-        const allServers = Object.keys(config.servers).sort();
+        const allServers = Object.keys(config.servers);
         const targetServers = await selectTargetServers(allServers, server, {
           ...options,
           noInteractive: isNoInteractive(program)
@@ -1992,7 +1992,7 @@ export function createProgram(homeDir?: string): Command {
         const { skillsDir } = getSyncPaths(resolvedHomeDir);
         await autoDiagnoseConfig(config, skillsDir);
 
-        const allServers = Object.keys(config.servers).sort();
+        const allServers = Object.keys(config.servers);
         const globalOptions = program.opts<{ refresh: boolean }>();
         const targetServers = await selectTargetServers(allServers, server, {
           ...options,
