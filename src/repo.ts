@@ -22,13 +22,14 @@ export interface InitializeRepoOptions {
 }
 
 export async function initializeRepo(homeDir: string, options: InitializeRepoOptions = {}): Promise<void> {
-  const { syncDir, skillsDir, manifestsDir, tempDir, configFile } = getSyncPaths(homeDir);
+  const { syncDir, skillsDir, manifestsDir, tempDir, backupsDir, configFile } = getSyncPaths(homeDir);
 
   await Promise.all([
     mkdir(syncDir, { recursive: true }),
     mkdir(skillsDir, { recursive: true }),
     mkdir(manifestsDir, { recursive: true }),
-    mkdir(tempDir, { recursive: true })
+    mkdir(tempDir, { recursive: true }),
+    mkdir(backupsDir, { recursive: true })
   ]);
 
   const detectedAgents = await detectAgents(homeDir);

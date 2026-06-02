@@ -71,7 +71,8 @@ async function performStashOrBackup(opts: PerformStashOrBackupOptions): Promise<
   } else if (dirtySkills.length > 0) {
     console.log('⚠ Backing up dirty skills before update...');
     const backupResult = await backupDirtySkillsToSidecar({
-      sourcePath,
+      homeDir,
+      sourceName,
       dirtySkills: dirtySkills.map(s => ({
         name: s.name,
         path: s.path
@@ -81,7 +82,7 @@ async function performStashOrBackup(opts: PerformStashOrBackupOptions): Promise<
       console.log(`  ✓ Backed up ${backed.name} to ${backed.backupPath}`);
     }
     if (sourceType === 'http' && backupResult.backedUp.length > 0) {
-      console.log(`  Backup directory: ${getSidecarBackupDir(sourcePath)}`);
+      console.log(`  Backup directory: ${getSidecarBackupDir(homeDir, sourceName)}`);
     }
   }
 }
@@ -949,7 +950,7 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
         console.log(`  All skills in source: ${allSkillNames}`);
         console.log(`  Skipping this source will skip ALL ${allSkills.length} skills, not just the dirty ones.`);
       }
-      console.log('  Use --force to overwrite local changes.');
+      console.log('  Use --force to bypass dirty protection, or --yes to auto-skip.');
       return 'skip';
     } else if (hasNonSkillDirty) {
       // Non-skill dirty with -y: update (doesn't affect skills)
@@ -971,7 +972,7 @@ async function handleDirtySource(opts: HandleDirtySourceOptions): Promise<DirtyD
     } else {
       console.log(`⚠ Skipped: ${sourceName} (uncommitted non-skill changes)`);
     }
-    console.log('  Use --force to backup and update, or --yes to skip.');
+    console.log('  `--force` only bypasses dirty protection; use `-y` to auto-confirm prompts.');
     return 'skip';
   }
 

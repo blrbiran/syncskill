@@ -498,7 +498,7 @@ describe('source update --force', () => {
 
         await updateSource(homeDir, 'http-source', { force: true });
 
-        const backupDir = join(syncDir, 'skills', 'http-source.syncskill-pre-update-backup');
+        const backupDir = join(syncDir, '.backups', 'sources', 'http-source', 'pre-update');
         await expect(readFile(join(backupDir, 'http-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# HTTP local edit\n');
         await expect(readFile(join(skillsDir, 'http-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# HTTP v2\n');
 
