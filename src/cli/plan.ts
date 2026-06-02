@@ -1,10 +1,12 @@
 export interface PlanAction {
+  id?: string;
   op: string;
   [key: string]: unknown;
 }
 
 export interface UnresolvedItem {
   kind: string;
+  resolve_phase?: 'plan' | 'execute';
   [key: string]: unknown;
 }
 
@@ -15,6 +17,20 @@ export interface Plan {
   actions: PlanAction[];
   unresolved: UnresolvedItem[];
   warnings: string[];
+}
+
+function normalizeAction(action: PlanAction, index: number): PlanAction {
+  return {
+    ...action,
+    id: typeof action.id === 'string' && action.id.length > 0 ? action.id : `a${index + 1}`
+  };
+}
+
+function normalizeUnresolved(item: UnresolvedItem): UnresolvedItem {
+  return {
+    ...item,
+    resolve_phase: item.resolve_phase === 'execute' ? 'execute' : 'plan'
+  };
 }
 
 export function createPlan(command: string): Plan {
@@ -29,11 +45,11 @@ export function createPlan(command: string): Plan {
 }
 
 export function addAction(plan: Plan, action: PlanAction): Plan {
-  return { ...plan, actions: [...plan.actions, action] };
+  return { ...plan, actions: [...plan.actions, normalizeAction(action, plan.actions.length)] };
 }
 
 export function addUnresolved(plan: Plan, item: UnresolvedItem): Plan {
-  return { ...plan, unresolved: [...plan.unresolved, item] };
+  return { ...plan, unresolved: [...plan.unresolved, normalizeUnresolved(item)] };
 }
 
 export function addWarning(plan: Plan, warning: string): Plan {
@@ -49,9 +65,13 @@ export function serializePlan(plan: Plan): string {
 }
 
 export function parsePlan(content: string): Plan {
-  const parsed = JSON.parse(content);
+  const parsed = JSON.parse(content) as Plan;
   if (parsed.version !== 1) {
     throw new Error(`Unsupported plan version: ${parsed.version}`);
   }
-  return parsed as Plan;
+  return {
+    ...parsed,
+    actions: parsed.actions.map((action, index) => normalizeAction(action, index)),
+    unresolved: parsed.unresolved.map((item) => normalizeUnresolved(item))
+  };
 }

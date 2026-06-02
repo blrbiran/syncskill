@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { Readable } from 'node:stream';
 import { withPlanExecute } from '../../src/cli/plan-execute.js';
 
 describe('cli/plan-execute', () => {
@@ -43,5 +44,39 @@ describe('cli/plan-execute', () => {
     expect(buildPlan).toHaveBeenCalled();
     expect(executePlan).not.toHaveBeenCalled();
     expect(result.planOnly).toBe(true);
+  });
+
+  it('loads plan from stdin when apply path is dash', async () => {
+    const stdin = process.stdin;
+    const stream = Readable.from([
+      JSON.stringify({
+        version: 1,
+        command: 'test',
+        generated_at: '2026-06-02T00:00:00.000Z',
+        actions: [{ op: 'clone' }],
+        unresolved: [],
+        warnings: []
+      })
+    ]);
+    Object.defineProperty(process, 'stdin', { value: stream, configurable: true });
+
+    const buildPlan = vi.fn();
+    const executePlan = vi.fn().mockResolvedValue(undefined);
+
+    try {
+      await withPlanExecute({
+        buildPlan,
+        executePlan,
+        options: { apply: '-' }
+      });
+    } finally {
+      Object.defineProperty(process, 'stdin', { value: stdin, configurable: true });
+    }
+
+    expect(buildPlan).not.toHaveBeenCalled();
+    expect(executePlan).toHaveBeenCalledWith(
+      expect.objectContaining({ actions: [expect.objectContaining({ op: 'clone', id: 'a1' })] }),
+      {}
+    );
   });
 });

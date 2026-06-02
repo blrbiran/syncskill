@@ -42,6 +42,18 @@ describe('CLI introspection', () => {
 
     expect(data.name).toBe('syncskill');
     expect(data.globalOptions.map((option: { flags: string }) => option.flags)).toContain('--json');
+    expect(data.globalOptions.map((option: { flags: string }) => option.flags)).toContain('--apply <path|->');
     expect(data.commands.map((command: { name: string }) => command.name)).toContain('install');
+
+    const linkCommand = data.commands.find((command: { name: string }) => command.name === 'link');
+    expect(linkCommand.audience).toBe('both');
+
+    const linkBuild = linkCommand.commands.find((command: { name: string }) => command.name === 'build');
+    expect(linkBuild.audience).toBe('agent');
+    expect(linkBuild.prefer).toBeNull();
+
+    const linkEdit = linkCommand.commands.find((command: { name: string }) => command.name === 'edit');
+    expect(linkEdit.audience).toBe('human');
+    expect(linkEdit.prefer).toBe('link set');
   });
 });

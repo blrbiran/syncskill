@@ -1,8 +1,20 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import type { Plan } from './plan.js';
-import { parsePlan, serializePlan } from './plan.js';
+import { parsePlan } from './plan.js';
 import type { Resolutions } from './resolution.js';
 import { loadResolutions } from './resolution.js';
+
+async function readTextInput(path: string): Promise<string> {
+  if (path !== '-') {
+    return readFile(path, 'utf8');
+  }
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 export type PlanBuilder = () => Promise<Plan>;
 export type PlanExecutor = (plan: Plan, resolutions: Resolutions) => Promise<void>;
@@ -10,7 +22,6 @@ export type ResolutionCollector = (plan: Plan) => Promise<Resolutions>;
 
 export interface PlanExecuteOptions {
   plan?: boolean;
-  planFile?: string;
   apply?: string;
   resolutions?: string;
   yes?: boolean;
@@ -34,7 +45,7 @@ export async function withPlanExecute(params: PlanExecuteParams): Promise<PlanEx
   let plan: Plan;
 
   if (options.apply) {
-    const content = await readFile(options.apply, 'utf8');
+    const content = await readTextInput(options.apply);
     plan = parsePlan(content);
   } else {
     plan = await buildPlan();
@@ -42,10 +53,6 @@ export async function withPlanExecute(params: PlanExecuteParams): Promise<PlanEx
 
   if (options.plan) {
     return { planOnly: true, plan };
-  }
-
-  if (options.planFile) {
-    await writeFile(options.planFile, serializePlan(plan), 'utf8');
   }
 
   let resolutions: Resolutions = {};
