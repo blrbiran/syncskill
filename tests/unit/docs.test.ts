@@ -30,7 +30,7 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('pull');
     expect(readme).toContain('sync');
     expect(readme).toContain('server list');
-    expect(readme).toContain('refresh --remote --status');
+    expect(readme).toContain('refresh --remote <server>');
     expect(readme).toContain('--json');
     expect(readme).toContain('--no-interactive');
     expect(readme).toContain('link set');
@@ -58,10 +58,10 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('syncskill init');
     expect(usageGuide).toContain('syncskill status');
     expect(usageGuide).toContain('syncskill diff alpha');
-    expect(usageGuide).toContain('syncskill refresh --status alpha');
+    expect(usageGuide).toContain('syncskill refresh alpha');
     expect(usageGuide).toContain('syncskill server list');
     expect(usageGuide).toContain('syncskill server show alpha');
-    expect(usageGuide).toContain('syncskill refresh --remote --status alpha');
+    expect(usageGuide).toContain('syncskill refresh --remote alpha');
     expect(usageGuide).toContain('npm link');
     expect(usageGuide).toContain('syncskill sync --all');
     expect(usageGuide).toContain('node dist/index.js --help');

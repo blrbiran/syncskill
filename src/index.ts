@@ -1699,7 +1699,7 @@ export function createProgram(homeDir?: string): Command {
     getGlobalOutput().setCommand(name);
   }
 
-  const sourceCommand = program.command('source').description('Manage external skill sources and source recovery');
+  const sourceCommand = program.command('source').description('Manage external skill sources');
 
   sourceCommand
     .command('list')
@@ -1892,20 +1892,20 @@ export function createProgram(homeDir?: string): Command {
 
   program
     .command('refresh [server]')
-    .description('Refresh manifest state. Default: --all + --status')
-    .option('--all', 'Refresh both local and remote (default when no flags)')
+    .description('Refresh manifest state (no flags: local + remote, then show status)')
+    .option('--all', 'Refresh both local and remote')
     .option('--local', 'Refresh local manifest state')
     .option('--remote', 'Refresh remote manifest state')
-    .option('--status', 'Show refreshed status rows')
-    .action(async (server: string | undefined, options: { all?: boolean; local?: boolean; remote?: boolean; status?: boolean }) => {
+    .action(async (server: string | undefined, options: { all?: boolean; local?: boolean; remote?: boolean }) => {
+      const showStatus = !options.all && !options.local && !options.remote;
       const manifests = await refreshStoredManifests(resolvedHomeDir, {
-        all: Boolean(options.all),
+        all: showStatus || Boolean(options.all),
         local: Boolean(options.local),
         remote: Boolean(options.remote),
         server
       });
 
-      if (options.status) {
+      if (showStatus) {
         for (const line of formatStatusLines(manifests)) {
           console.log(line);
         }

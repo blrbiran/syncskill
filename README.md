@@ -102,7 +102,7 @@ In v2, `source add`, `source update`, and `source restore` were removed. Use `in
 | `syncskill status` | Show sync status for all tracked servers |
 | `syncskill diff <server>` | Show pending changes for one server |
 | `syncskill resolve <skill>` | Resolve a conflict |
-| `syncskill refresh [--local\|--remote\|--status]` | Refresh manifest state |
+| `syncskill refresh [server\|--all] [--local\|--remote]` | Refresh manifest state; no flags also print status |
 
 ### Remote Servers
 
@@ -137,7 +137,7 @@ In v2, `source add`, `source update`, and `source restore` were removed. Use `in
 - `-y, --yes` - Skip confirmation prompts
 - `--dry-run` - Preview changes without executing
 
-Use `refresh --remote --status` when you want reconciliation to reflect the real remote skill tree without pulling remote skill contents into the local repository.
+Use `refresh --remote <server>` when you want reconciliation to reflect the real remote skill tree without pulling remote skill contents into the local repository.
 Use `pull` when you want to copy remote skill contents into the local repository.
 Use `server show` to inspect the configured `host`, `user`, `port`, `identity_file`, and `remote_agents` paths before mutating sync operations.
 For v2 migrations: `server probe` was removed; use `server show` plus sync/refresh commands to validate server configuration.

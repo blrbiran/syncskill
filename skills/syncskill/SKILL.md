@@ -9,7 +9,7 @@ Use this skill when:
 - User wants to install, add, or manage AI skills
 - User mentions syncskill, skill sync, or skill management
 - User wants to add skills from GitHub or other sources
-- User wants to update or restore skill sources after overwrite
+- User wants to update skill sources or recover from overwrite via sidecar backups
 - User wants to sync skills to remote servers, including timeout tuning
 - User wants to link/unlink skills to AI agents
 - User asks about skill status or configuration
@@ -84,7 +84,7 @@ In v2, `server probe` is removed.
 | `status` | Show sync status for all tracked servers |
 | `diff <server>` | Show pending changes for a server |
 | `resolve <skill> [--local|--remote|--diff]` | Resolve sync conflicts |
-| `refresh [server] [--local|--remote|--all|--status]` | Refresh manifest state |
+| `refresh [server] [--local|--remote|--all]` | Refresh manifest state; no flags also print status |
 
 ### Configuration & Diagnostics
 

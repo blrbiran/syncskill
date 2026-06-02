@@ -295,8 +295,8 @@ syncskill resolve welcome --remote
 syncskill resolve welcome --diff
 syncskill resolve welcome --local --diff
 
-# Refresh manifest state and show status
-syncskill refresh --status alpha
+# Refresh both local and remote manifest state, then show status
+syncskill refresh alpha
 ```
 
 Recommended flow:
@@ -304,7 +304,7 @@ Recommended flow:
 1. Run `syncskill status` to see all tracked server rows
 2. Run `syncskill diff alpha` to focus on one server
 3. If a skill is in conflict, run `syncskill resolve <skill>` (interactive or with `--local`/`--remote`)
-4. Run `syncskill refresh --status alpha` when you want to refresh stored local manifest state before reviewing again
+4. Run `syncskill refresh alpha` when you want to refresh manifest state before reviewing again
 
 ## Remote Lifecycle Workflow
 
@@ -318,14 +318,14 @@ syncskill server list
 syncskill server show alpha
 
 # Refresh remote manifest without pulling content
-syncskill refresh --remote --status alpha
+syncskill refresh --remote alpha
 ```
 
 Recommended flow:
 
 1. Run `syncskill server list` to see configured remote targets
 2. Run `syncskill server show alpha` to inspect `host`, `user`, `port`, `identity_file`, and `remote_agents` paths
-3. Run `syncskill refresh --remote --status alpha` when you want reconciliation to reflect the real remote skill tree without pulling skill contents into the local repository
+3. Run `syncskill refresh --remote alpha` when you want reconciliation to reflect the real remote skill tree without pulling skill contents into the local repository
 4. Run `syncskill pull alpha` when you want to materialize remote skill contents locally.
 
 Note: `server probe` was removed in v2.
@@ -334,7 +334,7 @@ If you need to validate connectivity, use your normal SSH command path first, th
 
 ```bash
 ssh -i ~/.ssh/id_ed25519 user@example.com
-syncskill refresh --remote --status alpha
+syncskill refresh --remote alpha
 ```
 
 Expected configuration now lives in `~/.syncskill/config.json`.

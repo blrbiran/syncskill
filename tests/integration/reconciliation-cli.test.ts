@@ -91,7 +91,7 @@ describe('reconciliation CLI', () => {
     ]);
   });
 
-  it('refresh --local --status [server] prints refreshed status rows', async () => {
+  it('refresh --local [server] updates manifests without printing status rows', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
     tempDirs.push(homeDir);
 
@@ -146,14 +146,25 @@ describe('reconciliation CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'refresh', '--local', '--status', 'alpha'], {
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'refresh', '--local', 'alpha'], {
       from: 'node'
     });
 
-    expect(consoleLog.mock.calls).toEqual([['welcome\talpha\tpush\tlocal-changed']]);
+    expect(consoleLog).not.toHaveBeenCalled();
+    await expect(loadServerManifest(homeDir, 'alpha')).resolves.toMatchObject({
+      skills: {
+        welcome: {
+          local_hash: expect.any(String),
+          remote_hash: '11111111111111111111111111111111',
+          recorded_hash: '11111111111111111111111111111111',
+          direction: 'push',
+          status: 'local-changed'
+        }
+      }
+    });
   });
 
-  it('refresh --remote --status <server> prints refreshed remote rows', async () => {
+  it('refresh [server] prints refreshed status rows by default', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
     tempDirs.push(homeDir);
 
@@ -193,7 +204,7 @@ describe('reconciliation CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'refresh', '--remote', '--status', 'alpha'], {
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'refresh', 'alpha'], {
       from: 'node'
     });
 
