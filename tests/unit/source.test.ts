@@ -1377,17 +1377,11 @@ describe('skills-registry', () => {
     );
 
     // Create config
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      YAML.stringify({
-        version: 1,
-        agents: { claude: '~/.claude/skills' },
-        links: { 'manual-skill': ['*'], 'source-skill': ['*'] },
-        sources: { 'my-source': { type: 'git', url: 'https://example.com/repo.git', path: 'materialized' } },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+    await saveConfig({
+      ...createDefaultConfig(homeDir, { claude: '~/.claude/skills' }),
+      links: { 'manual-skill': ['*'], 'source-skill': ['*'] },
+      sources: { 'my-source': { type: 'git', url: 'https://example.com/repo.git', path: 'materialized' } },
+    }, homeDir);
 
     const index = await buildSkillsIndex(homeDir);
 
@@ -1415,24 +1409,16 @@ describe('findExistingSourceByUrl', () => {
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
 
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: {},
-        sources: {
-          'existing-source': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'sources/repo',
-          },
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      sources: {
+        'existing-source': {
+          type: 'git',
+          url: 'https://github.com/org/repo.git',
+          path: 'sources/repo',
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+      },
+    }, homeDir);
 
     const result = await findExistingSourceByUrl(homeDir, 'https://github.com/org/repo.git');
 
@@ -1446,24 +1432,16 @@ describe('findExistingSourceByUrl', () => {
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
 
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: {},
-        sources: {
-          'other-source': {
-            type: 'git',
-            url: 'https://github.com/org/other.git',
-            path: 'sources/other',
-          },
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      sources: {
+        'other-source': {
+          type: 'git',
+          url: 'https://github.com/org/other.git',
+          path: 'sources/other',
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+      },
+    }, homeDir);
 
     const result = await findExistingSourceByUrl(homeDir, 'https://github.com/org/repo.git');
 
@@ -1529,25 +1507,17 @@ describe('handleSameRepoMerge', () => {
     // Create source with ignore list
     await mkdir(join(sourcesDir, 'checkout', 'skills', 'skill1'), { recursive: true });
     await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill1', 'SKILL.md'), '# Skill 1');
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: {},
-        sources: {
-          'existing-source': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'skills/',
-            ignore: ['skill1'],
-          },
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      sources: {
+        'existing-source': {
+          type: 'git',
+          url: 'https://github.com/org/repo.git',
+          path: 'skills/',
+          ignore: ['skill1'],
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+      },
+    }, homeDir);
 
     const result = await handleSameRepoMerge(homeDir, {
       existingName: 'existing-source',
@@ -1565,24 +1535,17 @@ describe('handleSameRepoMerge', () => {
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
 
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: { skill1: ['*'] },
-        sources: {
-          'existing-source': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'skills/',
-          },
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      links: { skill1: ['*'] },
+      sources: {
+        'existing-source': {
+          type: 'git',
+          url: 'https://github.com/org/repo.git',
+          path: 'skills/',
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+      },
+    }, homeDir);
 
     const result = await handleSameRepoMerge(homeDir, {
       existingName: 'existing-source',
@@ -1606,24 +1569,17 @@ describe('handleSameRepoMerge', () => {
     await mkdir(join(sourcesDir, 'checkout', 'skills', 'skill2'), { recursive: true });
     await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill1', 'SKILL.md'), '# Skill 1');
     await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill2', 'SKILL.md'), '# Skill 2');
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: { skill1: ['*'] },
-        sources: {
-          'existing-source': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'skills/skill1',
-          },
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      links: { skill1: ['*'] },
+      sources: {
+        'existing-source': {
+          type: 'git',
+          url: 'https://github.com/org/repo.git',
+          path: 'skills/skill1',
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+      },
+    }, homeDir);
 
     const result = await handleSameRepoMerge(homeDir, {
       existingName: 'existing-source',
@@ -1647,24 +1603,17 @@ describe('handleSameRepoMerge', () => {
     await mkdir(join(sourcesDir, 'checkout', 'skills', 'skill2'), { recursive: true });
     await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill1', 'SKILL.md'), '# Skill 1');
     await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill2', 'SKILL.md'), '# Skill 2');
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: { skill1: ['*'] },
-        sources: {
-          'existing-source': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'skills/skill1',
-          },
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      links: { skill1: ['*'] },
+      sources: {
+        'existing-source': {
+          type: 'git',
+          url: 'https://github.com/org/repo.git',
+          path: 'skills/skill1',
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+      },
+    }, homeDir);
 
     const result = await handleSameRepoMerge(homeDir, {
       existingName: 'existing-source',
@@ -1683,24 +1632,17 @@ describe('handleSameRepoMerge', () => {
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
 
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: { skill1: ['*'] },
-        sources: {
-          'existing-source': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'skills/skill1',
-          },
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      links: { skill1: ['*'] },
+      sources: {
+        'existing-source': {
+          type: 'git',
+          url: 'https://github.com/org/repo.git',
+          path: 'skills/skill1',
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+      },
+    }, homeDir);
 
     const result = await handleSameRepoMerge(homeDir, {
       existingName: 'existing-source',
@@ -1726,24 +1668,17 @@ describe('handleSameRepoMerge', () => {
     await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill1', 'SKILL.md'), '# Skill 1');
     await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill2', 'SKILL.md'), '# Skill 2');
     await writeFile(join(sourcesDir, 'checkout', 'skills', 'skill3', 'SKILL.md'), '# Skill 3');
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: { skill1: ['*'] },
-        sources: {
-          'existing-source': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'skills/skill1',
-          },
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      links: { skill1: ['*'] },
+      sources: {
+        'existing-source': {
+          type: 'git',
+          url: 'https://github.com/org/repo.git',
+          path: 'skills/skill1',
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+      },
+    }, homeDir);
 
     const result = await handleSameRepoMerge(homeDir, {
       existingName: 'existing-source',
@@ -1769,29 +1704,22 @@ describe('handleSameRepoMerge', () => {
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
 
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: { skill1: ['*'], skill2: ['*'] },
-        sources: {
-          'existing-source': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'skills/skill1',
-          },
-          'existing-source.2': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'examples/skill2',
-          },
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      links: { skill1: ['*'], skill2: ['*'] },
+      sources: {
+        'existing-source': {
+          type: 'git',
+          url: 'https://github.com/org/repo.git',
+          path: 'skills/skill1',
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+        'existing-source.2': {
+          type: 'git',
+          url: 'https://github.com/org/repo.git',
+          path: 'examples/skill2',
+        },
+      },
+    }, homeDir);
 
     const result = await handleSameRepoMerge(homeDir, {
       existingName: 'existing-source',
@@ -1913,17 +1841,11 @@ describe('buildSkillsIndex manual skill priority', () => {
     );
 
     // Create config
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      YAML.stringify({
-        version: 1,
-        agents: { claude: '~/.claude/skills' },
-        links: { 'shared-skill': ['*'] },
-        sources: { 'my-source': { type: 'git', url: 'https://example.com/repo.git', path: 'materialized' } },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+    await saveConfig({
+      ...createDefaultConfig(homeDir, { claude: '~/.claude/skills' }),
+      links: { 'shared-skill': ['*'] },
+      sources: { 'my-source': { type: 'git', url: 'https://example.com/repo.git', path: 'materialized' } },
+    }, homeDir);
 
     const index = await buildSkillsIndex(homeDir);
 
@@ -2382,24 +2304,17 @@ describe('addSourceFromUrl with skills-registry', () => {
     const syncDir = join(homeDir, '.syncskill');
 
     // Setup: Create config with existing source
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: { 'skill-a': ['*'] },
-        sources: {
-          'org-repo': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'skills/',
-          },
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      links: { 'skill-a': ['*'] },
+      sources: {
+        'org-repo': {
+          type: 'git',
+          url: 'https://github.com/org/repo.git',
+          path: 'skills/',
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+      },
+    }, homeDir);
 
     const configBefore = await loadConfig(homeDir);
     configBefore.sources['org-repo'] = {
@@ -2432,24 +2347,17 @@ describe('addSourceFromUrl with skills-registry', () => {
     const syncDir = join(homeDir, '.syncskill');
 
     // Setup: Create config with existing source
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: { 'skill-a': ['*'] },
-        sources: {
-          'org-repo': {
-            type: 'git',
-            url: 'https://github.com/org/repo.git',
-            path: 'skills/',
-          },
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      links: { 'skill-a': ['*'] },
+      sources: {
+        'org-repo': {
+          type: 'git',
+          url: 'https://github.com/org/repo.git',
+          path: 'skills/',
         },
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+      },
+    }, homeDir);
 
     // Try to add same repo with a skill that's NOT in ignore list
     const result = await addSourceFromUrl(homeDir,
@@ -2472,19 +2380,10 @@ describe('addSourceFromUrl with skills-registry', () => {
     const sourcesDir = join(syncDir, 'sources');
 
     // Setup: Create empty config
-    await mkdir(syncDir, { recursive: true });
     await mkdir(sourcesDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: {},
-        sources: {},
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+    }, homeDir);
 
     // Add a new source (no existing source with this URL)
     const result = await addSourceFromUrl(homeDir,
@@ -2508,18 +2407,9 @@ describe('addSourceFromUrl with skills-registry', () => {
     const syncDir = join(homeDir, '.syncskill');
 
     // Setup: Create empty config
-    await mkdir(syncDir, { recursive: true });
-    await writeFile(
-      join(syncDir, 'config.yaml'),
-      stringify({
-        version: 1,
-        agents: {},
-        links: {},
-        sources: {},
-        servers: {},
-        conflict_resolution: 'manual',
-      })
-    );
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+    }, homeDir);
 
     // Create a fixture directory with skills
     const fixtureDir = join(homeDir, 'fixture');
