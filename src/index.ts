@@ -1509,7 +1509,6 @@ export function createProgram(homeDir?: string): Command {
 
   linkCommand
     .command('build')
-    .alias('apply')
     .description('Reconcile symlinks to match config')
     .option('--dry-run', 'Preview changes without applying')
     .option('-y, --yes', 'Auto-confirm stale link removal')

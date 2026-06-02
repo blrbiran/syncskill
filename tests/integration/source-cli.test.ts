@@ -103,7 +103,7 @@ describe('source add compatibility removal', () => {
 describe('skills-registry generation', () => {
   const tempDirs = useTempDirs();
 
-  it('generates skills-registry.json after link --apply', async () => {
+  it('generates skills-registry.json after link build', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-registry-'));
     tempDirs.push(homeDir);
     const syncDir = join(homeDir, '.syncskill');
@@ -127,8 +127,8 @@ describe('skills-registry generation', () => {
       })
     );
 
-    // Run link apply
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply'], { from: 'node' });
+    // Run link build
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'build'], { from: 'node' });
 
     // Check skills-registry.json was created
     const registryPath = join(syncDir, 'skills-registry.json');

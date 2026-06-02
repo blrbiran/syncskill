@@ -70,7 +70,7 @@ describe('help output', () => {
     expect(options).not.toContain('--list');
   });
 
-  it('should show subcommands: edit, set, add, remove, clear, apply, list', async () => {
+  it('should show subcommands: edit, set, add, remove, clear, build, list', async () => {
     const { stdout } = await execAsync('node', ['dist/index.js', 'link', '--help'], {
       cwd: '/Users/biran/code/skills/syncskill'
     });
@@ -80,8 +80,19 @@ describe('help output', () => {
     expect(stdout).toContain('add');
     expect(stdout).toContain('remove');
     expect(stdout).toContain('clear');
-    expect(stdout).toContain('apply');
+    expect(stdout).toContain('build');
+    expect(stdout).not.toContain('apply');
     expect(stdout).toContain('list');
+  });
+
+  it('rejects removed link apply alias', async () => {
+    await expect(
+      execAsync('node', ['dist/index.js', 'link', 'apply'], {
+        cwd: '/Users/biran/code/skills/syncskill'
+      })
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining("too many arguments for 'link'")
+    });
   });
 
   it('describes update-flow commands and options clearly', () => {
