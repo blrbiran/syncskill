@@ -85,7 +85,39 @@ describe('addSourceFromUrl', () => {
     expect(source.type).toBe('git');
     expect(source.url).toBe('https://github.com/openclaw/skills.git');
     expect(source.branch).toBe('main');
-    expect(source.path).toMatch(/sources\/skills$/);
+    expect(source.path).toBe('my-skill');
+  });
+
+  it('defaults GitHub repo URL path to repo root', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-url-'));
+    tempDirs.push(homeDir);
+    await mkdir(join(homeDir, '.syncskill'), { recursive: true });
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    const { name, source } = await addSourceFromUrl(
+      homeDir,
+      'https://github.com/org/repo'
+    );
+
+    expect(name).toBe('repo');
+    expect(source.type).toBe('git');
+    expect(source.url).toBe('https://github.com/org/repo.git');
+    expect(source.path).toBe('.');
+  });
+
+  it('prefers explicit skillSubdir over inferred GitHub tree path', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-url-'));
+    tempDirs.push(homeDir);
+    await mkdir(join(homeDir, '.syncskill'), { recursive: true });
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    const { source } = await addSourceFromUrl(
+      homeDir,
+      'https://github.com/org/repo/tree/main/examples/demo',
+      { skillSubdir: 'skills' }
+    );
+
+    expect(source.path).toBe('skills');
   });
 
   it('allows explicit name override via options', async () => {

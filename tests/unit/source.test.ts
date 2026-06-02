@@ -2503,10 +2503,12 @@ describe('addSourceFromUrl with skills-registry', () => {
     expect(result.sameRepoMatch).toBeUndefined();
     expect(result.restoredFromIgnore).toBeUndefined();
     expect(result.name).toBe('new-skill');
+    expect(result.source.path).toBe('skills/new-skill');
 
     // Verify source was added
     const config = await loadConfig(homeDir);
     expect('new-skill' in config.sources).toBe(true);
+    expect((config.sources['new-skill'] as { path: string }).path).toBe('skills/new-skill');
   });
 
   it('adds local archive source with archive_path', async () => {
