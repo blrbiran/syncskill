@@ -613,23 +613,23 @@ export class E2EContext {
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Create a stale git checkout in sources directory.
+   * Create a stale git checkout in the runtime .sources/<name>/checkout directory.
    */
   async createStaleGitDir(name: string, wrongUrl: string): Promise<string> {
     const { createStaleGitCheckout } = await import('./fixtures/stale.js');
-    const sourcesDir = join(this.syncskillDir, 'sources');
-    await mkdir(sourcesDir, { recursive: true });
-    return createStaleGitCheckout(sourcesDir, name, wrongUrl);
+    const sourceDir = join(this.syncskillDir, '.sources', name);
+    await mkdir(sourceDir, { recursive: true });
+    return createStaleGitCheckout(sourceDir, 'checkout', wrongUrl);
   }
 
   /**
-   * Create a stale non-git directory in sources directory.
+   * Create a stale non-git directory in the runtime .sources/<name>/checkout directory.
    */
   async createStaleNonGitDir(name: string): Promise<string> {
     const { createStaleNonGitDir } = await import('./fixtures/stale.js');
-    const sourcesDir = join(this.syncskillDir, 'sources');
-    await mkdir(sourcesDir, { recursive: true });
-    return createStaleNonGitDir(sourcesDir, name);
+    const sourceDir = join(this.syncskillDir, '.sources', name);
+    await mkdir(sourceDir, { recursive: true });
+    return createStaleNonGitDir(sourceDir, 'checkout');
   }
 
   // ─────────────────────────────────────────────────────────────────────────────

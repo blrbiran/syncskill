@@ -178,5 +178,32 @@ describe('E2EContext', () => {
         ctx.assertSymlinkTarget('my-skill', 'claude', '/wrong/path')
       ).rejects.toThrow('Expected symlink');
     });
+
+    it('createStaleGitDir creates checkout under .sources runtime layout', async () => {
+      const { E2EContext } = await import('../end2end/framework/context.js');
+      const homeDir = join(tmpdir(), `e2e-ctx-test-${Date.now()}`);
+      tempDirs.push(homeDir);
+      await mkdir(join(homeDir, '.syncskill'), { recursive: true });
+
+      const ctx = new E2EContext(homeDir, '/fake/project');
+      const stalePath = await ctx.createStaleGitDir('my-repo', 'https://wrong.url/repo.git');
+
+      expect(stalePath).toBe(join(homeDir, '.syncskill', '.sources', 'my-repo', 'checkout'));
+      await expect(ctx.assertFileExists('.syncskill/.sources/my-repo/checkout/stale.txt')).resolves.toBeUndefined();
+    });
+
+    it('createStaleNonGitDir creates checkout under .sources runtime layout', async () => {
+      const { E2EContext } = await import('../end2end/framework/context.js');
+      const homeDir = join(tmpdir(), `e2e-ctx-test-${Date.now()}`);
+      tempDirs.push(homeDir);
+      await mkdir(join(homeDir, '.syncskill'), { recursive: true });
+
+      const ctx = new E2EContext(homeDir, '/fake/project');
+      const stalePath = await ctx.createStaleNonGitDir('my-repo');
+
+      expect(stalePath).toBe(join(homeDir, '.syncskill', '.sources', 'my-repo', 'checkout'));
+      await expect(ctx.assertFileExists('.syncskill/.sources/my-repo/checkout/stale.txt')).resolves.toBeUndefined();
+      await expect(ctx.assertFileExists('.syncskill/.sources/my-repo/checkout/some-skill/SKILL.md')).resolves.toBeUndefined();
+    });
   });
 });
