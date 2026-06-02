@@ -8,11 +8,12 @@ const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 describe('ship-readiness docs', () => {
   it('top-level docs exist and link the expected entrypoints', async () => {
-    const [readme, configGuide, usageGuide, designGuide] = await Promise.all([
+    const [readme, configGuide, usageGuide, designGuide, skillDoc] = await Promise.all([
       readFile(join(rootDir, 'README.md'), 'utf8'),
       readFile(join(rootDir, 'docs', 'config-guide.md'), 'utf8'),
       readFile(join(rootDir, 'docs', 'usage-guide.md'), 'utf8'),
-      readFile(join(rootDir, 'docs', 'design-guide.md'), 'utf8')
+      readFile(join(rootDir, 'docs', 'design-guide.md'), 'utf8'),
+      readFile(join(rootDir, 'skills', 'syncskill', 'SKILL.md'), 'utf8')
     ]);
 
     expect(readme).toContain('# syncskill');
@@ -62,6 +63,9 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('--no-interactive');
     expect(usageGuide).toContain('link set');
     expect(usageGuide).toContain('link build');
+    expect(usageGuide).toContain('Repo-relative subdirectory within the source checkout containing skills');
+
+    expect(skillDoc).toContain('repo-relative subdirectory containing skills');
 
     expect(designGuide).toContain('# Design Guide');
     expect(designGuide).toContain('src/index.ts');

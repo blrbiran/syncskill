@@ -25,7 +25,7 @@ Use this skill when:
 | `install self` | Install built-in syncskill skill |
 | `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path and register it as a managed source |
 
-Install options: `--name`, `--path` (subdirectory containing skills), `--skill-subdir` (alias for `--path`), `--branch`, `-y`
+Install options: `--name`, `--path` (repo-relative subdirectory containing skills), `--skill-subdir` (alias for `--path`), `--branch`, `-y`
 
 ### Link Management
 

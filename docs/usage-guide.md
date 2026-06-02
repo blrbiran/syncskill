@@ -257,7 +257,7 @@ Install options:
 | Option | Description |
 |--------|-------------|
 | `--name <name>` | Source name |
-| `--path <path>` | Subdirectory containing skills (use `.` for repo root) |
+| `--path <path>` | Repo-relative subdirectory within the source checkout containing skills (use `.` for repo root) |
 | `--skill-subdir <dir>` | Alias for `--path` |
 | `--branch <branch>` | Git branch or tag |
 | `-y, --yes` | Skip confirmation prompts |
