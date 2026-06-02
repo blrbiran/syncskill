@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultConfig, saveConfig } from '../../src/config/config.js';
+import { ExitCode } from '../../src/cli/exit-codes.js';
 import { createProgram } from '../../src/index.js';
 
 const execFileAsync = promisify(execFile);
@@ -36,6 +37,7 @@ describe('update --dry-run', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    delete process.env.SYNCSKILL_STRICT;
     if (homeDir) {
       await rm(homeDir, { recursive: true, force: true });
     }
@@ -76,5 +78,128 @@ describe('update --dry-run', () => {
     expect(output).toContain('team');
     expect(output).toContain('alpha');
     expect(output).toContain('--force');
+  });
+});
+
+describe('update skip exit semantics', () => {
+  let homeDir: string;
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    delete process.env.SYNCSKILL_STRICT;
+    if (homeDir) {
+      await rm(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it('update single source exits 6 when the source is skipped', async () => {
+    homeDir = await mkdtemp(join(tmpdir(), 'syncskill-update-exit-'));
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(await import('../../src/source.js'), 'updateSource').mockResolvedValue({
+      materialized_skills: ['skill-a'],
+      updated_at: '2026-05-01T00:00:00.000Z'
+    });
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'update', 'team'], { from: 'node' });
+
+    expect(processExit).toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
+  });
+
+  it('update --all keeps exit 0 on partial skip by default', async () => {
+    homeDir = await mkdtemp(join(tmpdir(), 'syncskill-update-exit-'));
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(await import('../../src/source.js'), 'updateAllSources').mockResolvedValue({
+      states: [],
+      results: [
+        {
+          sourceName: 'alpha',
+          status: 'success',
+          previousSkills: [],
+          currentSkills: ['skill-a'],
+          addedSkills: ['skill-a'],
+          removedSkills: []
+        },
+        {
+          sourceName: 'beta',
+          status: 'skipped',
+          reason: 'dirty',
+          previousSkills: ['skill-b'],
+          currentSkills: ['skill-b'],
+          addedSkills: [],
+          removedSkills: []
+        }
+      ]
+    });
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'update', '--all'], { from: 'node' });
+
+    expect(processExit).not.toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
+  });
+
+  it('update --all exits 6 on partial skip with --strict', async () => {
+    homeDir = await mkdtemp(join(tmpdir(), 'syncskill-update-exit-'));
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(await import('../../src/source.js'), 'updateAllSources').mockResolvedValue({
+      states: [],
+      results: [
+        {
+          sourceName: 'alpha',
+          status: 'success',
+          previousSkills: [],
+          currentSkills: ['skill-a'],
+          addedSkills: ['skill-a'],
+          removedSkills: []
+        },
+        {
+          sourceName: 'beta',
+          status: 'skipped',
+          reason: 'dirty',
+          previousSkills: ['skill-b'],
+          currentSkills: ['skill-b'],
+          addedSkills: [],
+          removedSkills: []
+        }
+      ]
+    });
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--strict', 'update', '--all'], { from: 'node' });
+
+    expect(processExit).toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
+  });
+
+  it('update --all exits 6 on partial skip with SYNCSKILL_STRICT=1', async () => {
+    homeDir = await mkdtemp(join(tmpdir(), 'syncskill-update-exit-'));
+    process.env.SYNCSKILL_STRICT = '1';
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(await import('../../src/source.js'), 'updateAllSources').mockResolvedValue({
+      states: [],
+      results: [
+        {
+          sourceName: 'alpha',
+          status: 'success',
+          previousSkills: [],
+          currentSkills: ['skill-a'],
+          addedSkills: ['skill-a'],
+          removedSkills: []
+        },
+        {
+          sourceName: 'beta',
+          status: 'skipped',
+          reason: 'dirty',
+          previousSkills: ['skill-b'],
+          currentSkills: ['skill-b'],
+          addedSkills: [],
+          removedSkills: []
+        }
+      ]
+    });
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'update', '--all'], { from: 'node' });
+
+    expect(processExit).toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
   });
 });

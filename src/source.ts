@@ -566,11 +566,16 @@ export interface UpdateResult {
   removedSkills: string[];
 }
 
+export interface UpdateAllSourcesResult {
+  states: SourceState[];
+  results: UpdateResult[];
+}
+
 export async function updateAllSources(
   homeDir = homedir(),
   updatedAt = new Date().toISOString(),
   options: UpdateSourceOptions = {}
-): Promise<SourceState[]> {
+): Promise<UpdateAllSourcesResult> {
   const sources = await listSources(homeDir);
   const updatableSources = sources.filter(isSourceUpdatable);
   const states: SourceState[] = [];
@@ -578,7 +583,7 @@ export async function updateAllSources(
 
   if (updatableSources.length === 0) {
     console.log(options.dryRun ? '[dry-run] No updatable sources found.' : 'No updatable sources found.');
-    return states;
+    return { states, results };
   }
 
   if (options.dryRun) {
@@ -641,7 +646,7 @@ export async function updateAllSources(
     console.log('\n[dry-run] No changes were made.');
     console.log('[dry-run] Without --force, dirty sources would be skipped.');
     console.log('[dry-run] With --force, syncskill would back up or stash local changes before updating.');
-    return states;
+    return { states, results };
   }
 
   // Show list of sources to be updated
@@ -735,7 +740,7 @@ export async function updateAllSources(
   // Print update summary
   printUpdateSummary(results);
 
-  return states;
+  return { states, results };
 }
 
 function printUpdateSummary(results: UpdateResult[]): void {

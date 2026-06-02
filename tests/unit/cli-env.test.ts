@@ -19,6 +19,7 @@ describe('cli/env', () => {
       delete process.env.SYNCSKILL_CONFIG;
       delete process.env.SYNCSKILL_NO_INTERACTIVE;
       delete process.env.SYNCSKILL_JSON;
+      delete process.env.SYNCSKILL_STRICT;
       delete process.env.SYNCSKILL_TIMEOUT;
       delete process.env.SYNCSKILL_LOG_LEVEL;
       delete process.env.NO_COLOR;
@@ -29,6 +30,7 @@ describe('cli/env', () => {
       expect(config.configPath).toBeUndefined();
       expect(config.noInteractive).toBe(false);
       expect(config.json).toBe(false);
+      expect(config.strict).toBe(false);
       expect(config.timeout).toBeUndefined();
       expect(config.logLevel).toBe('info');
       expect(config.noColor).toBe(false);
@@ -56,6 +58,12 @@ describe('cli/env', () => {
       process.env.SYNCSKILL_JSON = '1';
       const config = loadEnvConfig();
       expect(config.json).toBe(true);
+    });
+
+    it('reads SYNCSKILL_STRICT', () => {
+      process.env.SYNCSKILL_STRICT = '1';
+      const config = loadEnvConfig();
+      expect(config.strict).toBe(true);
     });
 
     it('reads NO_COLOR', () => {
@@ -102,20 +110,24 @@ describe('cli/env', () => {
       const merged = mergeWithFlags(envConfig, {
         syncDir: '/flag/path',
         json: true,
+        strict: true,
       });
 
       expect(merged.syncDir).toBe('/flag/path');
       expect(merged.json).toBe(true);
+      expect(merged.strict).toBe(true);
     });
 
     it('preserves env values when flags not provided', () => {
       process.env.SYNCSKILL_DIR = '/env/path';
       process.env.SYNCSKILL_JSON = '1';
+      process.env.SYNCSKILL_STRICT = '1';
       const envConfig = loadEnvConfig();
       const merged = mergeWithFlags(envConfig, {});
 
       expect(merged.syncDir).toBe('/env/path');
       expect(merged.json).toBe(true);
+      expect(merged.strict).toBe(true);
     });
 
     it('preserves defaults when neither flag nor env provided', () => {
@@ -124,6 +136,7 @@ describe('cli/env', () => {
       const merged = mergeWithFlags(envConfig, {});
 
       expect(merged.syncDir).toBeUndefined();
+      expect(merged.strict).toBe(false);
       expect(merged.logLevel).toBe('info');
     });
   });

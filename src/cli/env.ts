@@ -12,6 +12,7 @@ export interface EnvConfig {
   configPath?: string;
   noInteractive: boolean;
   json: boolean;
+  strict: boolean;
   timeout?: number;
   logLevel: 'error' | 'warn' | 'info' | 'debug';
   noColor: boolean;
@@ -23,6 +24,7 @@ export function loadEnvConfig(): EnvConfig {
     configPath: process.env.SYNCSKILL_CONFIG || undefined,
     noInteractive: process.env.SYNCSKILL_NO_INTERACTIVE === '1',
     json: process.env.SYNCSKILL_JSON === '1',
+    strict: process.env.SYNCSKILL_STRICT === '1',
     timeout: parseTimeout(process.env.SYNCSKILL_TIMEOUT),
     logLevel: parseLogLevel(process.env.SYNCSKILL_LOG_LEVEL),
     noColor: process.env.NO_COLOR !== undefined,
@@ -56,6 +58,7 @@ export function mergeWithFlags(
     configPath: flags.configPath ?? envConfig.configPath,
     noInteractive: flags.noInteractive ?? envConfig.noInteractive,
     json: flags.json ?? envConfig.json,
+    strict: flags.strict ?? envConfig.strict,
     timeout: flags.timeout ?? envConfig.timeout,
     logLevel: flags.logLevel ?? envConfig.logLevel,
     noColor: flags.noColor ?? envConfig.noColor,

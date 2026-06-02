@@ -403,6 +403,71 @@ function isNoInteractive(program: Command): true | undefined {
   return options.noInteractive === true || options.interactive === false ? true : undefined;
 }
 
+function isStrictMode(program: Command): boolean {
+  const envConfig = loadEnvConfig();
+  const options = program.opts<{ strict?: boolean }>();
+  return mergeWithFlags(envConfig, { strict: options.strict }).strict;
+}
+
+function shouldExitDirtySkip<T>(
+  results: T[],
+  options: {
+    strict: boolean;
+    dryRun?: boolean;
+    countSkips: (result: T) => number;
+    hasSuccessfulTarget: (result: T) => boolean;
+  }
+): boolean {
+  if (options.dryRun) {
+    return false;
+  }
+
+  const hasAnySkips = results.some((result) => options.countSkips(result) > 0);
+  if (!hasAnySkips) {
+    return false;
+  }
+
+  if (results.length === 1 || options.strict) {
+    return true;
+  }
+
+  return !results.some((result) => options.hasSuccessfulTarget(result));
+}
+
+function countPushSkips(result: PushResult): number {
+  return result.skipped_skills.length + result.conflicted_skills.length;
+}
+
+function countPullSkips(result: PullResult): number {
+  return result.skipped_skills.length + result.conflicted_skills.length;
+}
+
+function countSyncSkips(result: { pull: PullResult; push: PushResult }): number {
+  return new Set([
+    ...result.pull.skipped_skills.map((skill) => `pull:skip:${skill}`),
+    ...result.pull.conflicted_skills.map((skill) => `pull:conflict:${skill}`),
+    ...result.push.skipped_skills.map((skill) => `push:skip:${skill}`),
+    ...result.push.conflicted_skills.map((skill) => `push:conflict:${skill}`)
+  ]).size;
+}
+
+function hasSuccessfulPushTarget(result: PushResult): boolean {
+  return result.pushed_skills.length > 0 || countPushSkips(result) === 0;
+}
+
+function hasSuccessfulPullTarget(result: PullResult): boolean {
+  return result.pulled_skills.length > 0 || (result.deleted_skills?.length ?? 0) > 0 || countPullSkips(result) === 0;
+}
+
+function hasSuccessfulSyncTarget(result: { pull: PullResult; push: PushResult }): boolean {
+  return (
+    result.pull.pulled_skills.length > 0 ||
+    (result.pull.deleted_skills?.length ?? 0) > 0 ||
+    result.push.pushed_skills.length > 0 ||
+    countSyncSkips(result) === 0
+  );
+}
+
 function failForNoInteractive(hint?: string): never {
   try {
     const output = getGlobalOutput();
@@ -670,6 +735,7 @@ export function createProgram(homeDir?: string): Command {
     .option('--sync-dir <path>', 'Override ~/.syncskill directory')
     .option('--config <path>', 'Override config file path')
     .option('--no-refresh', 'Skip automatic manifest refresh before commands')
+    .option('--strict', 'Treat any partial skip as exit code 6')
     .configureHelp({
       formatHelp: (cmd, helper) => {
         const rootOpts = cmd.parent?.opts() ?? cmd.opts();
@@ -687,6 +753,7 @@ export function createProgram(homeDir?: string): Command {
       const opts = thisCommand.opts<{
         json?: boolean;
         noInteractive?: boolean;
+        strict?: boolean;
         syncDir?: string;
         config?: string;
         refresh?: boolean;
@@ -694,6 +761,7 @@ export function createProgram(homeDir?: string): Command {
       const mergedConfig = mergeWithFlags(envConfig, {
         json: opts.json,
         noInteractive: opts.noInteractive,
+        strict: opts.strict,
         syncDir: opts.syncDir,
         configPath: opts.config,
       });
@@ -1533,12 +1601,37 @@ export function createProgram(homeDir?: string): Command {
     .option('--force', 'Force update dirty sources (backs up first)')
     .option('--dry-run', 'Preview update without making changes')
     .action(async (name: string | undefined, options: { all?: boolean; yes?: boolean; force?: boolean; dryRun?: boolean }) => {
+      const strict = isStrictMode(program);
+
       if (options.all || name === undefined) {
-        await updateAllSources(resolvedHomeDir, undefined, { yes: options.yes, force: options.force, dryRun: options.dryRun });
+        const updatedAt = new Date().toISOString();
+        const outcome = await updateAllSources(resolvedHomeDir, updatedAt, {
+          yes: options.yes,
+          force: options.force,
+          dryRun: options.dryRun
+        });
+
+        if (!outcome.results.some((result) => result.status === 'failed') && shouldExitDirtySkip(outcome.results, {
+          strict,
+          dryRun: options.dryRun,
+          countSkips: (result) => result.status === 'skipped' ? 1 : 0,
+          hasSuccessfulTarget: (result) => result.status === 'success'
+        })) {
+          process.exit(ExitCode.DIRTY_SKIP);
+        }
         return;
       }
 
-      await updateSource(resolvedHomeDir, name, { yes: options.yes, force: options.force, dryRun: options.dryRun });
+      const updatedAt = new Date().toISOString();
+      const result = await updateSource(resolvedHomeDir, name, {
+        yes: options.yes,
+        force: options.force,
+        dryRun: options.dryRun
+      }, updatedAt);
+
+      if (!options.dryRun && result.updated_at !== updatedAt) {
+        process.exit(ExitCode.DIRTY_SKIP);
+      }
     });
 
   sourceCommand
@@ -1912,6 +2005,15 @@ export function createProgram(homeDir?: string): Command {
           console.log(line);
         }
       }
+
+      if (shouldExitDirtySkip(results, {
+        strict: isStrictMode(program),
+        dryRun: options.dryRun,
+        countSkips: countPushSkips,
+        hasSuccessfulTarget: hasSuccessfulPushTarget
+      })) {
+        process.exit(ExitCode.DIRTY_SKIP);
+      }
     });
 
   program
@@ -1966,6 +2068,15 @@ export function createProgram(homeDir?: string): Command {
           for (const line of formatSkillRows('pull', result)) {
             console.log(line);
           }
+        }
+
+        if (shouldExitDirtySkip(results, {
+          strict: isStrictMode(program),
+          dryRun: options.dryRun,
+          countSkips: countPullSkips,
+          hasSuccessfulTarget: hasSuccessfulPullTarget
+        })) {
+          process.exit(ExitCode.DIRTY_SKIP);
         }
       } catch (error) {
         handleSyncCommandError(error);
@@ -2052,6 +2163,15 @@ export function createProgram(homeDir?: string): Command {
             console.log(`  ${c.skill} (${c.server})`);
           }
           console.log('\nRun `syncskill resolve <skill>` to resolve conflicts.');
+        }
+
+        if (shouldExitDirtySkip(results, {
+          strict: isStrictMode(program),
+          dryRun: options.dryRun,
+          countSkips: countSyncSkips,
+          hasSuccessfulTarget: hasSuccessfulSyncTarget
+        })) {
+          process.exit(ExitCode.DIRTY_SKIP);
         }
       } catch (error) {
         handleSyncCommandError(error);

@@ -765,6 +765,7 @@ describe('sync engine orchestration', () => {
 
     // The skill should not be in pushed_skills (it has direction=pull)
     expect(result.pushed_skills).toEqual([]);
+    expect(result.skipped_skills).toEqual(['remote-only-skill']);
   });
 
   describe('pushToServers --no-refresh safety net', () => {

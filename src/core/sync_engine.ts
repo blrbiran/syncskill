@@ -499,7 +499,7 @@ export async function pushToServers(homeDir: string, servers?: string[], options
       results.push({
         server: serverName,
         pushed_skills: [],
-        skipped_skills: [...finalPushedSkills, ...listSkillsByDirection(manifest, 'skip')],
+        skipped_skills: uniqueSorted(pullSkills),
         conflicted_skills: conflictedSkills,
         manifest
       });
@@ -562,7 +562,7 @@ export async function pushToServers(homeDir: string, servers?: string[], options
     results.push({
       server: server.name,
       pushed_skills: finalPushedSkills,
-      skipped_skills: listSkillsByDirection(finalizedManifest, 'skip'),
+      skipped_skills: uniqueSorted(pullSkills),
       conflicted_skills: conflictedSkills,
       manifest: finalizedManifest
     });
@@ -606,7 +606,6 @@ export async function pullFromServer(homeDir: string, serverName: string, option
     options
   );
   const skippedResultSkills = uniqueSorted([
-    ...listSkillsByDirection(manifest, 'skip'),
     ...[...skippedCrossServerSkills],
     ...skippedConflictSkills
   ]);
@@ -669,8 +668,6 @@ export async function pullFromServer(homeDir: string, serverName: string, option
       pulled_skills: [],
       deleted_skills: [],
       skipped_skills: uniqueSorted([
-        ...pulledContentSkills,
-        ...deletedSkillsForExecution,
         ...keptLocalDeletionSkills,
         ...skippedResultSkills
       ]),
@@ -727,7 +724,6 @@ export async function pullFromServer(homeDir: string, serverName: string, option
     pulled_skills: pulledContentSkills,
     deleted_skills: deletedSkillsForExecution,
     skipped_skills: uniqueSorted([
-      ...listSkillsByDirection(finalizedManifest, 'skip').filter((skill) => !deletedSkillsForExecution.includes(skill)),
       ...keptLocalDeletionSkills,
       ...skippedResultSkills
     ]),

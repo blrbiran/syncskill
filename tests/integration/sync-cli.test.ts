@@ -15,6 +15,7 @@ describe('sync CLI', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     delete process.env.SYNCSKILL_TRANSPORT_RUNTIME;
+    delete process.env.SYNCSKILL_STRICT;
   });
 
   it('push <server> prints one tab-separated line per pushed skill', async () => {
@@ -713,5 +714,135 @@ describe('sync CLI', () => {
       ['No servers configured.']
     ]);
     expect(processExit).toHaveBeenCalledWith(1);
+  });
+
+  it('push --all keeps exit 0 on partial skip by default', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} },
+          beta: { host: 'beta.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(await import('../../src/core/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pushed_skills: ['skill-a'],
+        skipped_skills: [],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      },
+      {
+        server: 'beta',
+        pushed_skills: [],
+        skipped_skills: ['skill-b'],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'beta', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      }
+    ]);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', '--all'], { from: 'node' });
+
+    expect(processExit).not.toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
+  });
+
+  it('push --all exits 6 on partial skip with --strict', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} },
+          beta: { host: 'beta.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(await import('../../src/core/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pushed_skills: ['skill-a'],
+        skipped_skills: [],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      },
+      {
+        server: 'beta',
+        pushed_skills: [],
+        skipped_skills: ['skill-b'],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'beta', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      }
+    ]);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--strict', '--no-refresh', 'push', '--all'], { from: 'node' });
+
+    expect(processExit).toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
+  });
+
+  it('pull --all exits 6 on partial skip with SYNCSKILL_STRICT=1', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+    process.env.SYNCSKILL_STRICT = '1';
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} },
+          beta: { host: 'beta.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(await import('../../src/core/sync_engine.js'), 'pullFromServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pulled_skills: ['skill-a'],
+        skipped_skills: [],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      },
+      {
+        server: 'beta',
+        pulled_skills: [],
+        skipped_skills: ['skill-b'],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'beta', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      }
+    ]);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull', '--all'], { from: 'node' });
+
+    expect(processExit).toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
   });
 });
