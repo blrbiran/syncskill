@@ -8,9 +8,11 @@
  * - Only then remove old and move new
  * - Handle URL expiration gracefully
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect } from 'vitest';
+import { hashSkillDirectory } from '../../../../src/core/manifest.js';
 import { e2eTest, E2EScenario } from '../../framework/index.js';
 
 describe('top-level update http', () => {
@@ -91,6 +93,121 @@ describe('top-level update http', () => {
       const output = updateResult.stdout + updateResult.stderr;
       expect(output).toMatch(/git-repo/i);
     } finally {
+      await ctx.cleanup();
+    }
+  });
+
+  e2eTest('update blocks dirty http sources unless forced and refreshes http baselines after force update', async () => {
+    const ctx = await new E2EScenario()
+      .withAgents('claude')
+      .withInit({ skipScan: true, skipSelf: true })
+      .withArchive('http-v1.tar.gz', {
+        skills: ['http-skill'],
+        format: 'tar.gz',
+        skillContents: { 'http-skill': '# HTTP Skill V1\n' },
+      })
+      .withArchive('http-v2.tar.gz', {
+        skills: ['http-skill'],
+        format: 'tar.gz',
+        skillContents: { 'http-skill': '# HTTP Skill V2\n' },
+      })
+      .setup();
+
+    let closeServer: (() => Promise<void>) | undefined;
+
+    try {
+      const archiveV1 = await readFile(ctx.getArchivePath('http-v1.tar.gz'));
+      const archiveV2 = await readFile(ctx.getArchivePath('http-v2.tar.gz'));
+      let currentArchive = archiveV1;
+
+      const httpServer = createServer((request, response) => {
+        if (request.url !== '/source.tar.gz') {
+          response.statusCode = 404;
+          response.end('not found');
+          return;
+        }
+        response.statusCode = 200;
+        response.setHeader('Content-Type', 'application/gzip');
+        response.end(currentArchive);
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        httpServer.listen(0, '127.0.0.1', () => resolve());
+        httpServer.once('error', reject);
+      });
+
+      closeServer = () => new Promise<void>((resolve, reject) => httpServer.close((error) => error ? reject(error) : resolve()));
+      const address = httpServer.address();
+      if (address === null || typeof address === 'string') {
+        throw new Error('Failed to determine local HTTP archive server address');
+      }
+
+      const sourceUrl = `http://127.0.0.1:${address.port}/source.tar.gz`;
+      const archivePath = ctx.getArchivePath('http-v1.tar.gz');
+      const installResult = await ctx.run('syncskill', 'install', archivePath, '--name', 'http-pack', '-y');
+      expect(installResult.success).toBe(true);
+
+      const config = (await ctx.readConfig()) as {
+        sources?: Record<string, { type?: string; url?: string; path?: string }>;
+      };
+      config.sources = {
+        ...(config.sources ?? {}),
+        'http-pack': {
+          type: 'http',
+          url: sourceUrl,
+          path: '.',
+        },
+      };
+      await ctx.writeConfig(config);
+
+      const initialHash = await hashSkillDirectory(join(ctx.syncskillDir, 'skills', 'http-skill'));
+      await ctx.writeRegistry({
+        version: 2,
+        http_baselines: {
+          'http-skill': {
+            hash: initialHash,
+            source: 'http-pack',
+          },
+        },
+      });
+
+      const updatedConfig = (await ctx.readConfig()) as {
+        sources?: Record<string, { type?: string; url?: string; path?: string }>;
+      };
+      expect(updatedConfig.sources?.['http-pack']?.type).toBe('http');
+      expect(updatedConfig.sources?.['http-pack']?.url).toBe(sourceUrl);
+
+      await ctx.writeFile('.syncskill/skills/http-skill/SKILL.md', '# HTTP Skill LOCAL EDIT\n');
+
+      const dirtyResult = await ctx.run('syncskill', ['update', 'http-pack', '-y'], { expectedExitCode: null });
+      expect(dirtyResult.exitCode).toBe(6);
+      expect(dirtyResult.success).toBe(false);
+      expect((dirtyResult.stdout + dirtyResult.stderr).toLowerCase()).toMatch(/dirty|skip|local/);
+      await ctx.assertFileContains('.syncskill/skills/http-skill/SKILL.md', 'LOCAL EDIT');
+
+      currentArchive = archiveV2;
+
+      const forceResult = await ctx.run('syncskill', ['update', '--force', '-y', 'http-pack'], { expectedExitCode: null });
+      expect(forceResult.success).toBe(true);
+
+      await ctx.assertFileContains('.syncskill/.backups/sources/http-pack/pre-update/http-skill/SKILL.md', 'LOCAL EDIT');
+      await ctx.assertFileContains('.syncskill/skills/http-skill/SKILL.md', 'HTTP Skill V2');
+      await ctx.assertFileContains('.syncskill/.sources/http-pack/checkout/http-skill/SKILL.md', 'HTTP Skill V2');
+
+      const updatedHash = await hashSkillDirectory(join(ctx.syncskillDir, 'skills', 'http-skill'));
+      const registry = (await ctx.readRegistry()) as {
+        version?: number;
+        http_baselines?: Record<string, { hash?: string; source?: string }>;
+      };
+      expect(registry.version).toBe(2);
+      expect(registry.http_baselines?.['http-skill']).toEqual({
+        hash: updatedHash,
+        source: 'http-pack',
+      });
+    } finally {
+      if (closeServer) {
+        await closeServer();
+      }
       await ctx.cleanup();
     }
   });

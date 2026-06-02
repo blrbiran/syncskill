@@ -20,8 +20,9 @@ export async function backupSkillToSidecar(options: BackupSkillToSidecarOptions)
   const sidecarDir = getSidecarBackupDir(homeDir, sourceName);
   const skillBackupDir = join(sidecarDir, skillName);
 
-  await mkdir(skillBackupDir, { recursive: true });
-  await cp(skillPath, skillBackupDir, { recursive: true });
+  await rm(skillBackupDir, { recursive: true, force: true });
+  await mkdir(dirname(skillBackupDir), { recursive: true });
+  await cp(skillPath, skillBackupDir, { recursive: true, dereference: true });
 
   return skillBackupDir;
 }

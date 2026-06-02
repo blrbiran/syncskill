@@ -50,6 +50,32 @@ describe('backup - sidecar pattern', () => {
       const skillMd = await readFile(join(expectedBackupDir, 'SKILL.md'), 'utf8');
       expect(skillMd).toBe('# Test Skill');
     });
+
+    it('replaces any previous sidecar backup and dereferences symlinked skills', async () => {
+      const checkoutDir = join(tempDir, '.syncskill', '.sources', 'http-source', 'checkout');
+      const materializedDir = join(tempDir, '.syncskill', 'skills');
+      const sourceSkillDir = join(checkoutDir, 'http-skill');
+      const skillPath = join(materializedDir, 'http-skill');
+      const existingBackupDir = join(tempDir, '.syncskill', '.backups', 'sources', 'http-source', 'pre-update', 'http-skill');
+      await mkdir(sourceSkillDir, { recursive: true });
+      await mkdir(materializedDir, { recursive: true });
+      await mkdir(existingBackupDir, { recursive: true });
+      await writeFile(join(existingBackupDir, 'SKILL.md'), '# stale backup');
+      await writeFile(join(sourceSkillDir, 'SKILL.md'), '# Symlink Skill');
+      await writeFile(join(sourceSkillDir, 'notes.txt'), 'copied contents');
+      await import('node:fs/promises').then(({ symlink }) => symlink(sourceSkillDir, skillPath, 'dir'));
+
+      const backupPath = await backupSkillToSidecar({
+        homeDir: tempDir,
+        sourceName: 'http-source',
+        skillName: 'http-skill',
+        skillPath
+      });
+
+      expect(backupPath).toBe(existingBackupDir);
+      await expect(readFile(join(existingBackupDir, 'SKILL.md'), 'utf8')).resolves.toBe('# Symlink Skill');
+      await expect(readFile(join(existingBackupDir, 'notes.txt'), 'utf8')).resolves.toBe('copied contents');
+    });
   });
 
   describe('getPullBackupDir', () => {
