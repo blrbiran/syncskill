@@ -120,7 +120,7 @@ import {
   updateAllSources,
   updateSource,
 } from './source.js';
-import { pullFromServer, pullFromServers, pushToServers, syncServers, type PullResult, type PushResult } from './core/sync_engine.js';
+import { pullFromServer, pullFromServers, pushToServers, syncServers, type PullResult, type PushResult, type SyncResult } from './core/sync_engine.js';
 import { formatDashboardSummary, loadDashboardSummary } from './dashboard.js';
 
 function getCommandPath(command: Command): string {
@@ -396,6 +396,126 @@ function formatSkillRows(action: 'pull', result: PullResult): string[];
 function formatSkillRows(action: 'push', result: PushResult): string[];
 function formatSkillRows(action: 'pull' | 'push', result: PullResult | PushResult): string[] {
   return action === 'pull' ? formatPullRows(result as PullResult) : formatPushRows(result as PushResult);
+}
+
+function summarizePushResults(results: PushResult[]): Record<string, unknown> {
+  const pushed = results.flatMap((result) => result.pushed_skills.map((skill) => ({ skill, server: result.server })));
+  const skipped = results.flatMap((result) => result.skipped_skills.map((skill) => ({ skill, server: result.server })));
+  const conflicts = results.flatMap((result) => result.conflicted_skills.map((skill) => ({ skill, server: result.server })));
+  const servers = results.map((result) => ({
+    server: result.server,
+    ok: true,
+    pushed: result.pushed_skills.length,
+    pulled: 0,
+    skipped: result.skipped_skills.length,
+    conflicts: result.conflicted_skills.length
+  }));
+
+  return {
+    pushed: pushed.length,
+    pulled: 0,
+    skipped: skipped.length,
+    conflicts: conflicts.length,
+    warnings: 0,
+    data: {
+      servers,
+      pushed,
+      pulled: [],
+      deleted: [],
+      skipped,
+      conflicts,
+      failed: [],
+      changes: pushed.map((entry) => ({ op: 'push', ...entry })),
+      backups: []
+    }
+  };
+}
+
+function summarizePullResults(results: PullResult[]): Record<string, unknown> {
+  const pulled = results.flatMap((result) => result.pulled_skills.map((skill) => ({ skill, server: result.server })));
+  const deleted = results.flatMap((result) => (result.deleted_skills ?? []).map((skill) => ({ skill, server: result.server })));
+  const skipped = results.flatMap((result) => result.skipped_skills.map((skill) => ({ skill, server: result.server })));
+  const conflicts = results.flatMap((result) => result.conflicted_skills.map((skill) => ({ skill, server: result.server })));
+  const backups = results.flatMap((result) => result.backups ?? []);
+  const servers = results.map((result) => ({
+    server: result.server,
+    ok: true,
+    pushed: 0,
+    pulled: result.pulled_skills.length,
+    skipped: result.skipped_skills.length,
+    conflicts: result.conflicted_skills.length
+  }));
+
+  return {
+    pushed: 0,
+    pulled: pulled.length,
+    skipped: skipped.length,
+    conflicts: conflicts.length,
+    warnings: 0,
+    data: {
+      servers,
+      pushed: [],
+      pulled,
+      deleted,
+      skipped,
+      conflicts,
+      failed: [],
+      changes: [
+        ...pulled.map((entry) => ({ op: 'pull', ...entry })),
+        ...deleted.map((entry) => ({ op: 'delete', ...entry }))
+      ],
+      backups
+    }
+  };
+}
+
+function summarizeSyncResults(results: SyncResult[]): Record<string, unknown> {
+  const pushed = results.flatMap((result) => result.push.pushed_skills.map((skill) => ({ skill, server: result.server })));
+  const pulled = results.flatMap((result) => result.pull.pulled_skills.map((skill) => ({ skill, server: result.server })));
+  const deleted = results.flatMap((result) => (result.pull.deleted_skills ?? []).map((skill) => ({ skill, server: result.server })));
+  const skipped = results.flatMap((result) => [
+    ...result.pull.skipped_skills.map((skill) => ({ skill, server: result.server, phase: 'pull' })),
+    ...result.push.skipped_skills.map((skill) => ({ skill, server: result.server, phase: 'push' }))
+  ]);
+  const conflictMap = new Map<string, { skill: string; server: string }>();
+  for (const result of results) {
+    for (const skill of [...result.pull.conflicted_skills, ...result.push.conflicted_skills]) {
+      conflictMap.set(`${result.server}:${skill}`, { skill, server: result.server });
+    }
+  }
+  const conflicts = [...conflictMap.values()];
+  const backups = results.flatMap((result) => result.pull.backups ?? []);
+  const servers = results.map((result) => ({
+    server: result.server,
+    ok: true,
+    pushed: result.push.pushed_skills.length,
+    pulled: result.pull.pulled_skills.length,
+    skipped: result.pull.skipped_skills.length + result.push.skipped_skills.length,
+    conflicts: new Set([...result.pull.conflicted_skills, ...result.push.conflicted_skills]).size
+  }));
+
+  return {
+    pushed: pushed.length,
+    pulled: pulled.length,
+    skipped: skipped.length,
+    conflicts: conflicts.length,
+    warnings: 0,
+    data: {
+      servers,
+      pushed,
+      pulled,
+      deleted,
+      skipped,
+      conflicts,
+      failed: [],
+      changes: [
+        ...pulled.map((entry) => ({ op: 'pull', ...entry })),
+        ...deleted.map((entry) => ({ op: 'delete', ...entry })),
+        ...pushed.map((entry) => ({ op: 'push', ...entry }))
+      ],
+      backups
+    }
+  };
 }
 
 function isNoInteractive(program: Command): true | undefined {
@@ -2000,11 +2120,15 @@ export function createProgram(homeDir?: string): Command {
         yes: options.yes
       });
 
-      for (const result of results) {
-        for (const line of formatSkillRows('push', result)) {
-          console.log(line);
+      if (!program.opts<{ json?: boolean }>().json) {
+        for (const result of results) {
+          for (const line of formatSkillRows('push', result)) {
+            console.log(line);
+          }
         }
       }
+
+      getGlobalOutput().result(true, summarizePushResults(results));
 
       if (shouldExitDirtySkip(results, {
         strict: isStrictMode(program),
@@ -2064,11 +2188,15 @@ export function createProgram(homeDir?: string): Command {
           onDeletion: options.onDeletion
         });
 
-        for (const result of results) {
-          for (const line of formatSkillRows('pull', result)) {
-            console.log(line);
+        if (!program.opts<{ json?: boolean }>().json) {
+          for (const result of results) {
+            for (const line of formatSkillRows('pull', result)) {
+              console.log(line);
+            }
           }
         }
+
+        getGlobalOutput().result(true, summarizePullResults(results));
 
         if (shouldExitDirtySkip(results, {
           strict: isStrictMode(program),
@@ -2133,15 +2261,17 @@ export function createProgram(homeDir?: string): Command {
           onDeletion: options.onDeletion
         });
 
-        for (const result of results) {
-          for (const line of formatSkillRows('pull', result.pull)) {
-            console.log(line);
+        if (!program.opts<{ json?: boolean }>().json) {
+          for (const result of results) {
+            for (const line of formatSkillRows('pull', result.pull)) {
+              console.log(line);
+            }
           }
-        }
 
-        for (const result of results) {
-          for (const line of formatSkillRows('push', result.push)) {
-            console.log(line);
+          for (const result of results) {
+            for (const line of formatSkillRows('push', result.push)) {
+              console.log(line);
+            }
           }
         }
 
@@ -2157,13 +2287,15 @@ export function createProgram(homeDir?: string): Command {
           }
         }
 
-        if (allConflicts.length > 0) {
+        if (!program.opts<{ json?: boolean }>().json && allConflicts.length > 0) {
           console.log('\nConflicts skipped:');
           for (const c of allConflicts) {
             console.log(`  ${c.skill} (${c.server})`);
           }
           console.log('\nRun `syncskill resolve <skill>` to resolve conflicts.');
         }
+
+        getGlobalOutput().result(true, summarizeSyncResults(results));
 
         if (shouldExitDirtySkip(results, {
           strict: isStrictMode(program),

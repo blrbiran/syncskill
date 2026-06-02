@@ -1,4 +1,4 @@
-import { access, readdir, rm } from 'node:fs/promises';
+import { access, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getConfiguredServer, loadConfig, type ConfiguredServer, type ConflictResolution } from '../config/config.js';
@@ -94,12 +94,20 @@ export interface PushResult {
   manifest: ServerManifest;
 }
 
+export interface PullBackupRecord {
+  skill: string;
+  server: string;
+  backup_path: string;
+  size_bytes: number;
+}
+
 export interface PullResult {
   server: string;
   pulled_skills: string[];
   deleted_skills?: string[];
   skipped_skills: string[];
   conflicted_skills: string[];
+  backups?: PullBackupRecord[];
   manifest: ServerManifest;
 }
 
@@ -163,11 +171,38 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
+async function getDirectorySize(path: string): Promise<number> {
+  const entry = await stat(path);
+  if (entry.isFile()) {
+    return entry.size;
+  }
+
+  if (!entry.isDirectory()) {
+    return 0;
+  }
+
+  const entries = await readdir(path, { withFileTypes: true });
+  let total = 0;
+
+  for (const child of entries) {
+    if (!child.isFile() && !child.isDirectory()) {
+      continue;
+    }
+
+    total += await getDirectorySize(join(path, child.name));
+  }
+
+  return total;
+}
+
 async function backupPullTargets(
   homeDir: string,
+  serverName: string,
   skills: string[],
   registry: Awaited<ReturnType<typeof loadSkillsRegistry>>
-): Promise<void> {
+): Promise<PullBackupRecord[]> {
+  const backups: PullBackupRecord[] = [];
+
   for (const skill of uniqueSorted(skills)) {
     const entry = registry.skills[skill];
     const targetPath = entry?.path ?? join(getSkillsDir(homeDir), skill);
@@ -176,12 +211,21 @@ async function backupPullTargets(
       continue;
     }
 
-    await backupSkillBeforePull({
+    const backupPath = await backupSkillBeforePull({
       homeDir,
       skillName: skill,
       skillPath: targetPath
     });
+
+    backups.push({
+      skill,
+      server: serverName,
+      backup_path: backupPath,
+      size_bytes: await getDirectorySize(backupPath)
+    });
   }
+
+  return backups;
 }
 
 function uniqueSorted(values: string[]): string[] {
@@ -672,14 +716,15 @@ export async function pullFromServer(homeDir: string, serverName: string, option
         ...skippedResultSkills
       ]),
       conflicted_skills: reportedConflicts,
+      backups: [],
       manifest
     };
   }
 
   const registry = await loadSkillsRegistry(homeDir);
-  if (resolvePullBackupEnabled(config, options)) {
-    await backupPullTargets(homeDir, [...pulledContentSkills, ...deletedSkillsForExecution], registry);
-  }
+  const backups = resolvePullBackupEnabled(config, options)
+    ? await backupPullTargets(homeDir, serverName, [...pulledContentSkills, ...deletedSkillsForExecution], registry)
+    : [];
 
   for (const skill of pulledContentSkills) {
     const entry = registry.skills[skill];
@@ -728,6 +773,7 @@ export async function pullFromServer(homeDir: string, serverName: string, option
       ...skippedResultSkills
     ]),
     conflicted_skills: reportedConflicts,
+    backups,
     manifest: finalizedManifest
   };
 }

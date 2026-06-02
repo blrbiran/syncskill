@@ -830,6 +830,7 @@ describe('sync CLI', () => {
         pulled_skills: ['skill-a'],
         skipped_skills: [],
         conflicted_skills: [],
+        backups: [],
         manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
       },
       {
@@ -837,6 +838,7 @@ describe('sync CLI', () => {
         pulled_skills: [],
         skipped_skills: ['skill-b'],
         conflicted_skills: [],
+        backups: [],
         manifest: { version: 1, server: 'beta', updated_at: '2026-05-01T00:00:00Z', skills: {} }
       }
     ]);
@@ -844,5 +846,227 @@ describe('sync CLI', () => {
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull', '--all'], { from: 'node' });
 
     expect(processExit).toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
+  });
+
+  it('push --json emits structured result summary', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} },
+          beta: { host: 'beta.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(await import('../../src/core/sync_engine.js'), 'pushToServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pushed_skills: ['skill-a'],
+        skipped_skills: [],
+        conflicted_skills: [],
+        manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      },
+      {
+        server: 'beta',
+        pushed_skills: [],
+        skipped_skills: ['skill-b'],
+        conflicted_skills: ['skill-c'],
+        manifest: { version: 1, server: 'beta', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      }
+    ]);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', '--no-refresh', 'push', '--all'], { from: 'node' });
+
+    const events = consoleLog.mock.calls.map((call) => JSON.parse(call[0] as string));
+    const resultEvent = events.find((event) => event.type === 'result');
+    expect(resultEvent.command).toBe('push');
+    expect(resultEvent.ok).toBe(true);
+    expect(resultEvent.summary).toMatchObject({
+      pushed: 1,
+      pulled: 0,
+      skipped: 1,
+      conflicts: 1,
+      warnings: 0,
+      data: {
+        servers: [
+          { server: 'alpha', ok: true, pushed: 1, pulled: 0, skipped: 0, conflicts: 0 },
+          { server: 'beta', ok: true, pushed: 0, pulled: 0, skipped: 1, conflicts: 1 }
+        ],
+        pushed: [{ skill: 'skill-a', server: 'alpha' }],
+        skipped: [{ skill: 'skill-b', server: 'beta' }],
+        conflicts: [{ skill: 'skill-c', server: 'beta' }],
+        backups: []
+      }
+    });
+  });
+
+  it('pull --json emits structured result summary with backups', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(await import('../../src/core/sync_engine.js'), 'pullFromServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pulled_skills: ['skill-a'],
+        deleted_skills: ['skill-b'],
+        skipped_skills: ['skill-c'],
+        conflicted_skills: ['skill-d'],
+        backups: [
+          {
+            skill: 'skill-a',
+            server: 'alpha',
+            backup_path: join(homeDir, '.syncskill', '.backups', 'skills', 'skill-a', 'pre-pull'),
+            size_bytes: 4096
+          }
+        ],
+        manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+      }
+    ]);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', '--no-refresh', 'pull', 'alpha'], { from: 'node' });
+
+    const events = consoleLog.mock.calls.map((call) => JSON.parse(call[0] as string));
+    const resultEvent = events.find((event) => event.type === 'result');
+    expect(resultEvent.command).toBe('pull');
+    expect(resultEvent.ok).toBe(true);
+    expect(processExit).toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
+    expect(resultEvent.summary).toMatchObject({
+      pushed: 0,
+      pulled: 1,
+      skipped: 1,
+      conflicts: 1,
+      warnings: 0,
+      data: {
+        servers: [
+          { server: 'alpha', ok: true, pushed: 0, pulled: 1, skipped: 1, conflicts: 1 }
+        ],
+        pulled: [{ skill: 'skill-a', server: 'alpha' }],
+        deleted: [{ skill: 'skill-b', server: 'alpha' }],
+        skipped: [{ skill: 'skill-c', server: 'alpha' }],
+        conflicts: [{ skill: 'skill-d', server: 'alpha' }],
+        backups: [
+          {
+            skill: 'skill-a',
+            server: 'alpha',
+            backup_path: join(homeDir, '.syncskill', '.backups', 'skills', 'skill-a', 'pre-pull'),
+            size_bytes: 4096
+          }
+        ]
+      }
+    });
+  });
+
+  it('sync --json emits structured result summary', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(await import('../../src/core/sync_engine.js'), 'syncServers').mockImplementation(async () => [
+      {
+        server: 'alpha',
+        pull: {
+          server: 'alpha',
+          pulled_skills: ['skill-a'],
+          deleted_skills: ['skill-b'],
+          skipped_skills: ['skill-c'],
+          conflicted_skills: ['skill-d'],
+          backups: [
+            {
+              skill: 'skill-a',
+              server: 'alpha',
+              backup_path: join(homeDir, '.syncskill', '.backups', 'skills', 'skill-a', 'pre-pull'),
+              size_bytes: 1024
+            }
+          ],
+          manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+        },
+        push: {
+          server: 'alpha',
+          pushed_skills: ['skill-e'],
+          skipped_skills: ['skill-f'],
+          conflicted_skills: ['skill-d'],
+          manifest: { version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00Z', skills: {} }
+        }
+      }
+    ]);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', '--no-refresh', 'sync', 'alpha'], { from: 'node' });
+
+    const events = consoleLog.mock.calls.map((call) => JSON.parse(call[0] as string));
+    const resultEvent = events.find((event) => event.type === 'result');
+    expect(resultEvent.command).toBe('sync');
+    expect(resultEvent.ok).toBe(true);
+    expect(processExit).toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
+    expect(resultEvent.summary).toMatchObject({
+      pushed: 1,
+      pulled: 1,
+      skipped: 2,
+      conflicts: 1,
+      warnings: 0,
+      data: {
+        servers: [
+          { server: 'alpha', ok: true, pushed: 1, pulled: 1, skipped: 2, conflicts: 1 }
+        ],
+        pushed: [{ skill: 'skill-e', server: 'alpha' }],
+        pulled: [{ skill: 'skill-a', server: 'alpha' }],
+        deleted: [{ skill: 'skill-b', server: 'alpha' }],
+        backups: [
+          {
+            skill: 'skill-a',
+            server: 'alpha',
+            backup_path: join(homeDir, '.syncskill', '.backups', 'skills', 'skill-a', 'pre-pull'),
+            size_bytes: 1024
+          }
+        ]
+      }
+    });
+    expect(resultEvent.summary.data.skipped).toEqual([
+      { skill: 'skill-c', server: 'alpha', phase: 'pull' },
+      { skill: 'skill-f', server: 'alpha', phase: 'push' }
+    ]);
+    expect(resultEvent.summary.data.conflicts).toEqual([
+      { skill: 'skill-d', server: 'alpha' }
+    ]);
   });
 });
