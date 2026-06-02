@@ -309,7 +309,7 @@ e2eTest("install local archive", async () => {
 ### Testing link
 
 ```typescript
-e2eTest("link --apply creates all links", async () => {
+e2eTest("link build creates all links", async () => {
   const ctx = await new E2EScenario()
     .withAgents("claude", "agents", "qwen")
     .withInit()
@@ -320,14 +320,14 @@ e2eTest("link --apply creates all links", async () => {
     })
     .setup();
 
-  await ctx.run("syncskill", "link", "--apply");
+  await ctx.run("syncskill", "link", "build");
 
   await ctx.assertLinked("skill-a", ["claude", "agents", "qwen"]);
   await ctx.assertLinked("skill-b", ["claude"]);
   await ctx.assertNotLinked("skill-b", ["agents", "qwen"]);
 });
 
-e2eTest("link --apply reconciles stale links", async () => {
+e2eTest("link build reconciles stale links", async () => {
   const ctx = await new E2EScenario()
     .withAgents("claude", "qwen")
     .withInit()
@@ -336,16 +336,16 @@ e2eTest("link --apply reconciles stale links", async () => {
     .setup();
 
   // Create all links
-  await ctx.run("syncskill", "link", "--apply");
+  await ctx.run("syncskill", "link", "build");
   await ctx.assertLinked("my-skill", ["claude", "qwen"]);
 
   // Modify config: keep only claude
   const config = await ctx.readConfig();
   config.links["my-skill"] = ["claude"];
-  await ctx.writeFile(".syncskill/config.yaml", stringify(config));
+  await ctx.writeFile(".syncskill/config.json", JSON.stringify(config, null, 2) + "\n");
 
-  // Run link --apply again, should clean up stale links
-  await ctx.run("syncskill", "link", "--apply", "-y");
+  // Run link build again, should clean up stale links
+  await ctx.run("syncskill", "link", "build", "-y");
 
   await ctx.assertLinked("my-skill", ["claude"]);
   await ctx.assertNotLinked("my-skill", ["qwen"]);

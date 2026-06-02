@@ -153,7 +153,7 @@ Git sources: Auto-detect default branch via `git ls-remote --symref`, then `git 
 
 ### `src/core/skills-registry.ts`
 
-Owns the unified skills registry that tracks all skills' origin mapping and ignore status.
+Owns skills registry metadata, including tracked skill entries and HTTP baseline state used by sync flows.
 
 ### `src/core/transport.ts`
 

@@ -76,7 +76,7 @@ export interface InstallFromSourceResult {
 }
 
 /**
- * Install skills from a URL or local path (delegates to source add + link)
+ * Install skills from a URL or local path via the unified install flow.
  */
 export async function installFromSource(
   homeDir: string,

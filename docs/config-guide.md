@@ -46,11 +46,12 @@ Default layout:
 ├── manifests/                     # Per-server sync state (JSON per server)
 │   └── <server>.json
 ├── manifest_history.json          # Hash change history
-├── skills-registry.json           # Skill registry (source mapping + ignore status)
-├── backups/                       # Backups from --force updates
-│   └── <source-name>/
-│       ├── <skill-name>/          # Latest backup per skill
-│       └── _meta.json             # Backup metadata
+├── skills-registry.json           # Skill registry metadata
+├── .backups/                      # Sidecar backups from update/pull/sync protection
+│   ├── sources/
+│   │   └── <source-name>/pre-update/
+│   └── skills/
+│       └── <skill-name>/pre-pull/
 └── .tmp/                          # Temporary files (auto-cleaned)
 ```
 
@@ -347,7 +348,7 @@ Example:
 
 ## Skills Registry
 
-The `skills-registry.json` file tracks the origin and status of all skills:
+The `skills-registry.json` file stores skill registry metadata used by syncskill:
 
 ```json
 {
