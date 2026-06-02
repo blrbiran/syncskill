@@ -67,20 +67,32 @@ describe('install CLI command', () => {
     });
 
     expect(stdout).toContain('Usage: syncskill install|i [options] [urlOrPath]');
-    expect(stdout).toContain('--self');
+    expect(stdout).toContain('Use "self" for built-in skill');
+    expect(stdout).not.toContain('--self');
   });
 
-  it('includes --self in install help output', async () => {
+  it('does not include --self in install help output', async () => {
     const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', 'install', '--help'], {
       env: { ...process.env, HOME: homeDir }
     });
 
-    expect(stdout).toContain('--self');
-    expect(stdout).toContain('Install built-in syncskill skill');
+    expect(stdout).toContain('Use "self" for built-in skill');
+    expect(stdout).not.toContain('--self');
   });
 
-  it('installs the built-in skill with --self', async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', 'install', '--self'], {
+  it('rejects the removed --self flag', async () => {
+    await expect(
+      execFileAsync('npx', ['tsx', 'src/index.ts', 'install', '--self'], {
+        env: { ...process.env, HOME: homeDir }
+      })
+    ).rejects.toMatchObject({
+      stdout: expect.stringContaining(''),
+      stderr: expect.stringContaining('unknown option')
+    });
+  });
+
+  it('installs the built-in skill with self', async () => {
+    const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', 'install', 'self'], {
       cwd: join(import.meta.dirname, '../..'),
       env: { ...process.env, HOME: homeDir }
     });
@@ -91,7 +103,32 @@ describe('install CLI command', () => {
     expect(installedSkills).toContain('syncskill');
   });
 
-  it('treats self argument as built-in install target when no local ./self directory exists', async () => {
+  it('outputs plan JSON with --plan install self', async () => {
+    const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', '--plan', 'install', 'self'], {
+      cwd: join(import.meta.dirname, '../..'),
+      env: { ...process.env, HOME: homeDir }
+    });
+
+    const plan = JSON.parse(stdout);
+    expect(plan.version).toBe(1);
+    expect(plan.command).toBe('install');
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0].id).toBe('a1');
+    expect(plan.actions[0].op).toBe('install-self');
+    expect(plan.actions[0].to).toContain('.syncskill/skills/syncskill');
+  });
+
+  it('rejects --plan install --self', async () => {
+    await expect(
+      execFileAsync('npx', ['tsx', 'src/index.ts', '--plan', 'install', '--self'], {
+        env: { ...process.env, HOME: homeDir }
+      })
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining('unknown option')
+    });
+  });
+
+  it('installs the built-in skill with self when no local ./self directory exists', async () => {
     const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', 'install', 'self'], {
       cwd: join(import.meta.dirname, '../..'),
       env: { ...process.env, HOME: homeDir }
@@ -118,17 +155,4 @@ describe('install CLI command', () => {
     }
   });
 
-  it('outputs plan JSON with --plan install --self', async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', '--plan', 'install', '--self'], {
-      cwd: join(import.meta.dirname, '../..'),
-      env: { ...process.env, HOME: homeDir }
-    });
-
-    const plan = JSON.parse(stdout);
-    expect(plan.version).toBe(1);
-    expect(plan.command).toBe('install');
-    expect(plan.actions).toHaveLength(1);
-    expect(plan.actions[0].op).toBe('install-self');
-    expect(plan.actions[0].to).toContain('.syncskill/skills/syncskill');
-  });
 });

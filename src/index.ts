@@ -916,15 +916,13 @@ export function createProgram(homeDir?: string): Command {
   program
     .command('install [urlOrPath]')
     .alias('i')
-    .description('Install skill(s). Use --self or "self" for built-in skill; URL/path for external source')
-    .option('--self', 'Install built-in syncskill skill')
+    .description('Install skill(s). Use "self" for built-in skill; URL/path for external source')
     .option('--name <name>', 'Source name (for URL/path)')
     .option('--path <path>', 'Storage path for source files')
     .option('--skill-subdir <dir>', 'Subdirectory within source containing skills')
     .option('--branch <branch>', 'Git branch')
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (urlOrPath: string | undefined, options: {
-      self?: boolean;
       name?: string;
       path?: string;
       skillSubdir?: string;
@@ -957,7 +955,9 @@ export function createProgram(homeDir?: string): Command {
         output.info('Deprecated alias: use --resolutions -', { deprecated: '--resolutions-stdin', replacement: '--resolutions -' });
       }
 
-      if (!urlOrPath && !options.self) {
+      let builtInRequested = false;
+
+      if (!urlOrPath) {
         if (process.stdout.isTTY) {
           if (isNoInteractive(program)) {
             failForNoInteractive();
@@ -973,7 +973,8 @@ export function createProgram(homeDir?: string): Command {
           });
 
           if (choice === 'self') {
-            options.self = true;
+            builtInRequested = true;
+            urlOrPath = 'self';
           } else if (choice === 'url') {
             urlOrPath = await input({ message: 'Enter URL or path:' });
           } else {
@@ -986,9 +987,9 @@ export function createProgram(homeDir?: string): Command {
       }
 
       const selfPathExists = urlOrPath === 'self' ? await pathExists(resolve('./self')) : false;
-      const isSelfInstall = options.self || (urlOrPath === 'self' && !selfPathExists);
+      const isSelfInstall = builtInRequested || (urlOrPath === 'self' && !selfPathExists);
       const isPlanOperation = Boolean(planMode || applyPath);
-      const isSimpleCase = Boolean(options.self || urlOrPath === 'self');
+      const isSimpleCase = Boolean(isSelfInstall);
 
       if (isPlanOperation && isSimpleCase) {
         const planOptions: PlanExecuteOptions = {
@@ -1046,7 +1047,7 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (!urlOrPath) {
-        throw new Error('install requires a URL/path or use --self');
+        throw new Error('install requires a URL/path or use "self"');
       }
 
       const result = await installFromSource(resolvedHomeDir, urlOrPath, {
