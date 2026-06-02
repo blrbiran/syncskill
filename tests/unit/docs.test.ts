@@ -52,6 +52,9 @@ describe('ship-readiness docs', () => {
     expect(configGuide).toContain('server show <name>');
     expect(configGuide).toContain('refresh --remote <server>');
     expect(configGuide).toContain('remote_agents');
+    expect(configGuide).toContain('http_baselines');
+    expect(configGuide).not.toContain('"ignored": {');
+    expect(configGuide).toContain('config.sources[*].ignore[]');
     expect(configGuide).toContain('npm link');
 
     expect(usageGuide).toContain('# Usage Guide');
@@ -79,6 +82,7 @@ describe('ship-readiness docs', () => {
     expect(designGuide).toContain('src/repo.ts');
     expect(designGuide).toContain('src/core/manifest.ts');
     expect(designGuide).toContain('src/core/conflict.ts');
+    expect(designGuide).toContain('http_baselines');
     expect(designGuide).toContain('src/source.ts');
     expect(designGuide).toContain('src/core/transport.ts');
     expect(designGuide).toContain('src/core/sync_engine.ts');

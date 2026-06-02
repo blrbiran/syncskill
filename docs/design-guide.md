@@ -199,7 +199,7 @@ Local state lives under `~/.syncskill/`:
 | `.sources/` | Internal source state and materialized checkouts |
 | `manifests/<server>.json` | Per-server reconciliation snapshots |
 | `manifest_history.json` | Hash change audit trail |
-| `skills-registry.json` | Skill origin and status tracking |
+| `skills-registry.json` | HTTP dirty-detection baselines (`http_baselines`) |
 | `.backups/` | Sidecar backups for forced source updates and pre-pull protection |
 
 ### `.backups/`

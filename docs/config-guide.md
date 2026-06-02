@@ -349,18 +349,11 @@ Example:
 
 ## Skills Registry
 
-The current v2 `skills-registry.json` stores only ignored-skill metadata and HTTP dirty-detection baselines. Active skill ownership is derived from config plus the materialized filesystem state:
+The current v2 `skills-registry.json` stores only HTTP dirty-detection baselines. Ignored state lives in `config.sources[*].ignore[]`, and active skill ownership is derived from config plus the materialized filesystem state:
 
 ```json
 {
   "version": 2,
-  "ignored": {
-    "ignored-skill": {
-      "reason": "duplicate",
-      "ignored_at": "2026-05-09T10:00:00Z",
-      "kept_by": "~/.syncskill/skills/kept-copy"
-    }
-  },
   "http_baselines": {
     "vendor-skill": {
       "hash": "abc123def456",
