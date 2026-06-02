@@ -32,7 +32,7 @@ async function createGitSourceFixture(homeDir: string): Promise<{ bareRepoDir: s
   return { bareRepoDir, workRepoDir };
 }
 
-describe('source update --force', () => {
+describe('update --force source handling', () => {
   let testDir: string;
   let homeDir: string;
 
@@ -171,7 +171,7 @@ describe('source update --force', () => {
       await writeFile(join(skillsDir, 'http-skill', 'SKILL.md'), '# HTTP Skill MODIFIED\n');
 
       // The detectHttpDirty function should detect this as dirty
-      // We can't easily test source update for HTTP without an HTTP server,
+      // We can't easily test top-level update for HTTP without an HTTP server,
       // but we can verify the registry structure is correct for dirty detection
       const updatedRegistry = await loadSkillsRegistry(homeDir);
       expect(updatedRegistry.skills['http-skill'].last_update_hash).toBe('original-hash-value');

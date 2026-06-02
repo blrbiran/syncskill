@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect } from 'vitest';
 import { e2eTest, E2EScenario, modifySkillInGitRepo } from '../../framework/index.js';
 
-describe('source update dirty state', () => {
+describe('top-level update dirty state', () => {
   e2eTest('update detects dirty git multiskill repo', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')

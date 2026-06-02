@@ -1,8 +1,8 @@
 // tests/end2end/cases/source/source-update-http.test.ts
 /**
- * E2E tests for HTTP source update behavior.
+ * E2E tests for top-level update behavior with HTTP/local sources.
  *
- * Scenario 3: Update command for HTTP sources should:
+ * Scenario 3: Top-level update for HTTP sources should:
  * - Download to temp directory first
  * - Verify skills exist before replacing
  * - Only then remove old and move new
@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { describe, expect } from 'vitest';
 import { e2eTest, E2EScenario } from '../../framework/index.js';
 
-describe('source update http', () => {
+describe('top-level update http', () => {
   e2eTest('update skips local archive without url', async () => {
     // Scenario 3: Local archives without URL cannot be updated
     const ctx = await new E2EScenario()
