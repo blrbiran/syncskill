@@ -22,7 +22,7 @@ Use this skill when:
 |---------|-------------|
 | `init [--skip-scan] [--skip-self] [-y]` | Initialize `~/.syncskill/` and create `config.json` |
 | `install` / `i` | In TTY, open an interactive install menu; in non-TTY, show install help |
-| `install --self` / `install self` | Install built-in syncskill skill |
+| `install self` | Install built-in syncskill skill |
 | `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path and register it as a managed source |
 
 Install options: `--name`, `--path` (source storage path), `--skill-subdir`, `--branch`, `-y`
@@ -39,12 +39,12 @@ Install options: `--name`, `--path` (source storage path), `--skill-subdir`, `--
 | `link add <skill> <agent>` | Add one target agent without replacing existing targets |
 | `link remove <skill> <agent>` | Remove one target agent |
 | `link clear <skill>` | Remove all links for a skill |
-| `link apply` | Reconcile symlinks to match config for all configured skills |
+| `link build` | Reconcile symlinks to match config for all configured skills |
 | `unlink <skill>` | Alias for `link clear <skill>` |
 
-For AI agents, prefer `link set ...` followed by `link apply` when making declarative changes, or use `link add/remove/clear` for small incremental edits.
+For AI agents, prefer `link set ...` followed by `link build` when making declarative changes, or use `link add/remove/clear` for small incremental edits.
 
-**Reconcile behavior**: `link apply` and the mutating `link` subcommands reconcile stale symlinks (links pointing to skills no longer in config or to non-existent paths).
+**Reconcile behavior**: `link build` and the mutating `link` subcommands reconcile stale symlinks (links pointing to skills no longer in config or to non-existent paths).
 
 ### Source Management
 
@@ -99,7 +99,6 @@ In v2, `server probe` is removed.
 | `remote` | Shortcut for `config remote` |
 | `doctor` | Diagnose config issues (agents, links, sources, registry) |
 | `doctor --fix [-y]` | Interactive repair of config issues |
-| `doctor --rebuild-registry` | Rebuild `skills-registry.json` from scratch |
 
 **Config format**: v2 is JSON-only. Runtime state lives under `~/.syncskill/`, and the main config file is `~/.syncskill/config.json`. Older `config.yaml` files are legacy format and are migrated on config writes.
 
@@ -116,7 +115,7 @@ In v2, `server probe` is removed.
 | `--dry-run` | Preview changes without executing |
 | `--force` | Force operation (for example, updating dirty sources) |
 
-For automation, prefer `--json --no-interactive` together with declarative commands such as `config show`, `link set`, `link apply`, `status`, `diff`, `push`, `pull`, and `sync`.
+For automation, prefer `--json --no-interactive` together with declarative commands such as `config show`, `link set`, `link build`, `status`, `diff`, `push`, `pull`, and `sync`.
 
 ## Usage Examples
 
@@ -130,7 +129,7 @@ syncskill i https://github.com/user/skills-repo
 
 # AI-friendly declarative linking
 syncskill --no-interactive link set welcome claude hermes
-syncskill --no-interactive link apply
+syncskill --no-interactive link build
 syncskill --json link list
 
 # Incremental link edits

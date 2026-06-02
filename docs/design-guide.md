@@ -177,16 +177,7 @@ Owns archive format detection and extraction. Supports `.tar.gz`, `.tgz`, `.tar.
 
 ### `src/utils/backup.ts`
 
-Owns sidecar backup for dirty skills during `source update --force`. Backups are stored next to the source directory (not in a centralized location):
-
-```
-~/.syncskill/sources/my-source/
-~/.syncskill/sources/my-source.syncskill-pre-update-backup/
-  └── skill-name/
-      └── (backed up files)
-```
-
-This sidecar pattern keeps backups close to their source and avoids accumulating stale backups in a centralized directory.
+Owns sidecar backup helpers for dirty source updates and pre-pull skill protection. Dirty source backups now live under the centralized sidecar root `~/.syncskill/.backups/`, including `sources/<source>/pre-update/` for forced source updates and `skills/<skill>/pre-pull/` for pull/sync overwrite protection.
 
 ### `src/receiver/`
 
@@ -201,33 +192,17 @@ Local state lives under `~/.syncskill/`:
 
 | Path | Purpose |
 |------|---------|
-| `config.yaml` | User configuration |
+| `config.json` | User configuration |
 | `skills/` | Manually managed skills |
 | `sources/` | Cloned git/http sources |
 | `manifests/<server>.json` | Per-server reconciliation snapshots |
 | `manifest_history.json` | Hash change audit trail |
 | `skills-registry.json` | Skill origin and status tracking |
-| `update-history.json` | Recovery metadata for forced dirty source updates |
+| `.backups/` | Sidecar backups for forced source updates and pre-pull protection |
 
-### `update-history.json`
+### `.backups/`
 
-When a dirty source is overwritten during `source update --force`, syncskill stores restore metadata in `~/.syncskill/update-history.json`. Each source name maps to one recovery record.
-
-```json
-{
-  "source-name": {
-    "type": "git|http",
-    "before_commit": "sha (git only)",
-    "after_commit": "sha (git only)",
-    "stash_commit": "sha (git only)",
-    "backup_path": "path (http only)",
-    "dirty_skills": ["skill1"],
-    "timestamp": "ISO date"
-  }
-}
-```
-
-Use this file together with `syncskill source restore <name>` to recover local changes after an overwrite.
+When a dirty source is overwritten during top-level `update --force`, syncskill writes HTTP source backups to `~/.syncskill/.backups/sources/<source>/pre-update/`. Pull and sync flows also write skill backups to `~/.syncskill/.backups/skills/<skill>/pre-pull/` before overwriting local content. Recovery is path-based rather than driven by `update-history.json` or a `source restore` command.
 
 Remote synchronization exchanges skill trees plus manifest state, while transport details remain isolated from conflict and orchestration logic.
 

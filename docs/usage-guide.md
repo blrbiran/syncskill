@@ -9,7 +9,7 @@ syncskill init
 syncskill
 syncskill config show
 syncskill scan
-syncskill link apply
+syncskill link build
 ```
 
 After `init`, local state lives under `~/.syncskill/` by default, including the managed skill tree, manifests, and `config.json`. Set `SYNCSKILL_DIR` to relocate the runtime directory, or `SYNCSKILL_CONFIG` to point at a specific config file.
@@ -20,10 +20,10 @@ v2 adds automation-friendly global flags and environment variables so AI agents 
 
 ```bash
 # Preview the plan without changing files
-syncskill --plan install --self
+syncskill --plan install self
 
 # Save the plan, then execute it
-syncskill --plan-file /tmp/install-self.plan.json install --self
+syncskill --plan install self > /tmp/install-self.plan.json
 
 # Execute a previously generated plan
 syncskill --apply /tmp/install-self.plan.json
@@ -32,7 +32,7 @@ syncskill --apply /tmp/install-self.plan.json
 syncskill --json --no-interactive link list
 ```
 
-Prefer `--json` for machine-readable output and `--no-interactive` when a command must fail instead of prompting. Use `--plan`, `--plan-file`, `--apply`, and `--resolutions <path>` when your workflow needs approval or handoff between one agent that plans and another that executes.
+Prefer `--json` for machine-readable output and `--no-interactive` when a command must fail instead of prompting. Use `--plan`, `--apply`, and `--resolutions <path>` when your workflow needs approval or handoff between one agent that plans and another that executes. To save a generated plan, use shell redirection with `--plan`.
 
 ### Init Options
 
@@ -83,15 +83,15 @@ syncskill link clear welcome
 syncskill unlink welcome
 
 # Apply all configured links
-syncskill link apply
+syncskill link build
 
 # Preview link changes without applying
-syncskill link apply --dry-run
+syncskill link build --dry-run
 syncskill link set welcome claude cursor --dry-run
 syncskill unlink welcome --dry-run
 
 # Auto-confirm stale link removal
-syncskill link apply -y
+syncskill link build -y
 ```
 
 Use `link edit` for interactive workflows and `link set` / `link add` / `link remove` / `link clear` for explicit non-interactive updates.
@@ -104,7 +104,7 @@ All link commands also support the global `--no-interactive` flag when you want 
 
 ```bash
 # Safe for automation
-syncskill --no-interactive link apply
+syncskill --no-interactive link build
 syncskill --json link list
 ```
 
@@ -120,15 +120,15 @@ Link subcommands:
 | `link add <skill> <agent>` | Add one configured agent for one skill |
 | `link remove <skill> <agent>` | Remove one configured agent for one skill |
 | `link clear <skill>` | Remove all configured agents for one skill |
-| `link apply` | Materialize configured links into agent directories |
+| `link build` | Reconcile configured links into agent directories |
 | `unlink <skill>` | Alias for `link clear <skill>` |
 
 Link command options:
 
 | Option | Applies to | Description |
 |--------|------------|-------------|
-| `-y, --yes` | `link set`, `link add`, `link clear`, `link apply`, `unlink` | Auto-confirm stale link removal or clear confirmation |
-| `--dry-run` | `link set`, `link add`, `link remove`, `link clear`, `link apply`, `unlink` | Preview what would change |
+| `-y, --yes` | `link set`, `link add`, `link clear`, `link build`, `unlink` | Auto-confirm stale link removal or clear confirmation |
+| `--dry-run` | `link set`, `link add`, `link remove`, `link clear`, `link build`, `unlink` | Preview what would change |
 | `-v, --verbose` | `link list` | Show text status instead of symbols |
 | `--no-interactive` | global | Disable prompts for automation |
 | `--json` | global | Emit JSON output for script-friendly commands |
@@ -158,7 +158,7 @@ Remove my-skill from hermes, qoder? (no longer in config) [Y/n] y
 For batch operations:
 
 ```bash
-$ syncskill link apply
+$ syncskill link build
 
 ✓ Linked 5 skills
 
@@ -197,19 +197,19 @@ syncskill source list
 syncskill source ls
 
 # Update all configured sources
-syncskill source update --all
+syncskill update --all
 
 # Update a specific source
-syncskill source update vendor-docs
+syncskill update vendor-docs
 
 # Skip confirmations (dirty sources are still skipped unless --force)
-syncskill source update --all -y
+syncskill update --all -y
 
 # Force update after backup
-syncskill source update --all --force
+syncskill update --all --force
 
 # Preview source updates without changing anything
-syncskill source update --all --dry-run
+syncskill update --all --dry-run
 
 # Remove a source (interactive)
 syncskill source remove vendor-docs
@@ -228,9 +228,9 @@ Source update options:
 | `--force` | Force update dirty sources (backs up modified skills first) |
 | `--dry-run` | Preview dirty detection and pending updates without changing files |
 
-**Dirty source handling**: When a source has local modifications (`git status` shows changes, or HTTP source hash differs from last update), the update is skipped by default. Use `--force` to overwrite after automatic backup to `~/.syncskill/backups/`.
+**Dirty source handling**: When a source has local modifications (`git status` shows changes, or HTTP source hash differs from last update), the update is skipped by default. Use `--force` to overwrite after an automatic git stash or sidecar backup under `~/.syncskill/.backups/sources/<source>/pre-update/`.
 
-`source add` and `source restore` were removed in v2. Install new sources with `syncskill install <url-or-path>`, then use `source list`, `source update`, and `source remove` to maintain them.
+`source add`, `source update`, and `source restore` were removed in v2. Install new sources with `syncskill install <url-or-path>`, then use `source list`, top-level `update`, and `source remove` to maintain them.
 
 ### Installing Skills
 
@@ -239,7 +239,6 @@ Source update options:
 syncskill install
 
 # Install the syncskill skill itself
-syncskill install --self
 syncskill install self
 
 # Install from a GitHub URL
@@ -263,14 +262,14 @@ Install options:
 | `--branch <branch>` | Git branch or tag |
 | `-y, --yes` | Skip confirmation prompts |
 
-For v2 plan-then-execute workflows, `install --self` also supports the global `--plan`, `--plan-file`, `--apply`, and `--resolutions` flags. This is the supported way to preview or hand off built-in skill installation before making changes.
+For v2 plan-then-execute workflows, `install self` also supports the global `--plan`, `--apply`, and `--resolutions` flags. Save the generated plan with shell redirection when needed. This is the supported way to preview or hand off built-in skill installation before making changes.
 
 ### Typical Loop
 
 1. Add or edit a skill under `~/.syncskill/skills/`
 2. Run `syncskill scan` to register newly discovered skills
-3. Run `syncskill link apply` or `syncskill link set <skill> <agents...>` to publish links into agent directories
-4. Use `syncskill install`, `syncskill source list`, and `syncskill source update` to manage external sources
+3. Run `syncskill link build` or `syncskill link set <skill> <agents...>` to publish links into agent directories
+4. Use `syncskill install`, `syncskill source list`, and `syncskill update` to manage external sources
 
 ## Reconciliation Workflow
 
@@ -448,8 +447,6 @@ syncskill doctor --fix
 # Auto-repair all fixable issues
 syncskill doctor --fix -y
 
-# Rebuild skills-registry.json from scratch
-syncskill doctor --rebuild-registry
 ```
 
 The doctor command checks for:
@@ -466,7 +463,6 @@ The doctor command checks for:
 | `--json` | Output JSONL events instead of human-readable text |
 | `--no-interactive` | Disable interactive prompts and fail if input is required |
 | `--plan` | Print a plan without executing it |
-| `--plan-file <path>` | Write the generated plan to a file, then execute it |
 | `--apply <path>` | Execute a previously generated plan file |
 | `--resolutions <path>` | Provide a resolutions file for unresolved plan items |
 | `--no-refresh` | Skip automatic manifest refresh before commands |
@@ -486,7 +482,7 @@ Common automation examples:
 
 ```bash
 syncskill --json status
-syncskill --no-interactive link apply
+syncskill --no-interactive link build
 syncskill --json link list
 SYNCSKILL_JSON=1 SYNCSKILL_NO_INTERACTIVE=1 syncskill status
 ```

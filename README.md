@@ -7,9 +7,9 @@ v2 adds JSONL output, non-interactive execution, and plan/apply workflows for ag
 ## Features
 
 - **Multi-agent support**: Manage skills across Claude, Hermes, Qoder, and other AI agents
-- **Source management**: Import skills from git repositories, HTTP archives, or local directories with `install`; maintain them with `source list`, `source update`, and `source remove`
-- **Declarative linking**: Manage skill links with `link set`, `link add`, `link remove`, `link clear`, and `link apply`
-- **Agent automation**: Stream JSONL events, disable prompts, or split planning from execution with `--json`, `--no-interactive`, `--plan`, `--plan-file`, `--apply`, and `--resolutions`
+- **Source management**: Import skills from git repositories, HTTP archives, or local directories with `install`; maintain them with `source list`, top-level `update`, and `source remove`
+- **Declarative linking**: Manage skill links with `link set`, `link add`, `link remove`, `link clear`, and `link build`
+- **Agent automation**: Stream JSONL events, disable prompts, or split planning from execution with `--json`, `--no-interactive`, `--plan`, `--apply`, and `--resolutions`
 - **Remote sync**: Push and pull skills to/from remote servers via SSH/rsync, with optional `--timeout` control
 - **Conflict resolution**: Three-way merge with manual or automatic resolution
 - **Cross-platform**: Works on macOS, Linux, and Windows
@@ -39,10 +39,10 @@ syncskill init
 syncskill
 
 # Install the syncskill skill (for AI agents)
-syncskill install --self
+syncskill install self
 
 # Preview the built-in install plan first
-syncskill --plan install --self
+syncskill --plan install self
 
 # Install from a source interactively when running in a TTY
 syncskill install
@@ -51,7 +51,7 @@ syncskill install
 syncskill link                    # Open matrix editor
 syncskill link add my-skill claude
 syncskill link set my-skill claude cursor
-syncskill link apply              # Apply configured links and clean stale symlinks
+syncskill link build              # Reconcile configured links and clean stale symlinks
 syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 ```
 
@@ -63,7 +63,7 @@ syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 |---------|-------------|
 | `syncskill init` | Initialize `~/.syncskill/` directory structure |
 | `syncskill install` / `i` | Open interactive install menu in TTY, otherwise show help; also install from URL/path |
-| `syncskill install --self` | Install built-in syncskill skill |
+| `syncskill install self` | Install built-in syncskill skill |
 | `syncskill config` | Open interactive configuration menu |
 | `syncskill config show` | Print current JSON configuration |
 | `syncskill config set <key> <value>` | Set a configuration value in `config.json` |
@@ -79,7 +79,7 @@ syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 | `syncskill link add <skill> <agent>` | Add one agent link for a skill |
 | `syncskill link remove <skill> <agent>` | Remove one agent link for a skill |
 | `syncskill link clear <skill>` | Remove all links for a skill |
-| `syncskill link apply` | Apply all configured links (auto-cleans stale symlinks) |
+| `syncskill link build` | Reconcile all configured links (auto-cleans stale symlinks) |
 | `syncskill link list` / `ls` | Show link status |
 | `syncskill link list -v` | Show link status with verbose text |
 | `syncskill unlink <skill>` | Alias for `syncskill link clear <skill>` |
@@ -89,11 +89,11 @@ syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 | Command | Description |
 |---------|-------------|
 | `syncskill source list` / `ls` | List configured sources |
-| `syncskill source update [name\|--all] [--force] [--dry-run]` | Refresh source content |
+| `syncskill update [name\|--all] [--force] [--dry-run]` | Refresh source content |
 | `syncskill source remove <name>` | Remove a source (interactive) |
 | `syncskill install <url-or-path>` | Install and register a source from git, HTTP archive, local directory, or archive file |
 
-In v2, `source add` and `source restore` were removed. Use `install` to add new sources.
+In v2, `source add`, `source update`, and `source restore` were removed. Use `install` to add new sources and top-level `update` to refresh them.
 
 ### Reconciliation
 
@@ -128,7 +128,6 @@ In v2, `source add` and `source restore` were removed. Use `install` to add new 
 | `syncskill doctor` | Diagnose config issues |
 | `syncskill doctor --fix` | Interactive repair |
 | `syncskill doctor --fix -y` | Auto-repair all issues |
-| `syncskill doctor --rebuild-registry` | Rebuild skills-registry.json |
 
 ### Global Options
 
@@ -147,7 +146,7 @@ For v2 migrations: `server probe` was removed; use `server show` plus sync/refre
 
 - Runtime config is stored in `~/.syncskill/config.json`.
 - Older `config.yaml` references in previous docs/examples should be treated as `config.json` in v2.
-- Sources can still be updated and restored after installation; the deprecated `source add`, `source update`, and `source restore` command forms were removed from the v2 top-level command reference.
+- External sources are installed with `install` and refreshed with top-level `update`; the deprecated `source add`, `source update`, and `source restore` command forms were removed from the v2 command surface.
 
 ## Verification
 

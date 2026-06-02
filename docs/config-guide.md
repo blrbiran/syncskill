@@ -18,10 +18,10 @@ For automation and agent handoff workflows, combine the JSON config format with 
 syncskill --json status
 
 # Refuse prompts in CI or agent runs
-syncskill --no-interactive link apply
+syncskill --no-interactive link build
 
 # Generate a plan, save it, and execute it
-syncskill --plan-file /tmp/syncskill.plan.json install --self
+syncskill --plan install self > /tmp/syncskill.plan.json
 
 # Execute a saved plan later
 syncskill --apply /tmp/syncskill.plan.json
@@ -209,17 +209,14 @@ When saving via the matrix editor, if a skill is linked to all agents, it is aut
 
 The `links` configuration defines *desired* state, not actual symlinks. Modifying `config.links` (via `link set`, `link add`, `link remove`, `link clear`, or the matrix editor) only updates `config.json` — it does not create or remove symlinks immediately.
 
-To synchronize actual symlinks with the configuration, run the `link apply` subcommand:
+To synchronize actual symlinks with the configuration, run the `link build` subcommand:
 
 ```bash
-# Reconcile links for a specific skill
-syncskill link apply my-skill
-
 # Reconcile all links
-syncskill link apply
+syncskill link build
 ```
 
-The `link apply` command performs reconciliation:
+The `link build` command performs reconciliation:
 
 1. **Creates missing links** — symlinks defined in config but not present on disk
 2. **Removes stale links** — symlinks on disk that are no longer in config
@@ -228,10 +225,10 @@ Stale link removal requires confirmation by default. Use flags to control this:
 
 ```bash
 # Preview what would change without making changes
-syncskill link apply --dry-run
+syncskill link build --dry-run
 
 # Auto-confirm stale link removal
-syncskill link apply -y
+syncskill link build -y
 ```
 
 Example workflow:
@@ -241,11 +238,11 @@ Example workflow:
 syncskill link set my-skill claude
 
 # 2. Preview the reconciliation
-syncskill link apply my-skill --dry-run
+syncskill link build --dry-run
 # Output: Would remove stale link: /Users/alice/.qoder/skills/my-skill
 
 # 3. Apply the change
-syncskill link apply my-skill
+syncskill link build
 # Prompts: Remove stale link /Users/alice/.qoder/skills/my-skill? [y/N]
 ```
 
@@ -293,7 +290,7 @@ Remote lifecycle notes:
 
 Defines external skill sources that can materialize content into the local sync repository.
 
-In v2, new sources are added with `syncskill install <url-or-path>`. The old `source add` and `source restore` commands were removed.
+In v2, new sources are added with `syncskill install <url-or-path>`. The old `source add`, `source update`, and `source restore` commands were removed; use top-level `update` to refresh sources.
 
 Supported source types:
 

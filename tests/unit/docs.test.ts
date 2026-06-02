@@ -32,7 +32,7 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('--json');
     expect(readme).toContain('--no-interactive');
     expect(readme).toContain('link set');
-    expect(readme).toContain('link apply');
+    expect(readme).toContain('link build');
 
     expect(configGuide).toContain('# Configuration Guide');
     expect(configGuide).toContain('version');
@@ -61,7 +61,7 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('--json');
     expect(usageGuide).toContain('--no-interactive');
     expect(usageGuide).toContain('link set');
-    expect(usageGuide).toContain('link apply');
+    expect(usageGuide).toContain('link build');
 
     expect(designGuide).toContain('# Design Guide');
     expect(designGuide).toContain('src/index.ts');
