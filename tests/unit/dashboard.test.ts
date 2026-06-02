@@ -4,8 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { saveConfig } from '../../src/config/config.js';
-import { saveSkillsRegistry } from '../../src/core/skills-registry.js';
+import { getSyncPaths, saveConfig } from '../../src/config/config.js';
 import { saveServerManifest, type ServerManifest } from '../../src/core/manifest.js';
 import { formatDashboardSummary, loadDashboardSummary } from '../../src/dashboard.js';
 import { useTempDirs } from '../helpers/temp-dir.js';
@@ -60,6 +59,7 @@ describe('dashboard summary', () => {
     const homeDir = join(tmpdir(), `syncskill-dashboard-${Date.now()}`);
     tempDirs.push(homeDir);
 
+    const { skillsDir, syncDir } = getSyncPaths(homeDir);
     const claudeDir = join(homeDir, '.claude', 'skills');
     const cursorDir = join(homeDir, '.cursor', 'skills');
     const sourceOneDir = join(homeDir, 'sources', 'my-repo');
@@ -67,8 +67,18 @@ describe('dashboard summary', () => {
 
     await mkdir(claudeDir, { recursive: true });
     await mkdir(cursorDir, { recursive: true });
-    await mkdir(sourceOneDir, { recursive: true });
-    await mkdir(sourceTwoDir, { recursive: true });
+    await mkdir(join(skillsDir, 'alpha'), { recursive: true });
+    await mkdir(join(skillsDir, 'beta'), { recursive: true });
+    await mkdir(join(sourceOneDir, 'skills', 'gamma'), { recursive: true });
+    await mkdir(join(sourceTwoDir, 'skills'), { recursive: true });
+    await mkdir(join(syncDir, '.sources', 'my-repo'), { recursive: true });
+    await writeFile(join(skillsDir, 'alpha', 'SKILL.md'), '# Alpha');
+    await writeFile(join(skillsDir, 'beta', 'SKILL.md'), '# Beta');
+    await writeFile(join(sourceOneDir, 'skills', 'gamma', 'SKILL.md'), '# Gamma');
+    await writeFile(
+      join(syncDir, '.sources', 'my-repo', 'state.json'),
+      JSON.stringify({ materialized_skills: ['gamma'], updated_at: '2026-06-02T00:00:00.000Z' }, null, 2)
+    );
 
     await saveConfig(
       {
@@ -85,22 +95,13 @@ describe('dashboard summary', () => {
           prod: { host: 'prod.example.com', remote_agents: {} }
         },
         sources: {
-          'my-repo': { type: 'local', path: sourceOneDir },
-          'local-tools': { type: 'local', path: sourceTwoDir }
+          'my-repo': { type: 'local', url: sourceOneDir, path: 'skills', ignore: ['gamma'] },
+          'local-tools': { type: 'local', url: sourceTwoDir, path: 'skills' }
         },
         private_agents: ['cursor', 'hermes']
       },
       homeDir
     );
-
-    await saveSkillsRegistry(homeDir, {
-      version: 1,
-      skills: {
-        alpha: { path: join(homeDir, '.syncskill', 'skills', 'alpha'), origin: 'manual', type: 'manual', status: 'active' },
-        beta: { path: join(homeDir, '.syncskill', 'skills', 'beta'), origin: 'manual', type: 'manual', status: 'active' },
-        gamma: { path: join(homeDir, '.syncskill', 'skills', 'gamma'), origin: 'my-repo', type: 'local', status: 'ignored', ignored_reason: 'user-choice' }
-      }
-    });
 
     const prodManifest: ServerManifest = {
       version: 1,

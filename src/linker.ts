@@ -3,7 +3,8 @@ import { dirname, join } from 'node:path';
 
 import { expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, resolveAgentPath, saveConfig, type SyncSkillConfig } from './config/config.js';
 import { ensureDefaultLinkTargets } from './core/private-agents.js';
-import { buildSkillsIndex, saveSkillsIndex } from './source.js';
+import { rebuildRegistryV2 } from './core/registry-builder.js';
+import { saveSkillsRegistryV2 } from './core/skills-registry.js';
 import { isNotFoundError, pathExists } from './utils/utils.js';
 
 export interface ScanOptions {
@@ -232,10 +233,10 @@ export async function linkConfiguredSkills(homeDir: string, request: LinkRequest
     }
   }
 
-  // Generate skills-index.json when linking all skills
+  // Generate skills-registry.json when linking all skills
   if (request.all) {
-    const index = await buildSkillsIndex(homeDir);
-    await saveSkillsIndex(homeDir, index);
+    const registry = await rebuildRegistryV2(homeDir, config);
+    await saveSkillsRegistryV2(homeDir, registry);
   }
 
   return results;

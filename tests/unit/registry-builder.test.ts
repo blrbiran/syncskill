@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdir, writeFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { rebuildRegistryV2 } from '../../src/core/registry-builder.js';
+import { join } from 'node:path';
+
 import type { SyncSkillConfig } from '../../src/config/config.js';
+import { rebuildRegistryV2 } from '../../src/core/registry-builder.js';
 
 describe('registry-builder', () => {
   let tempDir: string;
@@ -48,41 +49,43 @@ describe('registry-builder', () => {
     expect(registry.http_baselines['my-skill'].hash).toBeDefined();
   });
 
-  it('preserves existing ignored entries', async () => {
-    const config: SyncSkillConfig = {
-      version: 1,
-      conflict_resolution: 'manual',
-      agents: {},
-      sources: {},
-      links: {},
-      servers: {},
-      private_agents: []
-    };
-
-    const existingIgnored = {
-      'old-skill': { reason: 'user-choice' as const, ignored_at: '2026-05-21T00:00:00Z' }
-    };
-
-    const registry = await rebuildRegistryV2(tempDir, config, existingIgnored);
-
-    expect(registry.ignored['old-skill']).toEqual(existingIgnored['old-skill']);
-  });
-
-  it('skips ignored skills when building http_baselines', async () => {
-    const sourcePath = join(tempDir, 'http-source');
-    const skill1Path = join(sourcePath, 'skill-1');
-    const skill2Path = join(sourcePath, 'skill-2');
-    await mkdir(skill1Path, { recursive: true });
-    await mkdir(skill2Path, { recursive: true });
-    await writeFile(join(skill1Path, 'SKILL.md'), '# Skill 1');
-    await writeFile(join(skill2Path, 'SKILL.md'), '# Skill 2');
+  it('skips non-http sources', async () => {
+    const sourcePath = join(tempDir, 'local-source');
+    const skillPath = join(sourcePath, 'local-skill');
+    await mkdir(skillPath, { recursive: true });
+    await writeFile(join(skillPath, 'SKILL.md'), '# Local Skill');
 
     const config: SyncSkillConfig = {
       version: 1,
       conflict_resolution: 'manual',
       agents: {},
       sources: {
-        'my-http-source': {
+        local: {
+          type: 'local',
+          path: sourcePath,
+          url: sourcePath
+        }
+      },
+      links: {},
+      servers: {},
+      private_agents: []
+    };
+
+    const registry = await rebuildRegistryV2(tempDir, config);
+
+    expect(registry).toEqual({ version: 2, http_baselines: {} });
+  });
+
+  it('skips directories without SKILL.md', async () => {
+    const sourcePath = join(tempDir, 'http-source');
+    await mkdir(join(sourcePath, 'not-a-skill'), { recursive: true });
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      sources: {
+        remote: {
           type: 'http',
           url: 'https://example.com/skills.tar.gz',
           path: sourcePath
@@ -93,13 +96,8 @@ describe('registry-builder', () => {
       private_agents: []
     };
 
-    const existingIgnored = {
-      'skill-1': { reason: 'user-choice' as const, ignored_at: '2026-05-21T00:00:00Z' }
-    };
+    const registry = await rebuildRegistryV2(tempDir, config);
 
-    const registry = await rebuildRegistryV2(tempDir, config, existingIgnored);
-
-    expect(registry.http_baselines['skill-1']).toBeUndefined();
-    expect(registry.http_baselines['skill-2']).toBeDefined();
+    expect(registry).toEqual({ version: 2, http_baselines: {} });
   });
 });

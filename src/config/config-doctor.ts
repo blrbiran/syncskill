@@ -1,14 +1,161 @@
-import { access, readdir } from 'node:fs/promises';
+import { access, copyFile, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { SyncSkillConfig } from './config.js';
+import { rebuildRegistryV2 } from '../core/registry-builder.js';
 import {
-  loadSkillsRegistry,
-  loadSkillsRegistryV2,
-  saveSkillsRegistry,
   getSkillsRegistryPath,
-  type SkillsRegistry
+  loadSkillsRegistryV2,
+  saveSkillsRegistryV2,
 } from '../core/skills-registry.js';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function collectSkillNames(root: string): Promise<string[]> {
+  const skills: string[] = [];
+
+  try {
+    const entries = await readdir(root, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+
+      try {
+        await access(join(root, entry.name, 'SKILL.md'));
+        skills.push(entry.name);
+      } catch {
+        // Ignore non-skill directories.
+      }
+    }
+  } catch {
+    // Ignore missing or unreadable directories.
+  }
+
+  return skills;
+}
+
+async function discoverExpectedHttpSkills(sources: Record<string, unknown>): Promise<Set<string>> {
+  const skills = new Set<string>();
+
+  for (const sourceRaw of Object.values(sources)) {
+    if (!isRecord(sourceRaw) || sourceRaw.type !== 'http' || typeof sourceRaw.path !== 'string') {
+      continue;
+    }
+
+    for (const skillName of await collectSkillNames(sourceRaw.path)) {
+      skills.add(skillName);
+    }
+  }
+
+  return skills;
+}
+
+async function discoverExistingSkills(
+  skillsDir: string,
+  sources: Record<string, unknown>
+): Promise<Set<string>> {
+  const skills = new Set<string>(await collectSkillNames(skillsDir));
+
+  for (const sourceRaw of Object.values(sources)) {
+    if (!isRecord(sourceRaw) || typeof sourceRaw.path !== 'string') {
+      continue;
+    }
+
+    for (const skillName of await collectSkillNames(sourceRaw.path)) {
+      skills.add(skillName);
+    }
+  }
+
+  return skills;
+}
+
+async function registryExists(homeDir: string): Promise<boolean> {
+  try {
+    await access(getSkillsRegistryPath(homeDir));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getRegistryBackupPath(homeDir: string): string {
+  return `${getSkillsRegistryPath(homeDir)}.bak`;
+}
+
+async function loadValidatedRegistryV2(homeDir: string): Promise<void> {
+  const content = await readFile(getSkillsRegistryPath(homeDir), 'utf8');
+  const parsed = JSON.parse(content) as unknown;
+
+  if (!isRecord(parsed)) {
+    throw new Error('Registry must be an object');
+  }
+
+  if (parsed.version === 1) {
+    return;
+  }
+
+  if (parsed.version !== 2) {
+    throw new Error('Registry version is invalid');
+  }
+
+  if ('ignored' in parsed) {
+    throw new Error('Registry must not contain ignored entries');
+  }
+
+  if (!isRecord(parsed.http_baselines)) {
+    throw new Error('Registry http_baselines is invalid');
+  }
+}
+
+async function checkRegistryBaselineCoverage(
+  homeDir: string,
+  config: SyncSkillConfig
+): Promise<DiagnosticItem[]> {
+  const expectedSkills = await discoverExpectedHttpSkills(config.sources);
+  const registry = await loadSkillsRegistryV2(homeDir);
+  const actualSkills = new Set(Object.keys(registry.http_baselines));
+
+  const missing = [...expectedSkills].filter((skill) => !actualSkills.has(skill));
+  const stale = [...actualSkills].filter((skill) => !expectedSkills.has(skill));
+
+  if (missing.length === 0 && stale.length === 0) {
+    return [];
+  }
+
+  return [{
+    code: DiagnosticCode.REGISTRY_CORRUPT,
+    severity: 'warning',
+    message: 'skills-registry.json http baselines are out of sync with configured HTTP sources',
+    path: 'skills-registry.json',
+    suggestion: 'Run `syncskill link build` to regenerate skills-registry.json'
+  }];
+}
+
+async function checkRegistryIntegrity(
+  homeDir: string,
+  config: SyncSkillConfig
+): Promise<DiagnosticItem[]> {
+  if (!(await registryExists(homeDir))) {
+    return [];
+  }
+
+  try {
+    await loadValidatedRegistryV2(homeDir);
+  } catch {
+    return [{
+      code: DiagnosticCode.REGISTRY_CORRUPT,
+      severity: 'warning',
+      message: 'skills-registry.json is corrupt or invalid',
+      path: 'skills-registry.json',
+      suggestion: 'Run `syncskill link build` to regenerate skills-registry.json'
+    }];
+  }
+
+  return checkRegistryBaselineCoverage(homeDir, config);
+}
 
 export const DiagnosticCode = {
   NO_VALID_AGENTS: 'NO_VALID_AGENTS',
@@ -16,10 +163,7 @@ export const DiagnosticCode = {
   SKILL_NOT_FOUND: 'SKILL_NOT_FOUND',
   AGENT_NOT_CONFIGURED: 'AGENT_NOT_CONFIGURED',
   SOURCE_PATH_INVALID: 'SOURCE_PATH_INVALID',
-  REGISTRY_MISSING: 'REGISTRY_MISSING',
-  REGISTRY_CORRUPT: 'REGISTRY_CORRUPT',
-  REGISTRY_STALE: 'REGISTRY_STALE',
-  REGISTRY_ORPHAN: 'REGISTRY_ORPHAN'
+  REGISTRY_CORRUPT: 'REGISTRY_CORRUPT'
 } as const;
 
 export type DiagnosticCodeType = (typeof DiagnosticCode)[keyof typeof DiagnosticCode];
@@ -44,8 +188,10 @@ export interface RepairOptions {
   removeInvalidAgentLinks: boolean;
   removeInvalidAgents: boolean;
   removeInvalidSources: boolean;
-  removeStaleRegistryEntries: boolean;
-  addOrphanRegistryEntries: boolean;
+}
+
+export interface RepairRegistryOptions {
+  rebuildRegistry: boolean;
 }
 
 export async function checkAgentPaths(
@@ -67,26 +213,24 @@ export async function checkAgentPaths(
     })
   );
 
-  const validCount = results.filter((r) => r.valid).length;
-  const invalidResults = results.filter((r) => !r.valid);
+  const validCount = results.filter((result) => result.valid).length;
+  const invalidResults = results.filter((result) => !result.valid);
 
-  if (validCount === 0 && entries.length > 0) {
-    return [
-      {
-        code: DiagnosticCode.NO_VALID_AGENTS,
-        severity: 'error',
-        message: 'All agent paths are invalid. At least one is required.',
-        path: 'agents'
-      }
-    ];
+  if (validCount === 0) {
+    return [{
+      code: DiagnosticCode.NO_VALID_AGENTS,
+      severity: 'error',
+      message: 'All agent paths are invalid. At least one is required.',
+      path: 'agents'
+    }];
   }
 
-  return invalidResults.map((r) => ({
+  return invalidResults.map((result) => ({
     code: DiagnosticCode.AGENT_PATH_INVALID,
     severity: 'warning' as const,
-    message: `Path does not exist: ${r.path}`,
-    path: `agents.${r.name}`,
-    suggestion: `Remove "${r.name}" from agents`
+    message: `Path does not exist: ${result.path}`,
+    path: `agents.${result.name}`,
+    suggestion: `Remove "${result.name}" from agents`
   }));
 }
 
@@ -140,10 +284,6 @@ export function checkAgentReferences(
   return items;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 export async function checkSourcePaths(
   sources: Record<string, unknown>
 ): Promise<DiagnosticItem[]> {
@@ -170,127 +310,12 @@ export async function checkSourcePaths(
   return items;
 }
 
-/**
- * Discover existing skills by scanning skillsDir and sources.
- * Only directories containing SKILL.md are considered valid skills.
- */
-async function discoverExistingSkills(
-  skillsDir: string,
-  sources: Record<string, unknown>
-): Promise<Set<string>> {
-  const skills = new Set<string>();
-
-  // Check manual skills dir
-  try {
-    const entries = await readdir(skillsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        try {
-          await access(join(skillsDir, entry.name, 'SKILL.md'));
-          skills.add(entry.name);
-        } catch {
-          // No SKILL.md - not a valid skill
-        }
-      }
-    }
-  } catch {
-    // skillsDir may not exist
-  }
-
-  // Check sources
-  for (const sourceRaw of Object.values(sources)) {
-    if (!isRecord(sourceRaw)) continue;
-    const sourcePath = sourceRaw.path as string | undefined;
-    if (!sourcePath) continue;
-
-    try {
-      const entries = await readdir(sourcePath, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          try {
-            await access(join(sourcePath, entry.name, 'SKILL.md'));
-            skills.add(entry.name);
-          } catch {
-            // No SKILL.md - not a valid skill
-          }
-        }
-      }
-    } catch {
-      // Source path may not exist
-    }
-  }
-
-  return skills;
-}
-
 export async function checkRegistryHealth(
   homeDir: string,
   config: SyncSkillConfig,
-  skillsDir: string
+  _skillsDir: string
 ): Promise<DiagnosticItem[]> {
-  const items: DiagnosticItem[] = [];
-  const registryPath = getSkillsRegistryPath(homeDir);
-
-  // 1. Check if registry file exists
-  try {
-    await access(registryPath);
-  } catch {
-    items.push({
-      code: DiagnosticCode.REGISTRY_MISSING,
-      severity: 'warning',
-      message: 'skills-registry.json does not exist',
-      path: 'skills-registry.json',
-      suggestion: 'Run `syncskill link build` to regenerate skills-registry.json'
-    });
-    return items;
-  }
-
-  // 2. Try to load and parse both registry formats
-  let registry: SkillsRegistry;
-  try {
-    registry = await loadSkillsRegistry(homeDir);
-    await loadSkillsRegistryV2(homeDir);
-  } catch {
-    items.push({
-      code: DiagnosticCode.REGISTRY_CORRUPT,
-      severity: 'warning',
-      message: 'skills-registry.json is corrupt or invalid',
-      path: 'skills-registry.json',
-      suggestion: 'Run `syncskill link build` to regenerate skills-registry.json'
-    });
-    return items;
-  }
-
-  // 3. Check for stale entries (path doesn't exist)
-  for (const [skillName, entry] of Object.entries(registry.skills)) {
-    try {
-      await access(entry.path);
-    } catch {
-      items.push({
-        code: DiagnosticCode.REGISTRY_STALE,
-        severity: 'warning',
-        message: `Skill path does not exist: ${entry.path}`,
-        path: `registry.${skillName}`,
-        suggestion: `Remove stale entry for "${skillName}"`
-      });
-    }
-  }
-
-  // 4. Check for orphans (skills exist but not in registry)
-  const existingSkills = await discoverExistingSkills(skillsDir, config.sources);
-  for (const skillName of existingSkills) {
-    if (!registry.skills[skillName]) {
-      items.push({
-        code: DiagnosticCode.REGISTRY_ORPHAN,
-        severity: 'warning',
-        message: `Skill "${skillName}" exists but is not in registry`,
-        path: `registry.${skillName}`,
-        suggestion: 'Run `syncskill link build` to regenerate skills-registry.json'
-      });
-    }
-  }
-
-  return items;
+  return checkRegistryIntegrity(homeDir, config);
 }
 
 export async function diagnoseConfig(
@@ -311,20 +336,12 @@ export async function diagnoseConfig(
   }
 
   const existingSkills = await discoverExistingSkills(skillsDir, config.sources);
-  const skillItems = checkSkillReferences(config.links, existingSkills);
-  warnings.push(...skillItems);
+  warnings.push(...checkSkillReferences(config.links, existingSkills));
+  warnings.push(...checkAgentReferences(config.links, new Set(Object.keys(config.agents))));
+  warnings.push(...await checkSourcePaths(config.sources));
 
-  const configuredAgents = new Set(Object.keys(config.agents));
-  const agentRefItems = checkAgentReferences(config.links, configuredAgents);
-  warnings.push(...agentRefItems);
-
-  const sourceItems = await checkSourcePaths(config.sources);
-  warnings.push(...sourceItems);
-
-  // Add registry checks if homeDir is provided
   if (homeDir) {
-    const registryItems = await checkRegistryHealth(homeDir, config, skillsDir);
-    warnings.push(...registryItems);
+    warnings.push(...await checkRegistryHealth(homeDir, config, skillsDir));
   }
 
   return {
@@ -341,7 +358,6 @@ export function repairConfig(
   options: RepairOptions
 ): SyncSkillConfig {
   const result = structuredClone(config);
-
   const allItems = [...report.errors, ...report.warnings];
 
   for (const item of allItems) {
@@ -354,9 +370,7 @@ export function repairConfig(
       const skillName = item.path.replace('links.', '');
       const agentMatch = item.message.match(/Agent "([^"]+)"/);
       if (agentMatch && result.links[skillName]) {
-        result.links[skillName] = result.links[skillName].filter(
-          (a) => a !== agentMatch[1]
-        );
+        result.links[skillName] = result.links[skillName].filter((agent) => agent !== agentMatch[1]);
       }
     }
 
@@ -372,6 +386,38 @@ export function repairConfig(
   }
 
   return result;
+}
+
+export async function repairRegistry(
+  homeDir: string,
+  config: SyncSkillConfig,
+  report: DiagnosticReport,
+  options: RepairRegistryOptions
+): Promise<{ repaired: string[] }> {
+  if (!options.rebuildRegistry) {
+    return { repaired: [] };
+  }
+
+  const hasCorruptRegistry = [...report.errors, ...report.warnings].some(
+    (item) => item.code === DiagnosticCode.REGISTRY_CORRUPT
+  );
+
+  if (!hasCorruptRegistry) {
+    return { repaired: [] };
+  }
+
+  const registryPath = getSkillsRegistryPath(homeDir);
+  if (await registryExists(homeDir)) {
+    await copyFile(registryPath, getRegistryBackupPath(homeDir));
+  }
+
+  const registry = await rebuildRegistryV2(homeDir, config);
+  await saveSkillsRegistryV2(homeDir, registry);
+  return { repaired: ['skills-registry.json'] };
+}
+
+export function isRegistryDiagnostic(code: DiagnosticCodeType): boolean {
+  return code === DiagnosticCode.REGISTRY_CORRUPT;
 }
 
 export function formatDiagnosticReport(report: DiagnosticReport): string {
@@ -420,70 +466,11 @@ export function formatDiagnosticSummary(report: DiagnosticReport): string {
   return `⚠ Config has ${total} issue${total > 1 ? 's' : ''} (run \`syncskill doctor\` to fix)`;
 }
 
-export interface RepairRegistryOptions {
-  removeStaleEntries: boolean;
-  addOrphanEntries: boolean;
-}
-
-export async function repairRegistry(
-  homeDir: string,
-  skillsDir: string,
-  report: DiagnosticReport,
-  options: RepairRegistryOptions
-): Promise<{ repaired: string[] }> {
-  const registry = await loadSkillsRegistry(homeDir);
-  const repaired: string[] = [];
-
-  const allItems = [...report.errors, ...report.warnings];
-
-  for (const item of allItems) {
-    if (item.code === DiagnosticCode.REGISTRY_STALE && options.removeStaleEntries) {
-      const skillName = item.path.replace('registry.', '');
-      delete registry.skills[skillName];
-      repaired.push(item.path);
-    }
-
-    if (item.code === DiagnosticCode.REGISTRY_ORPHAN && options.addOrphanEntries) {
-      const skillName = item.path.replace('registry.', '');
-      const skillPath = join(skillsDir, skillName);
-      registry.skills[skillName] = {
-        path: skillPath,
-        origin: 'manual',
-        type: 'manual',
-        status: 'active'
-      };
-      repaired.push(item.path);
-    }
-  }
-
-  if (repaired.length > 0) {
-    await saveSkillsRegistry(homeDir, registry);
-  }
-
-  return { repaired };
-}
-
-export function isRegistryDiagnostic(code: DiagnosticCodeType): boolean {
-  return code === DiagnosticCode.REGISTRY_STALE ||
-         code === DiagnosticCode.REGISTRY_ORPHAN ||
-         code === DiagnosticCode.REGISTRY_MISSING ||
-         code === DiagnosticCode.REGISTRY_CORRUPT;
-}
-
-/**
- * Auto-check config health before running commands.
- * - If healthy: silent, continue
- * - If warnings only: print one-line summary to stderr, continue
- * - If errors (canProceed=false): print summary + "Run doctor --fix", exit 1
- *
- * Returns false if config could not be loaded (caller should skip auto-check).
- */
 export async function autoDiagnoseConfig(
   config: SyncSkillConfig | null,
   skillsDir: string
 ): Promise<void> {
   if (!config) {
-    // Config not available - skip auto-check
     return;
   }
 

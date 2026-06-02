@@ -16,12 +16,6 @@ export interface SkillRegistryEntry {
   last_update_hash?: string;  // Only for HTTP sources, used for dirty detection
 }
 
-export interface IgnoredSkillEntry {
-  reason: 'duplicate' | 'user-choice' | 'conflict';
-  ignored_at: string;
-  kept_by?: string;
-}
-
 export interface HttpBaseline {
   hash: string;
   source: string;
@@ -34,7 +28,6 @@ export interface SkillsRegistry {
 
 export interface SkillsRegistryV2 {
   version: 2;
-  ignored: Record<string, IgnoredSkillEntry>;
   http_baselines: Record<string, HttpBaseline>;
 }
 
@@ -91,7 +84,7 @@ export async function saveSkillsRegistry(homeDir: string, registry: SkillsRegist
 }
 
 export function createEmptyRegistryV2(): SkillsRegistryV2 {
-  return { version: 2, ignored: {}, http_baselines: {} };
+  return { version: 2, http_baselines: {} };
 }
 
 export async function loadSkillsRegistryV2(homeDir: string): Promise<SkillsRegistryV2> {
@@ -130,9 +123,6 @@ function normalizeRegistryV2(value: unknown): SkillsRegistryV2 {
 
   return {
     version: 2,
-    ignored: typeof obj.ignored === 'object' && obj.ignored !== null
-      ? obj.ignored as Record<string, IgnoredSkillEntry>
-      : {},
     http_baselines: typeof obj.http_baselines === 'object' && obj.http_baselines !== null
       ? obj.http_baselines as Record<string, HttpBaseline>
       : {}
@@ -143,14 +133,6 @@ function migrateV1ToV2(v1: SkillsRegistry): SkillsRegistryV2 {
   const v2 = createEmptyRegistryV2();
 
   for (const [skillName, entry] of Object.entries(v1.skills)) {
-    if (entry.status === 'ignored' && entry.ignored_reason) {
-      v2.ignored[skillName] = {
-        reason: entry.ignored_reason,
-        ignored_at: entry.ignored_at ?? new Date().toISOString(),
-        ...(entry.kept_by && { kept_by: entry.kept_by })
-      };
-    }
-
     if (entry.type === 'http' && entry.last_update_hash) {
       v2.http_baselines[skillName] = {
         hash: entry.last_update_hash,
@@ -167,34 +149,6 @@ export async function saveSkillsRegistryV2(homeDir: string, registry: SkillsRegi
   await mkdir(syncDir, { recursive: true });
   const path = getSkillsRegistryPath(homeDir);
   await writeFile(path, JSON.stringify(registry, null, 2) + '\n', 'utf8');
-}
-
-export function isSkillIgnoredV2(registry: SkillsRegistryV2, skillName: string): boolean {
-  return skillName in registry.ignored;
-}
-
-export function ignoreSkillV2(
-  registry: SkillsRegistryV2,
-  skillName: string,
-  reason: 'duplicate' | 'user-choice' | 'conflict',
-  keptBy?: string
-): SkillsRegistryV2 {
-  return {
-    ...registry,
-    ignored: {
-      ...registry.ignored,
-      [skillName]: {
-        reason,
-        ignored_at: new Date().toISOString(),
-        ...(keptBy && { kept_by: keptBy })
-      }
-    }
-  };
-}
-
-export function unignoreSkillV2(registry: SkillsRegistryV2, skillName: string): SkillsRegistryV2 {
-  const { [skillName]: _, ...rest } = registry.ignored;
-  return { ...registry, ignored: rest };
 }
 
 export function setHttpBaselineV2(

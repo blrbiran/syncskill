@@ -28,10 +28,7 @@ describe('DiagnosticCode', () => {
     expect(DiagnosticCode.SKILL_NOT_FOUND).toBe('SKILL_NOT_FOUND');
     expect(DiagnosticCode.AGENT_NOT_CONFIGURED).toBe('AGENT_NOT_CONFIGURED');
     expect(DiagnosticCode.SOURCE_PATH_INVALID).toBe('SOURCE_PATH_INVALID');
-    expect(DiagnosticCode.REGISTRY_MISSING).toBe('REGISTRY_MISSING');
     expect(DiagnosticCode.REGISTRY_CORRUPT).toBe('REGISTRY_CORRUPT');
-    expect(DiagnosticCode.REGISTRY_STALE).toBe('REGISTRY_STALE');
-    expect(DiagnosticCode.REGISTRY_ORPHAN).toBe('REGISTRY_ORPHAN');
   });
 });
 
@@ -223,21 +220,15 @@ describe('checkRegistryHealth', () => {
     sources: {}
   };
 
-  it('returns REGISTRY_MISSING when file does not exist', async () => {
+  it('returns empty array when registry file does not exist', async () => {
     const skillsDir = join(homeDir, '.syncskill', 'skills');
 
     const items = await checkRegistryHealth(homeDir, baseConfig, skillsDir);
 
-    expect(items).toHaveLength(1);
-    expect(items[0].code).toBe(DiagnosticCode.REGISTRY_MISSING);
-    expect(items[0].severity).toBe('warning');
-    expect(items[0].suggestion).toBe('Run `syncskill link build` to regenerate skills-registry.json');
+    expect(items).toEqual([]);
   });
 
-  // Note: REGISTRY_CORRUPT is not currently reachable because loadSkillsRegistry
-  // catches JSON parse errors and returns a default registry. The code exists
-  // for future-proofing if the registry loader behavior changes.
-  it.skip('returns REGISTRY_CORRUPT when JSON is invalid', async () => {
+  it('returns REGISTRY_CORRUPT when JSON is invalid', async () => {
     const skillsDir = join(homeDir, '.syncskill', 'skills');
     const registryPath = join(homeDir, '.syncskill', 'skills-registry.json');
 
@@ -249,70 +240,59 @@ describe('checkRegistryHealth', () => {
     expect(items[0].code).toBe(DiagnosticCode.REGISTRY_CORRUPT);
   });
 
-  it('returns REGISTRY_STALE when skill path does not exist', async () => {
+  it('returns REGISTRY_CORRUPT when registry still contains ignored entries', async () => {
     const skillsDir = join(homeDir, '.syncskill', 'skills');
     const registryPath = join(homeDir, '.syncskill', 'skills-registry.json');
 
     const registry = {
-      version: 1,
-      skills: {
-        'nonexistent-skill': {
-          path: '/does/not/exist',
-          origin: 'manual',
-          type: 'manual',
-          status: 'active'
-        }
-      }
+      version: 2,
+      ignored: {
+        'old-skill': { reason: 'user-choice' }
+      },
+      http_baselines: {}
     };
     await writeFile(registryPath, JSON.stringify(registry));
 
     const items = await checkRegistryHealth(homeDir, baseConfig, skillsDir);
 
-    expect(items.some((i) => i.code === DiagnosticCode.REGISTRY_STALE)).toBe(true);
+    expect(items).toHaveLength(1);
+    expect(items[0].code).toBe(DiagnosticCode.REGISTRY_CORRUPT);
   });
 
-  it('returns REGISTRY_ORPHAN when skill exists but not in registry', async () => {
+  it('returns REGISTRY_CORRUPT when HTTP baselines are out of sync', async () => {
     const skillsDir = join(homeDir, '.syncskill', 'skills');
     const registryPath = join(homeDir, '.syncskill', 'skills-registry.json');
+    const sourcePath = join(homeDir, 'http-source');
+    const skillPath = join(sourcePath, 'my-http-skill');
 
-    // Create a skill that exists on disk
-    const orphanSkillPath = join(skillsDir, 'orphan-skill');
-    await mkdir(orphanSkillPath, { recursive: true });
-    await writeFile(join(orphanSkillPath, 'SKILL.md'), '# Orphan');
+    await mkdir(skillPath, { recursive: true });
+    await writeFile(join(skillPath, 'SKILL.md'), '# My HTTP Skill');
 
-    // Create empty registry
-    const registry = { version: 1, skills: {} };
-    await writeFile(registryPath, JSON.stringify(registry));
+    const config: SyncSkillConfig = {
+      ...baseConfig,
+      sources: {
+        remote: {
+          type: 'http',
+          url: 'https://example.com/archive.tar.gz',
+          path: sourcePath
+        }
+      }
+    };
 
-    const items = await checkRegistryHealth(homeDir, baseConfig, skillsDir);
+    await writeFile(registryPath, JSON.stringify({ version: 2, http_baselines: {} }));
 
-    const orphanItem = items.find((i) => i.code === DiagnosticCode.REGISTRY_ORPHAN);
-    expect(orphanItem).toBeDefined();
-    expect(orphanItem?.suggestion).toBe('Run `syncskill link build` to regenerate skills-registry.json');
+    const items = await checkRegistryHealth(homeDir, config, skillsDir);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].code).toBe(DiagnosticCode.REGISTRY_CORRUPT);
+    expect(items[0].message).toContain('http baselines are out of sync');
   });
 
   it('returns empty array when registry is healthy', async () => {
     const skillsDir = join(homeDir, '.syncskill', 'skills');
     const registryPath = join(homeDir, '.syncskill', 'skills-registry.json');
 
-    // Create a skill on disk
-    const skillPath = join(skillsDir, 'my-skill');
-    await mkdir(skillPath, { recursive: true });
-    await writeFile(join(skillPath, 'SKILL.md'), '# My Skill');
-
-    // Create matching registry
-    const registry = {
-      version: 1,
-      skills: {
-        'my-skill': {
-          path: skillPath,
-          origin: 'manual',
-          type: 'manual',
-          status: 'active'
-        }
-      }
-    };
-    await writeFile(registryPath, JSON.stringify(registry));
+    await writeFile(registryPath, JSON.stringify({ version: 2, http_baselines: {} }));
 
     const items = await checkRegistryHealth(homeDir, baseConfig, skillsDir);
 
@@ -429,9 +409,7 @@ describe('repairConfig', () => {
       removeInvalidSkillLinks: true,
       removeInvalidAgentLinks: false,
       removeInvalidAgents: false,
-      removeInvalidSources: false,
-      removeStaleRegistryEntries: false,
-      addOrphanRegistryEntries: false
+      removeInvalidSources: false
     };
 
     const repaired = repairConfig(config, report, options);
@@ -467,9 +445,7 @@ describe('repairConfig', () => {
       removeInvalidSkillLinks: false,
       removeInvalidAgentLinks: true,
       removeInvalidAgents: false,
-      removeInvalidSources: false,
-      removeStaleRegistryEntries: false,
-      addOrphanRegistryEntries: false
+      removeInvalidSources: false
     };
 
     const repaired = repairConfig(config, report, options);
@@ -505,9 +481,7 @@ describe('repairConfig', () => {
       removeInvalidSkillLinks: false,
       removeInvalidAgentLinks: false,
       removeInvalidAgents: true,
-      removeInvalidSources: false,
-      removeStaleRegistryEntries: false,
-      addOrphanRegistryEntries: false
+      removeInvalidSources: false
     };
 
     const repaired = repairConfig(config, report, options);
@@ -584,9 +558,7 @@ describe('repairConfig', () => {
       removeInvalidSkillLinks: false,
       removeInvalidAgentLinks: false,
       removeInvalidAgents: true,
-      removeInvalidSources: false,
-      removeStaleRegistryEntries: false,
-      addOrphanRegistryEntries: false
+      removeInvalidSources: false
     };
 
     repairConfig(config, report, options);
@@ -629,9 +601,7 @@ describe('repairConfig', () => {
       removeInvalidSkillLinks: false,
       removeInvalidAgentLinks: false,
       removeInvalidAgents: false,
-      removeInvalidSources: false,
-      removeStaleRegistryEntries: false,
-      addOrphanRegistryEntries: false
+      removeInvalidSources: false
     };
 
     const repaired = repairConfig(config, report, options);

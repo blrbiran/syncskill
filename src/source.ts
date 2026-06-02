@@ -17,11 +17,8 @@ import {
   loadSkillsRegistryV2,
   saveSkillsRegistry,
   saveSkillsRegistryV2,
-  isSkillIgnored,
-  isSkillIgnoredV2,
   getHttpBaselineV2,
   setHttpBaselineV2,
-  activateSkill,
 } from './core/skills-registry.js';
 import { hashSkillDirectory } from './core/manifest.js';
 import { backupDirtySkillsToSidecar, getSidecarBackupDir } from './utils/backup.js';
@@ -316,20 +313,18 @@ export async function listSourcesWithDetails(homeDir = homedir()): Promise<Sourc
     .flatMap(([name, value]) => normalizeSourceEntry(name, value))
     .sort((left, right) => left.name.localeCompare(right.name));
 
-  const registry = await loadSkillsRegistry(homeDir);
-  const registryV2 = await loadSkillsRegistryV2(homeDir);
-
-  return sources.map((source) => {
+  return Promise.all(sources.map(async (source) => {
+    const sourceState = await loadSourceState(homeDir, source.name);
+    const ignoredSet = new Set(getConfiguredIgnoredSkills(config.sources[source.name]));
+    const materializedSkills = sourceState?.materialized_skills ?? [];
     const skills: string[] = [];
     const ignored: string[] = [];
 
-    for (const [skillName, entry] of Object.entries(registry.skills)) {
-      if (entry.origin === source.name) {
-        if (isSkillIgnoredV2(registryV2, skillName)) {
-          ignored.push(skillName);
-        } else {
-          skills.push(skillName);
-        }
+    for (const skillName of materializedSkills) {
+      if (ignoredSet.has(skillName)) {
+        ignored.push(skillName);
+      } else {
+        skills.push(skillName);
       }
     }
 
@@ -338,7 +333,7 @@ export async function listSourcesWithDetails(homeDir = homedir()): Promise<Sourc
       skills: skills.sort(),
       ignored: ignored.sort()
     };
-  });
+  }));
 }
 
 export function formatSourceListLines(sources: SourceListEntry[]): string[] {
@@ -530,15 +525,6 @@ async function handleRemovedSkills(
 
       // Update ownership to manual (remove from source ownership so removeStaleSkills skips it)
       delete ownershipState.owners[skillName];
-
-      // Update registry to mark as manual
-      const registry = await loadSkillsRegistry(homeDir);
-      if (registry.skills[skillName]) {
-        registry.skills[skillName].origin = 'manual';
-        registry.skills[skillName].type = 'manual';
-        registry.skills[skillName].path = manualPath;
-        await saveSkillsRegistry(homeDir, registry);
-      }
 
       console.log(`  ✓ Kept "${skillName}" as local skill`);
     } else {
@@ -1090,24 +1076,30 @@ async function detectHttpDirty(
   sourceName: string,
   materializedSkills: string[]
 ): Promise<DirtyDetectionResult> {
-  const registry = await loadSkillsRegistry(homeDir);
   const registryV2 = await loadSkillsRegistryV2(homeDir);
+  const ownershipState = await loadSkillOwnershipState(homeDir);
+  const { skillsDir } = getSyncPaths(homeDir);
   const dirtySkills: DirtySkillInfo[] = [];
 
   for (const skillName of materializedSkills) {
-    const entry = registry.skills[skillName];
     const baseline = getHttpBaselineV2(registryV2, skillName);
-    if (!entry || entry.origin !== sourceName || baseline?.source !== sourceName) continue;
+    if (baseline?.source !== sourceName) {
+      continue;
+    }
 
-    // Use registry path directly instead of constructing from skillsDir
-    const skillPath = entry.path;
+    const owner = ownershipState.owners[skillName];
+    if (owner !== undefined && owner !== sourceName) {
+      continue;
+    }
+
+    const skillPath = join(skillsDir, skillName);
     try {
       const currentHash = await hashSkillDirectory(skillPath);
       if (currentHash !== baseline.hash) {
         dirtySkills.push({ name: skillName, path: skillPath, hash: currentHash });
       }
     } catch {
-      // Skill path may not exist
+      // Skill path may not exist.
     }
   }
 
@@ -1275,6 +1267,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function getConfiguredIgnoredSkills(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.ignore)) {
+    return [];
+  }
+
+  return value.ignore.filter((skill): skill is string => typeof skill === 'string');
+}
+
 function normalizeSourceEntry(name: string, value: unknown): SourceEntry[] {
   if (!isRecord(value)) {
     return [];
@@ -1338,24 +1338,13 @@ export { loadSkillsRegistry, saveSkillsRegistry } from './core/skills-registry.j
 export async function buildSkillsRegistry(homeDir = homedir()): Promise<SkillsRegistry> {
   const config = await loadConfig(homeDir);
   const { skillsDir } = getSyncPaths(homeDir);
-  const existingRegistry = await loadSkillsRegistry(homeDir);
   const registry: SkillsRegistry = { version: 1, skills: {} };
-
-  // Preserve ignored skills from existing registry
-  for (const [name, entry] of Object.entries(existingRegistry.skills)) {
-    if (entry.status === 'ignored') {
-      registry.skills[name] = entry;
-    }
-  }
 
   // 1. Add manual skills from ~/.syncskill/skills/
   // Manual skills ALWAYS take priority over source skills with the same name
   if (await pathExists(skillsDir)) {
     const manualSkills = await listSkillDirectories(skillsDir);
     for (const skill of manualSkills) {
-      // Don't overwrite ignored status if it exists
-      if (registry.skills[skill]?.status === 'ignored') continue;
-
       registry.skills[skill] = {
         path: join(skillsDir, skill),
         origin: 'manual',
@@ -1373,18 +1362,24 @@ export async function buildSkillsRegistry(homeDir = homedir()): Promise<SkillsRe
     const sourceState = await loadSourceState(homeDir, sourceName);
     if (!sourceState) continue;
 
-    for (const skill of sourceState.materialized_skills) {
-      // Skip if already added as manual skill or ignored
-      if (registry.skills[skill]?.origin === 'manual') continue;
-      if (registry.skills[skill]?.status === 'ignored') continue;
+    const ignoredSet = new Set(getConfiguredIgnoredSkills(sourceDef));
+    const materializedRoot = getMaterializedRootPath(homeDir, sourceName, sourceEntry);
 
-      const materializedRoot = getMaterializedRootPath(homeDir, sourceName, sourceEntry);
-      registry.skills[skill] = {
+    for (const skill of sourceState.materialized_skills) {
+      if (registry.skills[skill]?.origin === 'manual') continue;
+
+      const entry: SkillRegistryEntry = {
         path: join(materializedRoot, skill),
         origin: sourceName,
         type: sourceEntry.type,
-        status: 'active',
+        status: ignoredSet.has(skill) ? 'ignored' : 'active',
       };
+
+      if (entry.status === 'ignored') {
+        entry.ignored_reason = 'user-choice';
+      }
+
+      registry.skills[skill] = entry;
     }
   }
 
@@ -2010,18 +2005,17 @@ export async function addSourceFromUrl(
     const existingMatch = await findExistingSourceByUrl(homeDir, parsed.cloneUrl);
 
     if (existingMatch) {
-      // Check if the requested skill is in the ignore list
-      const registry = await loadSkillsRegistry(homeDir);
-      const registryV2 = await loadSkillsRegistryV2(homeDir);
       const requestedSkillName = parsed.skillName;
+      const config = await loadConfig(homeDir);
+      const sourceRaw = config.sources[existingMatch.name] as Record<string, unknown> | undefined;
+      const ignoreList = getConfiguredIgnoredSkills(sourceRaw);
 
-      if (requestedSkillName && isSkillIgnoredV2(registryV2, requestedSkillName)) {
-        // Restore from ignore list (activate it)
-        const updatedRegistry = activateSkill(registry, requestedSkillName);
-        await saveSkillsRegistry(homeDir, updatedRegistry);
+      if (requestedSkillName && sourceRaw && ignoreList.includes(requestedSkillName)) {
+        sourceRaw.ignore = ignoreList.filter((skill) => skill !== requestedSkillName);
+        if ((sourceRaw.ignore as string[]).length === 0) {
+          delete sourceRaw.ignore;
+        }
 
-        // Add to links
-        const config = await loadConfig(homeDir);
         config.links[requestedSkillName] = ['*'];
         await saveConfig(config, homeDir);
 

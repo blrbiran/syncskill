@@ -20,9 +20,6 @@ import {
   ignoreSkill,
   rebuildSkillsRegistry,
   createEmptyRegistryV2,
-  isSkillIgnoredV2,
-  ignoreSkillV2,
-  unignoreSkillV2,
   setHttpBaselineV2,
   getHttpBaselineV2,
   removeHttpBaselineV2,
@@ -187,12 +184,6 @@ describe('skills-registry v2 types', () => {
   it('accepts valid v2 registry', () => {
     const registry: SkillsRegistryV2 = {
       version: 2,
-      ignored: {
-        'old-skill': {
-          reason: 'user-choice',
-          ignored_at: '2026-05-21T00:00:00.000Z'
-        }
-      },
       http_baselines: {
         'my-skill': {
           hash: 'abc123',
@@ -202,40 +193,13 @@ describe('skills-registry v2 types', () => {
     };
 
     expect(registry.version).toBe(2);
-    expect(registry.ignored['old-skill'].reason).toBe('user-choice');
     expect(registry.http_baselines['my-skill'].hash).toBe('abc123');
   });
 });
 
 describe('v2 registry helpers', () => {
-  it('isSkillIgnoredV2 returns true for ignored skills', () => {
-    const registry: SkillsRegistryV2 = {
-      version: 2,
-      ignored: { 'skill-a': { reason: 'user-choice', ignored_at: '2026-05-21T00:00:00Z' } },
-      http_baselines: {}
-    };
-
-    expect(isSkillIgnoredV2(registry, 'skill-a')).toBe(true);
-    expect(isSkillIgnoredV2(registry, 'skill-b')).toBe(false);
-  });
-
-  it('ignoreSkillV2 adds skill to ignored', () => {
-    const registry = createEmptyRegistryV2();
-    const updated = ignoreSkillV2(registry, 'skill-a', 'user-choice');
-
-    expect(updated.ignored['skill-a'].reason).toBe('user-choice');
-    expect(updated.ignored['skill-a'].ignored_at).toBeDefined();
-  });
-
-  it('unignoreSkillV2 removes skill from ignored', () => {
-    const registry: SkillsRegistryV2 = {
-      version: 2,
-      ignored: { 'skill-a': { reason: 'user-choice', ignored_at: '2026-05-21T00:00:00Z' } },
-      http_baselines: {}
-    };
-
-    const updated = unignoreSkillV2(registry, 'skill-a');
-    expect(updated.ignored['skill-a']).toBeUndefined();
+  it('createEmptyRegistryV2 returns the empty v2 shape', () => {
+    expect(createEmptyRegistryV2()).toEqual({ version: 2, http_baselines: {} });
   });
 
   it('setHttpBaselineV2 sets baseline hash', () => {
@@ -249,7 +213,6 @@ describe('v2 registry helpers', () => {
   it('getHttpBaselineV2 returns baseline or null', () => {
     const registry: SkillsRegistryV2 = {
       version: 2,
-      ignored: {},
       http_baselines: { 'skill-a': { hash: 'abc', source: 'src1' } }
     };
 
@@ -260,7 +223,6 @@ describe('v2 registry helpers', () => {
   it('removeHttpBaselineV2 removes baseline', () => {
     const registry: SkillsRegistryV2 = {
       version: 2,
-      ignored: {},
       http_baselines: { 'skill-a': { hash: 'abc', source: 'src1' } }
     };
 
@@ -277,14 +239,12 @@ describe('loadSkillsRegistryV2', () => {
     const registryPath = join(tempDir, '.syncskill', 'skills-registry.json');
     await writeFile(registryPath, JSON.stringify({
       version: 2,
-      ignored: { 'skill-a': { reason: 'user-choice', ignored_at: '2026-05-21T00:00:00Z' } },
       http_baselines: { 'skill-b': { hash: 'abc', source: 'src1' } }
     }));
 
     const registry = await loadSkillsRegistryV2(tempDir);
 
     expect(registry.version).toBe(2);
-    expect(registry.ignored['skill-a'].reason).toBe('user-choice');
     expect(registry.http_baselines['skill-b'].hash).toBe('abc');
 
     await rm(tempDir, { recursive: true, force: true });
@@ -296,11 +256,10 @@ describe('loadSkillsRegistryV2', () => {
     const registry = await loadSkillsRegistryV2(tempDir);
 
     expect(registry.version).toBe(2);
-    expect(registry.ignored).toEqual({});
     expect(registry.http_baselines).toEqual({});
   });
 
-  it('migrates v1 registry to v2', async () => {
+  it('migrates v1 registry to v2 and drops ignored entries', async () => {
     const tempDir = join(tmpdir(), `registry-test-${Date.now()}`);
     await mkdir(join(tempDir, '.syncskill'), { recursive: true });
 
@@ -333,7 +292,7 @@ describe('loadSkillsRegistryV2', () => {
       hash: 'hash123',
       source: 'my-source'
     });
-    expect(registry.ignored['ignored-skill'].reason).toBe('user-choice');
+    expect(registry.http_baselines['ignored-skill']).toBeUndefined();
 
     await rm(tempDir, { recursive: true, force: true });
   });
@@ -346,7 +305,6 @@ describe('saveSkillsRegistryV2', () => {
 
     const registry: SkillsRegistryV2 = {
       version: 2,
-      ignored: { 'skill-a': { reason: 'user-choice', ignored_at: '2026-05-21T00:00:00Z' } },
       http_baselines: { 'skill-b': { hash: 'xyz', source: 'src1' } }
     };
 

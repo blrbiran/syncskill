@@ -2,7 +2,7 @@ import { access, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getConfiguredServer, loadConfig, type ConfiguredServer, type ConflictResolution } from '../config/config.js';
-import { loadSkillsRegistry } from './skills-registry.js';
+import { buildSkillsRegistry } from '../source.js';
 import { applyResolution, reconcileManifest } from './conflict.js';
 import {
   applyRemoteSnapshot,
@@ -199,7 +199,7 @@ async function backupPullTargets(
   homeDir: string,
   serverName: string,
   skills: string[],
-  registry: Awaited<ReturnType<typeof loadSkillsRegistry>>
+  registry: Awaited<ReturnType<typeof buildSkillsRegistry>>
 ): Promise<PullBackupRecord[]> {
   const backups: PullBackupRecord[] = [];
 
@@ -721,7 +721,7 @@ export async function pullFromServer(homeDir: string, serverName: string, option
     };
   }
 
-  const registry = await loadSkillsRegistry(homeDir);
+  const registry = await buildSkillsRegistry(homeDir);
   const backups = resolvePullBackupEnabled(config, options)
     ? await backupPullTargets(homeDir, serverName, [...pulledContentSkills, ...deletedSkillsForExecution], registry)
     : [];

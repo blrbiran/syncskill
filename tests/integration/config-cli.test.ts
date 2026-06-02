@@ -8,8 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config/config.js';
-import { saveServerManifest } from '../../src/core/manifest.js';
-import { addActiveSkill, addIgnoredSkill, saveSkillsRegistry } from '../../src/core/skills-registry.js';
+import { hashSkillDirectory, saveServerManifest } from '../../src/core/manifest.js';
 import { createProgram } from '../../src/index.js';
 
 describe('config CLI', () => {
@@ -25,7 +24,7 @@ describe('config CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'build'], { from: 'node' });
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'list'], { from: 'node' });
 
     // Check that the matrix format output was logged (contains skill name and linked symbol)
@@ -46,7 +45,7 @@ describe('config CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'build'], { from: 'node' });
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'list', '-v'], { from: 'node' });
 
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
@@ -54,7 +53,7 @@ describe('config CLI', () => {
     expect(loggedOutput).not.toContain('Legend:'); // no legend in verbose mode
   });
 
-  it('link --dry-run previews without linking', async () => {
+  it('link build --dry-run previews without linking', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);
 
@@ -66,7 +65,7 @@ describe('config CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'scan'], { from: 'node' });
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply', '--dry-run'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'build', '--dry-run'], { from: 'node' });
 
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
     expect(loggedOutput).toContain('[dry-run]');
@@ -100,7 +99,7 @@ describe('config CLI', () => {
       sources: {}
     }, homeDir);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'build'], { from: 'node' });
 
     await expect(readlink(join(homeDir, '.claude', 'skills', 'unlink-test'))).resolves.toBeDefined();
     await expect(readlink(join(homeDir, '.cursor', 'skills', 'unlink-test'))).resolves.toBeDefined();
@@ -145,7 +144,7 @@ describe('config CLI', () => {
       sources: {}
     }, homeDir);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'apply'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'build'], { from: 'node' });
 
     await expect(readlink(join(homeDir, '.claude', 'skills', 'to-unlink'))).resolves.toBeDefined();
     await expect(readlink(join(homeDir, '.cursor', 'skills', 'to-unlink'))).resolves.toBeDefined();
@@ -174,42 +173,47 @@ describe('config CLI', () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);
 
+    const syncPaths = getSyncPaths(homeDir);
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
-    await mkdir(join(homeDir, '.syncskill', 'skills', 'linked-skill'), { recursive: true });
-    await mkdir(join(homeDir, '.syncskill', 'skills', 'ignored-skill'), { recursive: true });
-    await saveConfig(createDefaultConfig(homeDir, { claude: join(homeDir, '.claude', 'skills') }), homeDir);
-    await writeFile(join(homeDir, '.syncskill', 'skills', 'linked-skill', 'SKILL.md'), '# linked', 'utf8');
-    await writeFile(join(homeDir, '.syncskill', 'skills', 'ignored-skill', 'SKILL.md'), '# ignored', 'utf8');
-
+    await mkdir(join(syncPaths.skillsDir, 'linked-skill'), { recursive: true });
+    await mkdir(join(syncPaths.syncDir, '.sources', 'team', 'checkout', 'skills', 'ignored-skill'), { recursive: true });
+    await saveConfig({
+      ...createDefaultConfig(homeDir, { claude: join(homeDir, '.claude', 'skills') }),
+      sources: {
+        team: {
+          type: 'git',
+          url: 'https://github.com/example/team.git',
+          path: 'skills',
+          ignore: ['ignored-skill']
+        }
+      }
+    }, homeDir);
+    await writeFile(join(syncPaths.skillsDir, 'linked-skill', 'SKILL.md'), '# linked', 'utf8');
+    await writeFile(join(syncPaths.syncDir, '.sources', 'team', 'checkout', 'skills', 'ignored-skill', 'SKILL.md'), '# ignored', 'utf8');
+    const linkedSkillHash = await hashSkillDirectory(join(syncPaths.skillsDir, 'linked-skill'));
     const now = '2026-05-17T10:00:00.000Z';
+    await writeFile(
+      join(syncPaths.syncDir, '.sources', 'team', 'state.json'),
+      JSON.stringify({ materialized_skills: ['ignored-skill'], updated_at: now }, null, 2),
+      'utf8'
+    );
+
+
     const manifest: ServerManifest = {
       version: 1,
       server: 'alpha',
       updated_at: now,
       skills: {
         'linked-skill': {
-          local_hash: 'hash-a',
-          remote_hash: 'hash-a',
-          recorded_hash: 'hash-a',
+          local_hash: linkedSkillHash,
+          remote_hash: linkedSkillHash,
+          recorded_hash: linkedSkillHash,
           direction: 'skip',
           status: 'in-sync'
         }
       }
     };
     await saveServerManifest(homeDir, manifest);
-
-    let registry = addActiveSkill({ version: 1, skills: {} }, 'linked-skill', {
-      path: join(getSyncPaths(homeDir).skillsDir, 'linked-skill'),
-      origin: 'manual',
-      type: 'manual'
-    });
-    registry = addIgnoredSkill(registry, 'ignored-skill', {
-      path: join(getSyncPaths(homeDir).skillsDir, 'ignored-skill'),
-      origin: 'team',
-      type: 'git',
-      ignored_reason: 'duplicate'
-    });
-    await saveSkillsRegistry(homeDir, registry);
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
@@ -218,10 +222,10 @@ describe('config CLI', () => {
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
     expect(loggedOutput).toContain('Syncskill Status');
     expect(loggedOutput).toContain('Skills:   2 total (1 linked, 1 ignored)');
-    expect(loggedOutput).toContain('Sources:  0 ()');
+    expect(loggedOutput).toContain('Sources:  1 (team)');
     expect(loggedOutput).toContain('Agents:   claude ✓');
     expect(loggedOutput).toContain('Servers:');
-    expect(loggedOutput).toContain('alpha    ⚠ 2 skills pending');
+    expect(loggedOutput).toContain('alpha    ✓ in-sync');
     expect(loggedOutput).toContain('Health:   ✓ No issues');
     expect(loggedOutput).toContain('Quick actions:');
     expect(loggedOutput).toContain('Run `syncskill --help` for all commands.');

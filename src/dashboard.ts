@@ -1,7 +1,7 @@
 import { diagnoseConfig } from './config/config-doctor.js';
 import { getSyncPaths, loadConfig } from './config/config.js';
 import { loadServerManifest } from './core/manifest.js';
-import { loadSkillsRegistry } from './core/skills-registry.js';
+import { buildSkillsRegistry } from './source.js';
 import { listTrackedServers } from './refresh.js';
 import { pathExists } from './utils/utils.js';
 
@@ -31,7 +31,7 @@ export async function loadDashboardSummary(homeDir: string): Promise<DashboardSu
   const { skillsDir } = getSyncPaths(homeDir);
   const [report, registry, trackedServers, agents] = await Promise.all([
     diagnoseConfig(config, skillsDir),
-    loadSkillsRegistry(homeDir),
+    buildSkillsRegistry(homeDir),
     listTrackedServers(homeDir),
     Promise.all(
       Object.entries(config.agents)

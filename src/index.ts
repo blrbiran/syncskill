@@ -106,7 +106,6 @@ import {
 } from './refresh.js';
 import {
   addSourceFromUrl,
-  buildSkillsIndex,
   DiscoveredSkill,
   findOrphanSkills,
   formatSourceListLines,
@@ -114,12 +113,13 @@ import {
   loadSkillOwnershipState,
   RemovalAction,
   removeSource,
-  saveSkillsIndex,
   scanSkillsInSource,
   SourceType,
   updateAllSources,
   updateSource,
 } from './source.js';
+import { rebuildRegistryV2 } from './core/registry-builder.js';
+import { saveSkillsRegistryV2 } from './core/skills-registry.js';
 import { pullFromServer, pullFromServers, pushToServers, syncServers, type PullResult, type PushResult, type SyncResult } from './core/sync_engine.js';
 import { formatDashboardSummary, loadDashboardSummary } from './dashboard.js';
 
@@ -1264,10 +1264,10 @@ export function createProgram(homeDir?: string): Command {
         }
       }
 
-      // Generate skills-index.json (skip in dry-run mode)
+      // Generate skills-registry.json (skip in dry-run mode)
       if (!isDryRun) {
-        const index = await buildSkillsIndex(resolvedHomeDir);
-        await saveSkillsIndex(resolvedHomeDir, index);
+        const registry = await rebuildRegistryV2(resolvedHomeDir, config);
+        await saveSkillsRegistryV2(resolvedHomeDir, registry);
       }
     });
 
@@ -2364,12 +2364,9 @@ export function createProgram(homeDir?: string): Command {
             if (!options.dryRun) {
               await repairRegistry(
                 resolvedHomeDir,
-                skillsDir,
+                config,
                 { errors: [], warnings: [item], isHealthy: false, canProceed: true },
-                {
-                  removeStaleEntries: item.code === 'REGISTRY_STALE',
-                  addOrphanEntries: item.code === 'REGISTRY_ORPHAN'
-                }
+                { rebuildRegistry: true }
               );
               registryChanged = true;
             }
@@ -2379,9 +2376,7 @@ export function createProgram(homeDir?: string): Command {
               removeInvalidSkillLinks: item.code === 'SKILL_NOT_FOUND',
               removeInvalidAgentLinks: item.code === 'AGENT_NOT_CONFIGURED',
               removeInvalidAgents: item.code === 'AGENT_PATH_INVALID',
-              removeInvalidSources: item.code === 'SOURCE_PATH_INVALID',
-              removeStaleRegistryEntries: false,
-              addOrphanRegistryEntries: false
+              removeInvalidSources: item.code === 'SOURCE_PATH_INVALID'
             };
 
             if (!options.dryRun) {

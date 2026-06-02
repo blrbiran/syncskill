@@ -14,7 +14,6 @@ import type { SyncSkillConfig } from '../../src/config/config.js';
 import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectArchiveFormatFromFilename, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, DirtySourceQuitError, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, parseContentDisposition, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
 import type { SkillsRegistry } from '../../src/source.js';
 import { normalizeSkillsRegistry } from '../../src/core/skills-registry.js';
-import { addIgnoredSkill, isSkillIgnored } from '../../src/core/skills-registry.js';
 
 const { mockSelect } = vi.hoisted(() => ({
   mockSelect: vi.fn(),
@@ -2402,19 +2401,12 @@ describe('addSourceFromUrl with skills-registry', () => {
       })
     );
 
-    // Add skill-b to ignore list (via registry)
-    let registry = await loadSkillsRegistry(homeDir);
-    registry = addIgnoredSkill(registry, 'skill-b', {
-      path: 'skills/skill-b',
-      origin: 'org-repo',
-      type: 'git',
-      ignored_reason: 'user-choice'
-    });
-    await saveSkillsRegistry(homeDir, registry);
-
-    // Verify skill-b is in ignore list
-    const beforeRegistry = await loadSkillsRegistry(homeDir);
-    expect(isSkillIgnored(beforeRegistry, 'skill-b')).toBe(true);
+    const configBefore = await loadConfig(homeDir);
+    configBefore.sources['org-repo'] = {
+      ...configBefore.sources['org-repo'],
+      ignore: ['skill-b']
+    };
+    await saveConfig(configBefore, homeDir);
 
     // Try to add same repo with ignored skill path
     const result = await addSourceFromUrl(homeDir,
@@ -2426,11 +2418,10 @@ describe('addSourceFromUrl with skills-registry', () => {
     expect(result.sameRepoMatch?.name).toBe('org-repo');
 
     // Verify skill is no longer ignored (now active)
-    const updatedRegistry = await loadSkillsRegistry(homeDir);
-    expect(isSkillIgnored(updatedRegistry, 'skill-b')).toBe(false);
+    const config = await loadConfig(homeDir);
+    expect((config.sources['org-repo'] as Record<string, unknown>).ignore).toBeUndefined();
 
     // Verify skill is in links
-    const config = await loadConfig(homeDir);
     expect('skill-b' in config.links).toBe(true);
     expect(config.links['skill-b']).toEqual(['*']);
   });

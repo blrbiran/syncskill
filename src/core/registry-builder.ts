@@ -2,18 +2,16 @@ import { readdir, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SyncSkillConfig } from '../config/config.js';
 import { hashSkillDirectory } from './manifest.js';
-import type { SkillsRegistryV2, IgnoredSkillEntry } from './skills-registry.js';
+import type { SkillsRegistryV2 } from './skills-registry.js';
 
 export async function rebuildRegistryV2(
   homeDir: string,
-  config: SyncSkillConfig,
-  preserveIgnored?: Record<string, IgnoredSkillEntry>
+  config: SyncSkillConfig
 ): Promise<SkillsRegistryV2> {
   void homeDir;
 
   const registry: SkillsRegistryV2 = {
     version: 2,
-    ignored: preserveIgnored ?? {},
     http_baselines: {}
   };
 
@@ -30,7 +28,7 @@ export async function rebuildRegistryV2(
       const entries = await readdir(sourcePath, { withFileTypes: true });
 
       for (const entry of entries) {
-        if (!entry.isDirectory() || registry.ignored[entry.name]) {
+        if (!entry.isDirectory()) {
           continue;
         }
 
