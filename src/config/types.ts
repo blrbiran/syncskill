@@ -8,6 +8,7 @@ export interface SyncPaths {
   skillsDir: string;
   manifestsDir: string;
   tempDir: string;
+  backupsDir: string;
   historyFile: string;
 }
 
@@ -21,6 +22,7 @@ export interface SyncSkillConfig {
   servers: Record<string, unknown>;
   sources: Record<string, unknown>;
   private_agents: string[];
+  pull_backup?: boolean;
 }
 
 export interface ConfiguredServer {

@@ -45,6 +45,7 @@ export function getSyncPaths(homeDir = homedir()): SyncPaths {
     skillsDir: join(syncDir, 'skills'),
     manifestsDir: join(syncDir, 'manifests'),
     tempDir: join(syncDir, '.tmp'),
+    backupsDir: join(syncDir, '.backups'),
     historyFile: join(syncDir, 'manifest_history.json')
   };
 }
@@ -108,7 +109,8 @@ export function validateConfig(value: unknown): SyncSkillConfig {
     sources: isRecord(value.sources) ? value.sources : {},
     private_agents: Array.isArray(value.private_agents)
       ? value.private_agents.filter((agent): agent is string => typeof agent === 'string')
-      : DEFAULT_PRIVATE_AGENTS
+      : DEFAULT_PRIVATE_AGENTS,
+    ...(typeof value.pull_backup === 'boolean' ? { pull_backup: value.pull_backup } : {})
   };
 }
 

@@ -1,4 +1,4 @@
-import { readdir, rm } from 'node:fs/promises';
+import { access, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getConfiguredServer, loadConfig, type ConfiguredServer, type ConflictResolution } from '../config/config.js';
@@ -30,6 +30,7 @@ import {
   pushSkillDirectory,
   type TransportRuntime
 } from './transport.js';
+import { backupSkillBeforePull } from '../utils/backup.js';
 
 export interface SyncEngineOptions {
   runtime?: TransportRuntime;
@@ -39,6 +40,7 @@ export interface SyncEngineOptions {
   yes?: boolean;
   noInteractive?: boolean;
   timeout?: number;
+  pullBackup?: boolean;
   onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
   onDeletion?: 'keep-local' | 'delete' | 'prompt';
   crossServerPolicy?: string;
@@ -127,6 +129,59 @@ function resolveSingleServerConflictPolicy(
   }
 
   return configuredPolicy;
+}
+
+function resolvePullBackupEnabled(
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  options: SyncEngineOptions
+): boolean {
+  if (typeof options.pullBackup === 'boolean') {
+    return options.pullBackup;
+  }
+
+  if (process.env.SYNCSKILL_PULL_BACKUP === '0') {
+    return false;
+  }
+
+  if (process.env.SYNCSKILL_PULL_BACKUP === '1') {
+    return true;
+  }
+
+  if (typeof config.pull_backup === 'boolean') {
+    return config.pull_backup;
+  }
+
+  return true;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function backupPullTargets(
+  homeDir: string,
+  skills: string[],
+  registry: Awaited<ReturnType<typeof loadSkillsRegistry>>
+): Promise<void> {
+  for (const skill of uniqueSorted(skills)) {
+    const entry = registry.skills[skill];
+    const targetPath = entry?.path ?? join(getSkillsDir(homeDir), skill);
+
+    if (!(await pathExists(targetPath))) {
+      continue;
+    }
+
+    await backupSkillBeforePull({
+      homeDir,
+      skillName: skill,
+      skillPath: targetPath
+    });
+  }
 }
 
 function uniqueSorted(values: string[]): string[] {
@@ -625,6 +680,10 @@ export async function pullFromServer(homeDir: string, serverName: string, option
   }
 
   const registry = await loadSkillsRegistry(homeDir);
+  if (resolvePullBackupEnabled(config, options)) {
+    await backupPullTargets(homeDir, [...pulledContentSkills, ...deletedSkillsForExecution], registry);
+  }
+
   for (const skill of pulledContentSkills) {
     const entry = registry.skills[skill];
     const targetPath = entry?.path ?? join(getSkillsDir(homeDir), skill);

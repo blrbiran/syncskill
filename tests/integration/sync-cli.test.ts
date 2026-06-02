@@ -60,7 +60,12 @@ describe('sync CLI', () => {
 
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', 'alpha'], { from: 'node' });
 
-    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], { dryRun: undefined, noRefresh: true, yes: undefined });
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], {
+      dryRun: undefined,
+      noRefresh: true,
+      pullBackup: undefined,
+      yes: undefined
+    });
     expect(consoleLog.mock.calls).toEqual([
       ['welcome\talpha\tpush\tin-sync'],
       ['docs\talpha\tpush\tin-sync']
@@ -156,6 +161,7 @@ describe('sync CLI', () => {
       dryRun: undefined,
       noRefresh: true,
       timeout: undefined,
+      pullBackup: undefined,
       yes: undefined,
       noInteractive: undefined,
       crossServerPolicy: undefined,
@@ -232,6 +238,7 @@ describe('sync CLI', () => {
       dryRun: undefined,
       noRefresh: true,
       timeout: undefined,
+      pullBackup: undefined,
       yes: undefined,
       noInteractive: undefined,
       crossServerPolicy: undefined,
@@ -285,6 +292,7 @@ describe('sync CLI', () => {
     expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], {
       dryRun: undefined,
       timeout: undefined,
+      pullBackup: undefined,
       yes: true,
       noInteractive: undefined,
       crossServerPolicy: undefined,
@@ -295,6 +303,41 @@ describe('sync CLI', () => {
       ['skill-a\talpha\tpull\tin-sync'],
       ['skill-b\tbeta\tpull\tin-sync']
     ]);
+  });
+
+  it('pull forwards no-pull-backup to engine', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const pullFromServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'pullFromServers').mockImplementation(async () => []);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull', '--all', '--no-pull-backup'], { from: 'node' });
+
+    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], {
+      dryRun: undefined,
+      timeout: undefined,
+      pullBackup: false,
+      yes: undefined,
+      noInteractive: undefined,
+      crossServerPolicy: undefined,
+      onConflict: undefined,
+      onDeletion: undefined
+    });
   });
 
   it('pull forwards cross-server and per-server conflict flags to engine', async () => {
@@ -337,6 +380,7 @@ describe('sync CLI', () => {
     expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], {
       dryRun: undefined,
       timeout: undefined,
+      pullBackup: undefined,
       yes: undefined,
       noInteractive: true,
       crossServerPolicy: 'server:alpha',
@@ -380,6 +424,7 @@ describe('sync CLI', () => {
     expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], {
       dryRun: undefined,
       timeout: undefined,
+      pullBackup: undefined,
       yes: undefined,
       noInteractive: undefined,
       crossServerPolicy: undefined,
@@ -445,6 +490,7 @@ describe('sync CLI', () => {
     expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], {
       dryRun: undefined,
       timeout: undefined,
+      pullBackup: undefined,
       yes: undefined,
       noInteractive: undefined,
       crossServerPolicy: undefined,
@@ -487,6 +533,7 @@ describe('sync CLI', () => {
     expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], {
       dryRun: undefined,
       timeout: undefined,
+      pullBackup: undefined,
       yes: undefined,
       noInteractive: undefined,
       crossServerPolicy: undefined,
@@ -538,7 +585,12 @@ describe('sync CLI', () => {
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', '-y'], { from: 'node' });
 
     // -y flag should push to all servers without prompting
-    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], { dryRun: undefined, noRefresh: true, yes: true });
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], {
+      dryRun: undefined,
+      noRefresh: true,
+      pullBackup: undefined,
+      yes: true
+    });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpush\tin-sync'],
       ['skill-b\tbeta\tpush\tin-sync']
@@ -585,7 +637,12 @@ describe('sync CLI', () => {
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', '-y', '--dry-run'], { from: 'node' });
 
     // --dry-run should call pushToServers with dryRun: true
-    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], { dryRun: true, noRefresh: true, yes: true });
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], {
+      dryRun: true,
+      noRefresh: true,
+      pullBackup: undefined,
+      yes: true
+    });
   });
 
   it('push with single server configured does not prompt', async () => {
@@ -620,7 +677,12 @@ describe('sync CLI', () => {
     // No -y flag, but only one server configured - should not prompt
     await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push'], { from: 'node' });
 
-    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], { dryRun: undefined, noRefresh: true, yes: undefined });
+    expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], {
+      dryRun: undefined,
+      noRefresh: true,
+      pullBackup: undefined,
+      yes: undefined
+    });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpush\tin-sync']
     ]);

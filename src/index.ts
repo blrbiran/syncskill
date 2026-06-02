@@ -1885,8 +1885,10 @@ export function createProgram(homeDir?: string): Command {
     .option('--all', 'Push to all configured servers')
     .option('--dry-run', 'Preview changes without pushing')
     .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
+    .addOption(new Option('--pull-backup').hideHelp())
+    .option('--no-pull-backup', 'Skip pre-pull backups before overwriting or deleting local skills')
     .option('-y, --yes', 'Skip confirmation prompts')
-    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; yes?: boolean }) => {
+    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; pullBackup?: boolean; yes?: boolean }) => {
       const config = await loadConfig(resolvedHomeDir);
       // Auto-check config health
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
@@ -1901,6 +1903,7 @@ export function createProgram(homeDir?: string): Command {
         dryRun: options.dryRun,
         noRefresh: !program.opts<{ refresh: boolean }>().refresh,
         timeout: options.timeout,
+        pullBackup: options.pullBackup,
         yes: options.yes
       });
 
@@ -1920,6 +1923,8 @@ export function createProgram(homeDir?: string): Command {
     .option('--cross-server-policy <policy>', 'How to resolve cross-server conflicts: first-wins, last-wins, abort, prompt, or server:<name>')
     .option('--on-conflict <policy>', 'How to resolve per-server conflicts: keep-local, keep-remote, skip, abort', parseOnConflict)
     .option('--on-deletion <policy>', 'How to handle remote deletions: keep-local, delete, prompt', parseOnDeletion)
+    .addOption(new Option('--pull-backup').hideHelp())
+    .option('--no-pull-backup', 'Skip pre-pull backups before overwriting or deleting local skills')
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (
       server: string | undefined,
@@ -1927,6 +1932,7 @@ export function createProgram(homeDir?: string): Command {
         all?: boolean;
         dryRun?: boolean;
         timeout?: number;
+        pullBackup?: boolean;
         yes?: boolean;
         crossServerPolicy?: string;
         onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
@@ -1948,6 +1954,7 @@ export function createProgram(homeDir?: string): Command {
         const results = await pullFromServers(resolvedHomeDir, targetServers, {
           dryRun: options.dryRun,
           timeout: options.timeout,
+          pullBackup: options.pullBackup,
           yes: options.yes,
           noInteractive: isNoInteractive(program),
           crossServerPolicy: options.crossServerPolicy,
@@ -1974,6 +1981,8 @@ export function createProgram(homeDir?: string): Command {
     .option('--cross-server-policy <policy>', 'How to resolve cross-server conflicts: first-wins, last-wins, abort, prompt, or server:<name>')
     .option('--on-conflict <policy>', 'How to resolve per-server conflicts: keep-local, keep-remote, skip, abort', parseOnConflict)
     .option('--on-deletion <policy>', 'How to handle remote deletions: keep-local, delete, prompt', parseOnDeletion)
+    .addOption(new Option('--pull-backup').hideHelp())
+    .option('--no-pull-backup', 'Skip pre-pull backups before overwriting or deleting local skills')
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (
       server: string | undefined,
@@ -1981,6 +1990,7 @@ export function createProgram(homeDir?: string): Command {
         all?: boolean;
         dryRun?: boolean;
         timeout?: number;
+        pullBackup?: boolean;
         yes?: boolean;
         crossServerPolicy?: string;
         onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
@@ -2004,6 +2014,7 @@ export function createProgram(homeDir?: string): Command {
           dryRun: options.dryRun,
           noRefresh: !globalOptions.refresh,
           timeout: options.timeout,
+          pullBackup: options.pullBackup,
           yes: options.yes,
           noInteractive: isNoInteractive(program),
           crossServerPolicy: options.crossServerPolicy,

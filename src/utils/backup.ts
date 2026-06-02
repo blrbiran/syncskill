@@ -1,20 +1,23 @@
-import { cp, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { cp, mkdir, rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
-export function getSidecarBackupDir(sourcePath: string): string {
-  return `${sourcePath}.syncskill-pre-update-backup`;
+import { getSyncPaths } from '../config/config.js';
+
+export function getSidecarBackupDir(homeDir: string, sourceName: string): string {
+  return join(getSyncPaths(homeDir).backupsDir, 'sources', sourceName, 'pre-update');
 }
 
 export interface BackupSkillToSidecarOptions {
-  sourcePath: string;
+  homeDir: string;
+  sourceName: string;
   skillName: string;
   skillPath: string;
 }
 
 export async function backupSkillToSidecar(options: BackupSkillToSidecarOptions): Promise<string> {
-  const { sourcePath, skillName, skillPath } = options;
+  const { homeDir, sourceName, skillName, skillPath } = options;
 
-  const sidecarDir = getSidecarBackupDir(sourcePath);
+  const sidecarDir = getSidecarBackupDir(homeDir, sourceName);
   const skillBackupDir = join(sidecarDir, skillName);
 
   await mkdir(skillBackupDir, { recursive: true });
@@ -24,7 +27,8 @@ export async function backupSkillToSidecar(options: BackupSkillToSidecarOptions)
 }
 
 export interface BackupDirtySkillsToSidecarOptions {
-  sourcePath: string;
+  homeDir: string;
+  sourceName: string;
   dirtySkills: Array<{ name: string; path: string }>;
 }
 
@@ -33,16 +37,38 @@ export interface SidecarBackupResult {
   backedUp: Array<{ name: string; backupPath: string }>;
 }
 
+export function getPullBackupDir(homeDir: string, skillName: string): string {
+  return join(getSyncPaths(homeDir).backupsDir, 'skills', skillName, 'pre-pull');
+}
+
+export interface BackupSkillBeforePullOptions {
+  homeDir: string;
+  skillName: string;
+  skillPath: string;
+}
+
+export async function backupSkillBeforePull(options: BackupSkillBeforePullOptions): Promise<string> {
+  const { homeDir, skillName, skillPath } = options;
+  const backupDir = getPullBackupDir(homeDir, skillName);
+
+  await rm(backupDir, { recursive: true, force: true });
+  await mkdir(dirname(backupDir), { recursive: true });
+  await cp(skillPath, backupDir, { recursive: true });
+
+  return backupDir;
+}
+
 export async function backupDirtySkillsToSidecar(
   options: BackupDirtySkillsToSidecarOptions
 ): Promise<SidecarBackupResult> {
-  const { sourcePath, dirtySkills } = options;
-  const sidecarDir = getSidecarBackupDir(sourcePath);
+  const { homeDir, sourceName, dirtySkills } = options;
+  const sidecarDir = getSidecarBackupDir(homeDir, sourceName);
   const backedUp: Array<{ name: string; backupPath: string }> = [];
 
   for (const skill of dirtySkills) {
     const backupPath = await backupSkillToSidecar({
-      sourcePath,
+      homeDir,
+      sourceName,
       skillName: skill.name,
       skillPath: skill.path
     });

@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { backupSkillToSidecar, getSidecarBackupDir, backupDirtySkillsToSidecar } from '../../src/utils/backup.js';
+import {
+  backupDirtySkillsToSidecar,
+  backupSkillBeforePull,
+  backupSkillToSidecar,
+  getPullBackupDir,
+  getSidecarBackupDir
+} from '../../src/utils/backup.js';
 
 describe('backup - sidecar pattern', () => {
   let tempDir: string;
@@ -18,9 +24,8 @@ describe('backup - sidecar pattern', () => {
 
   describe('getSidecarBackupDir', () => {
     it('returns sidecar path next to source', () => {
-      const sourcePath = '/path/to/skills/my-source';
-      const result = getSidecarBackupDir(sourcePath);
-      expect(result).toBe('/path/to/skills/my-source.syncskill-pre-update-backup');
+      const result = getSidecarBackupDir('/tmp/home', 'my-source');
+      expect(result).toBe('/tmp/home/.syncskill/.backups/sources/my-source/pre-update');
     });
   });
 
@@ -33,16 +38,44 @@ describe('backup - sidecar pattern', () => {
       await writeFile(join(skillPath, 'index.ts'), 'export const x = 1;');
 
       const backupPath = await backupSkillToSidecar({
-        sourcePath,
+        homeDir: tempDir,
+        sourceName: 'my-source',
         skillName: 'my-skill',
         skillPath
       });
 
-      const expectedBackupDir = join(tempDir, 'my-source.syncskill-pre-update-backup', 'my-skill');
+      const expectedBackupDir = join(tempDir, '.syncskill', '.backups', 'sources', 'my-source', 'pre-update', 'my-skill');
       expect(backupPath).toBe(expectedBackupDir);
 
       const skillMd = await readFile(join(expectedBackupDir, 'SKILL.md'), 'utf8');
       expect(skillMd).toBe('# Test Skill');
+    });
+  });
+
+  describe('getPullBackupDir', () => {
+    it('returns pre-pull backup path for a skill', () => {
+      const result = getPullBackupDir('/tmp/home', 'my-skill');
+      expect(result).toBe('/tmp/home/.syncskill/.backups/skills/my-skill/pre-pull');
+    });
+  });
+
+  describe('backupSkillBeforePull', () => {
+    it('replaces any previous pre-pull backup with current local contents', async () => {
+      const skillPath = join(tempDir, '.syncskill', 'skills', 'my-skill');
+      const existingBackup = getPullBackupDir(tempDir, 'my-skill');
+      await mkdir(skillPath, { recursive: true });
+      await mkdir(existingBackup, { recursive: true });
+      await writeFile(join(existingBackup, 'SKILL.md'), '# stale backup');
+      await writeFile(join(skillPath, 'SKILL.md'), '# Current Skill');
+
+      const backupPath = await backupSkillBeforePull({
+        homeDir: tempDir,
+        skillName: 'my-skill',
+        skillPath
+      });
+
+      expect(backupPath).toBe(existingBackup);
+      await expect(readFile(join(existingBackup, 'SKILL.md'), 'utf8')).resolves.toBe('# Current Skill');
     });
   });
 
@@ -59,14 +92,15 @@ describe('backup - sidecar pattern', () => {
       await writeFile(join(skill2Path, 'SKILL.md'), '# Skill 2');
 
       const result = await backupDirtySkillsToSidecar({
-        sourcePath,
+        homeDir: tempDir,
+        sourceName: 'my-source',
         dirtySkills: [
           { name: 'skill-1', path: skill1Path },
           { name: 'skill-2', path: skill2Path }
         ]
       });
 
-      expect(result.sidecarDir).toBe(join(tempDir, 'my-source.syncskill-pre-update-backup'));
+      expect(result.sidecarDir).toBe(join(tempDir, '.syncskill', '.backups', 'sources', 'my-source', 'pre-update'));
       expect(result.backedUp).toHaveLength(2);
       expect(result.backedUp[0].name).toBe('skill-1');
       expect(result.backedUp[1].name).toBe('skill-2');

@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -446,6 +446,154 @@ describe('sync engine orchestration', () => {
     expect(manifest.skills.welcome.direction).toBe('skip');
     expect(manifest.skills.welcome.status).toBe('in-sync');
     expect(manifest.skills.welcome.local_hash).toBe(manifest.skills.welcome.remote_hash);
+  });
+
+  it('pullFromServer backs up local content before deleting on remote deletion', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    const backupDir = join(homeDir, '.syncskill', '.backups', 'skills', 'welcome', 'pre-pull');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# latest local copy\n', 'utf8');
+    await mkdir(backupDir, { recursive: true });
+    await writeFile(join(backupDir, 'SKILL.md'), '# stale backup\n', 'utf8');
+
+    await pushToServers(homeDir, ['alpha'], {
+      runtime: createRuntime({
+        remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00.000Z', skills: {} })
+      }),
+      now: '2026-05-01T05:15:00.000Z'
+    });
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T05:30:00.000Z', skills: {} })
+    });
+
+    const result = await pullFromServer(homeDir, 'alpha', {
+      runtime,
+      now: '2026-05-01T05:45:00.000Z',
+      onDeletion: 'delete'
+    });
+
+    expect(result.deleted_skills).toEqual(['welcome']);
+    await expect(access(skillDir)).rejects.toBeDefined();
+    await expect(readFile(join(backupDir, 'SKILL.md'), 'utf8')).resolves.toBe('# latest local copy\n');
+  });
+
+  it('pullFromServer skips pre-pull backup when config pull_backup is false', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {},
+        pull_backup: false
+      },
+      homeDir
+    );
+
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    const backupDir = join(homeDir, '.syncskill', '.backups', 'skills', 'welcome', 'pre-pull');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# latest local copy\n', 'utf8');
+
+    await pushToServers(homeDir, ['alpha'], {
+      runtime: createRuntime({
+        remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00.000Z', skills: {} })
+      }),
+      now: '2026-05-01T05:25:00.000Z'
+    });
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T05:40:00.000Z', skills: {} })
+    });
+
+    const result = await pullFromServer(homeDir, 'alpha', {
+      runtime,
+      now: '2026-05-01T05:55:00.000Z',
+      onDeletion: 'delete'
+    });
+
+    expect(result.deleted_skills).toEqual(['welcome']);
+    await expect(access(skillDir)).rejects.toBeDefined();
+    await expect(access(backupDir)).rejects.toBeDefined();
+  });
+
+  it('pullFromServer skips pre-pull backup when pullBackup is false', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    const backupDir = join(homeDir, '.syncskill', '.backups', 'skills', 'welcome', 'pre-pull');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# latest local copy\n', 'utf8');
+
+    await pushToServers(homeDir, ['alpha'], {
+      runtime: createRuntime({
+        remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00.000Z', skills: {} })
+      }),
+      now: '2026-05-01T05:30:00.000Z'
+    });
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T06:00:00.000Z', skills: {} })
+    });
+
+    const result = await pullFromServer(homeDir, 'alpha', {
+      runtime,
+      now: '2026-05-01T06:30:00.000Z',
+      onDeletion: 'delete',
+      pullBackup: false
+    });
+
+    expect(result.deleted_skills).toEqual(['welcome']);
+    await expect(access(skillDir)).rejects.toBeDefined();
+    await expect(access(backupDir)).rejects.toBeDefined();
   });
 
   it('pullFromServer deletes locally when remote deletion policy is delete', async () => {
