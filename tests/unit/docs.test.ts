@@ -58,6 +58,7 @@ describe('ship-readiness docs', () => {
     expect(configGuide).toContain('http_baselines');
     expect(configGuide).not.toContain('"ignored": {');
     expect(configGuide).toContain('config.sources[*].ignore[]');
+    expect(configGuide).toContain('relative subdirectory within the local source root pointed to by `url`');
     expect(configGuide).toContain('npm link');
 
     expect(usageGuide).toContain('# Usage Guide');

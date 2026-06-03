@@ -309,14 +309,14 @@ Each source entry includes:
 |-------|----------|-------------|
 | `type` | Yes | Source type (`local`, `git`, `http`) |
 | `url` | Varies | Remote URL (required for git/http) |
-| `path` | Yes | Subdirectory within checkout containing skills (use `.` for repo root) |
+| `path` | Yes | Relative subdirectory containing skills (use `.` for the source root) |
 | `branch` | No | Git branch or tag (git sources only) |
 | `ignore` | No | List of skill names to ignore |
 | `archive_path` | No | Original archive file path (local archives only) |
 
-The `path` field specifies where skills are located within the source:
-- For git/http sources: subdirectory within the checkout (e.g., `skills`, `examples/skills`, or `.` for root)
-- For local sources: the absolute path to the skills directory
+The `path` field specifies where skills are located within the materialized source root:
+- For git/http sources: a repo-relative subdirectory within the checkout (for example `skills`, `examples/skills`, or `.` for the checkout root)
+- For local sources: a relative subdirectory within the local source root pointed to by `url` (for example `skills` or `.`)
 
 Example:
 
