@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-02T16:13:35.609Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-03T17:31:47.107Z
 > Files: 161 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/
@@ -16,7 +16,7 @@
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
 - `package.json` — Node.js package manifest (~355 tok)
-- `README.md` — Project documentation (~1772 tok)
+- `README.md` — Project documentation (~1943 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
 
@@ -30,11 +30,11 @@
 
 ## docs/
 
-- `config-guide.md` — Configuration Guide (~3196 tok)
-- `design-guide.md` — Design Guide (~3648 tok)
+- `config-guide.md` — Configuration Guide, including runtime layout, receiver backups, and relative `sources[*].path` semantics across local/git/http sources. (~3278 tok)
+- `design-guide.md` — Design Guide covering module boundaries, runtime state, and receiver-backup/registry v2 architecture. (~3685 tok)
 - `e2e-test-guide.md` — E2E Test Writing Guide (~3907 tok)
-- `README.md` — Project documentation (~407 tok)
-- `usage-guide.md` — Usage Guide (~3947 tok)
+- `README.md` — Project documentation (~466 tok)
+- `usage-guide.md` — Usage Guide (~4012 tok)
 
 ## docs/superpowers/plans/
 
@@ -47,31 +47,31 @@
 
 ## skills/syncskill/
 
-- `SKILL.md` — syncskill (~1692 tok)
+- `SKILL.md` — syncskill (~1826 tok)
 
 ## src/
 
 - `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1121 tok)
-- `index.ts` — API routes: GET (4 endpoints) (~23732 tok)
+- `index.ts` — API routes: GET (4 endpoints) (~28007 tok)
 - `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~975 tok)
 - `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4849 tok)
-- `refresh.ts` — Auto-refresh manifests hook (~1337 tok)
+- `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1828 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1226 tok)
-- `source.ts` — Git only: Convert source from git to local, keep path directory (~22102 tok)
+- `source.ts` — Git only: Convert source from git to local, keep path directory (~22096 tok)
 
 ## src/cli/
 
 - `env.ts` — Environment variable handling for syncskill CLI. (~558 tok)
 - `env.ts` — Environment variable loading and flag precedence merging for CLI config. (~340 tok)
 - `executor.ts` — Exports ActionHandler, ExecutionContext, Executor, createExecutor (~297 tok)
-- `exit-codes.ts` — Documented exit codes for syncskill CLI. (~539 tok)
+- `exit-codes.ts` — Documented exit codes for syncskill CLI. (~573 tok)
 - `index.ts` — src/cli/index.ts (~84 tok)
 - `index.ts` — src/cli/index.ts (~40 tok)
-- `output.ts` — Output controller that handles both JSONL and text output modes. (~1490 tok)
+- `output.ts` — Output controller that handles both JSONL and text output modes. (~1499 tok)
 - `plan-execute.ts` — Exports PlanBuilder, PlanExecutor, ResolutionCollector, PlanExecuteOptions + 3 more (~537 tok)
 - `plan.ts` — Exports PlanAction, UnresolvedItem, Plan, createPlan + 6 more (~563 tok)
 - `resolution.ts` — Exports ResolutionValue, Resolutions, loadResolutions, resolveItem, hasResolution (~308 tok)
-- `types.ts` — JSONL event types for --json mode output. (~386 tok)
+- `types.ts` — JSONL event types for --json mode output. (~393 tok)
 
 ## src/commands/
 
@@ -82,7 +82,7 @@
 ## src/config/
 
 - `config-doctor.ts` — Exports DiagnosticCode, DiagnosticCodeType, DiagnosticItem, DiagnosticReport + 12 more (~3808 tok)
-- `config-ui.ts` — Interactive TUI config editing (~5956 tok)
+- `config-ui.ts` — Threshold for showing auto-refresh warning (~5957 tok)
 - `config.ts` — Sync config loading/saving, sync path resolution, config normalization, and agent path expansion (~2566 tok)
 - `matrix-editor.ts` — 2D matrix editor component (~2264 tok)
 - `types.ts` — TypeScript type definitions for syncskill configuration and derived sync paths (~281 tok)
@@ -93,15 +93,15 @@
 - `manifest.ts` — Hash computation and manifest management (~3316 tok)
 - `private-agents.ts` — Pure function: compute default link targets based on config. (~999 tok)
 - `registry-builder.ts` — Exports rebuildRegistryV2 (~434 tok)
-- `server.ts` — Server config formatting (~440 tok)
-- `skills-registry.ts` — Exports SkillRegistryEntry, HttpBaseline, SkillsRegistry, SkillsRegistryV2 + 20 more (~3260 tok)
-- `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullBackupRecord, PullResult + 3 more (~9956 tok)
-- `transport.ts` — Exports ServerProbeResult, TransportRuntime, withTimeout, createTransportRuntime + 9 more (~4328 tok)
+- `server.ts` — Exports ProbeLine, ReceiverBackup, formatServerListLines, formatServerShowLines + 16 more (~2432 tok)
+- `skills-registry.ts` — Exports SkillRegistryEntry, HttpBaseline, SkillsRegistry, SkillsRegistryV2 + 20 more (~3332 tok)
+- `sync_engine.ts` — Exports SyncEngineOptions, PushResult, PullBackupRecord, PullResult + 3 more (~10869 tok)
+- `transport.ts` — Exports ServerProbeResult, RemoteAgentScanEntry, RemoteAgentScanResult, ReceiverConfigPayload + 15 m (~6205 tok)
 
 ## src/receiver/
 
 - `bootstrap_remote.sh` (~140 tok)
-- `sync_receiver.mjs` — syncRoot: readJson, readStdin, collectFileEntries + 11 more (~3101 tok)
+- `sync_receiver.mjs` — syncRoot: readJson, readStdin, collectFileEntries + 12 more (~3930 tok)
 
 ## src/source/
 
@@ -114,7 +114,7 @@
 ## src/utils/
 
 - `archive.ts` — Exports ArchiveType, ArchiveFormat, detectArchiveFormat, parseContentDisposition + 2 more (~955 tok)
-- `backup.ts` — Backup helpers for source pre-update sidecars and sync pre-pull skill backups (~695 tok)
+- `backup.ts` — Sidecar backup helpers for pre-update/pre-pull flows; backs up symlinked skills by copying dereferenced contents (~820 tok)
 - `utils.ts` — Exports execFileAsync, isNotFoundError, readJsonOrDefault, readFileOrDefault, pathExists (~438 tok)
 
 ## tests/end2end/
@@ -139,16 +139,16 @@
 
 - `source-install-stale.test.ts` — E2E tests for install when stale checkout exists. (~1678 tok)
 - `source-stale-checkout.test.ts` — tests/end2end/cases/source/source-stale-checkout.test.ts (~1540 tok)
-- `source-update-dirty.test.ts` — tests/end2end/cases/source/source-update-dirty.test.ts (~2739 tok)
-- `source-update-http.test.ts` — E2E tests for top-level update behavior with HTTP/local sources. (~1801 tok)
-- `source-update.test.ts` — tests/end2end/cases/source/source-update.test.ts (~1239 tok)
+- `source-update-dirty.test.ts` — tests/end2end/cases/source/source-update-dirty.test.ts (~2518 tok)
+- `source-update-http.test.ts` — E2E tests for top-level update behavior with HTTP/local sources. (~3134 tok)
+- `source-update.test.ts` — tests/end2end/cases/source/source-update.test.ts (~1161 tok)
 
 ## tests/end2end/cases/sync/
 
-- `pull-skill-placement.test.ts` — E2E tests for pull skill placement by source type. (~2732 tok)
-- `pull-target.test.ts` — Pull target path resolution tests. (~3224 tok)
-- `push-server-integrity.test.ts` — E2E tests for push server integrity scenarios. (~2536 tok)
-- `receiver-update.test.ts` — E2E tests for receiver version update scenarios. (~1164 tok)
+- `pull-skill-placement.test.ts` — Skipped stub for remote pull-placement e2e until an SSH-capable harness exists. (~44 tok)
+- `pull-target.test.ts` — Skipped stub for remote pull-target e2e until an SSH-capable harness exists. (~43 tok)
+- `push-server-integrity.test.ts` — Skipped stub for remote push-integrity e2e until an SSH-capable harness exists. (~44 tok)
+- `receiver-update.test.ts` — Skipped stub for remote receiver-update e2e until an SSH-capable harness exists. (~42 tok)
 
 ## tests/end2end/framework/
 
@@ -178,42 +178,42 @@
 ## tests/integration/
 
 - `cli-introspection.test.ts` — Declares program (~678 tok)
-- `config-cli.test.ts` — Declares homeDir (~3747 tok)
+- `config-cli.test.ts` — Declares homeDir (~3758 tok)
 - `config-ui.test.ts` — Declares PromptStub (~4890 tok)
 - `discover.test.ts` — Declares tempDirs (~3940 tok)
 - `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1299 tok)
-- `help-output.test.ts` — Declares execAsync (~1456 tok)
+- `help-output.test.ts` — Declares execAsync (~1519 tok)
 - `install-cli.test.ts` — execFileAsync: execWithInput (~2636 tok)
 - `README.md` — Project documentation (~37 tok)
-- `reconciliation-cli.test.ts` — Declares actual (~8729 tok)
-- `remote-refresh.test.ts` — Declares tempDirs (~669 tok)
+- `reconciliation-cli.test.ts` — Declares actual (~10276 tok)
+- `remote-refresh.test.ts` — Declares tempDirs (~894 tok)
 - `repo.test.ts` — Declares pathExists (~1991 tok)
-- `server-cli.test.ts` — Declares tempDirs (~678 tok)
-- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~3297 tok)
+- `server-cli.test.ts` — Declares tempDirs (~4197 tok)
+- `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~3160 tok)
 - `source-remove.test.ts` — Declares SourceConfig (~3129 tok)
 - `source-update-dry-run.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~2131 tok)
-- `source-update-force.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6482 tok)
-- `sync-cli.test.ts` — Declares tempDirs (~9723 tok)
-- `sync-engine.test.ts` — TransportRuntime: createRuntime (~10405 tok)
+- `source-update-force.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6444 tok)
+- `sync-cli.test.ts` — Declares tempDirs (~9872 tok)
+- `sync-engine.test.ts` — TransportRuntime: createRuntime (~10631 tok)
 - `sync-timeout.test.ts` — Declares program (~273 tok)
-- `transport.test.ts` — receiverPath: importReceiverModule, runReceiverCommand, runReceiverApply, createReceiverManifest, cr (~9591 tok)
+- `transport.test.ts` — receiverPath: importReceiverModule, runReceiverCommandWithOutput, runReceiverCommand + 3 more (~12078 tok)
 
 ## tests/unit/
 
-- `backup.test.ts` — Unit tests for source sidecar backups and sync pre-pull backup helpers (~1146 tok)
+- `backup.test.ts` — Unit tests for sidecar backup helpers, including existing-backup replacement and symlinked skill coverage. (~1860 tok)
 - `cli-env.test.ts` — tests/unit/cli-env.test.ts (~1282 tok)
 - `cli-env.test.ts` — Unit tests for CLI env var parsing and flag-over-env precedence. (~910 tok)
 - `cli-executor.test.ts` — Declares calls (~490 tok)
-- `cli-output.test.ts` — tests/unit/cli-output.test.ts (~1592 tok)
+- `cli-output.test.ts` — tests/unit/cli-output.test.ts (~1601 tok)
 - `cli-plan-execute.test.ts` — Declares buildPlan (~648 tok)
 - `cli-plan.test.ts` — Declares plan (~504 tok)
 - `cli-resolution.test.ts` — Declares dir (~505 tok)
-- `cli-types.test.ts` — tests/unit/cli-types.test.ts (~502 tok)
+- `cli-types.test.ts` — tests/unit/cli-types.test.ts (~510 tok)
 - `config-doctor.test.ts` — Declares DiagnosticItem (~5530 tok)
-- `config.test.ts` — Declares paths (~2961 tok)
+- `config.test.ts` — Declares paths (~2977 tok)
 - `conflict.test.ts` — Declares ServerManifest (~2429 tok)
 - `dashboard.test.ts` — Declares ServerManifest (~1496 tok)
-- `docs.test.ts` — Declares rootDir (~1195 tok)
+- `docs.test.ts` — Declares rootDir (~1388 tok)
 - `e2e-cleanup.test.ts` — tests/unit/e2e-cleanup.test.ts (~495 tok)
 - `e2e-context.test.ts` — tests/unit/e2e-context.test.ts (~2371 tok)
 - `e2e-fixtures-archive.test.ts` — tests/unit/e2e-fixtures-archive.test.ts (~588 tok)
@@ -225,7 +225,7 @@
 - `e2e-guard.test.ts` — tests/unit/e2e-guard.test.ts (~376 tok)
 - `e2e-runner.test.ts` — tests/unit/e2e-runner.test.ts (~540 tok)
 - `e2e-scenario.test.ts` — tests/unit/e2e-scenario.test.ts (~931 tok)
-- `exit-codes.test.ts` — tests/unit/exit-codes.test.ts (~660 tok)
+- `exit-codes.test.ts` — tests/unit/exit-codes.test.ts (~706 tok)
 - `install.test.ts` — Declares path (~2470 tok)
 - `linker.test.ts` — Declares SyncSkillConfig (~7055 tok)
 - `manifest.test.ts` — Declares tempDirs (~2630 tok)
@@ -233,14 +233,14 @@
 - `package.test.ts` — Declares rootDir (~597 tok)
 - `private-agents.test.ts` — Declares tempDirs (~716 tok)
 - `README.md` — Project documentation (~35 tok)
-- `refresh.test.ts` — Declares tempDirs (~5675 tok)
+- `refresh.test.ts` — Declares tempDirs (~5915 tok)
 - `registry-builder.test.ts` — Exports x (~868 tok)
-- `server.test.ts` (~406 tok)
+- `server.test.ts` — Declares homeDir (~1381 tok)
 - `skills-registry.test.ts` — Declares registry (~4983 tok)
 - `source-detect.test.ts` (~255 tok)
 - `source-dirty.test.ts` (~210 tok)
 - `source-discover.test.ts` — Declares tempDirs (~582 tok)
 - `source-github-url.test.ts` — Declares result (~1607 tok)
-- `source.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture + 4 more (~27770 tok)
+- `source.test.ts` — Large source module unit suite covering git/http/local flows, same-repo merge logic, add-source behavior, and legacy config compatibility cases (~27036 tok)
 - `test-tiers.test.ts` — Declares rootDir (~382 tok)
-- `transport.test.ts` — TransportRuntime: createRuntime (~1383 tok)
+- `transport.test.ts` — TransportRuntime: createRuntime (~2150 tok)

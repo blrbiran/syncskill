@@ -13,6 +13,7 @@
   - `docs/superpowers/specs/` 下的文档使用中文
   - 其他文档（README.md, docs/*.md 等）使用英文
   - 代码、注释、git commit message 使用英文
+- **[2026-06-03]** 输出被截断或 token hit 后，直接续写，不要道歉、不要 recap，按更小块继续推进。
 
 ## Key Learnings
 
@@ -29,8 +30,34 @@
 - **[2026-06-02]** E2E `withInit()` 现在只识别 `skipSelf`，不识别旧的 `skipSkill`。测试若还传 `skipSkill`，built-in `syncskill` 会继续被安装/链接，后续手写覆盖 `config.links` 时就会冒出 stale-link prompt；单-skill 声明式更新也要走 `link set <skill> <agent>`，不能再写旧的 `link <skill> -y`。
 - **[2026-06-02]** GitHub URL 安装/建档必须持久化 repo-relative `source.path`（等价 spec 的 `skill_subdir`），不能回写内部 checkout 目录。裸仓库 URL 应落成 `.`；`/tree/<branch>/<subdir>` 应落成对应子目录；显式 `skillSubdir`/`path` override 优先于 URL 推断。
 - **[2026-06-02]** 用户文档里的 source 运行时布局要写成 `~/.syncskill/.sources/<name>/checkout/`；`config.sources[*].path` 描述的是 checkout 内的 repo-relative 子目录，不是内部 checkout 根路径本身。`skills-registry.json` 示例也应使用当前 v2 形态（`ignored` + `http_baselines`），不要再展示旧的 v1 active-status 示例。
+- **[2026-06-03]** `config.sources[*].path` 对 local / git / http 三类 source 都是“materialized source root 内的相对目录”。local source 也不能写成绝对 skills 目录；实现会拒绝 absolute path，文档与 docs smoke test 也要一起锁住这点。
 - **[2026-06-02]** E2E stale-checkout helper 也必须跟随当前 runtime layout：伪造 git/non-git stale source 时要直接建到 `.syncskill/.sources/<name>/checkout`，否则 helper 本身就和安装/更新路径漂移，容易出现假阴性覆盖。
 - **[2026-06-02]** `install --path` 的最终语义是 source checkout 内“包含 skills 的 repo-relative 子目录”，`--skill-subdir` 只是它的别名；help、README/skill 文档和回归测试都要按这个语义表述，不能再写成内部 source 存储路径或模糊的通用 subdirectory。docs 索引页若提 stale symlink cleanup，也应明确指向 `syncskill link build`，不要笼统写成 `link` 命令本身自动 reconcile。
+
+- **[2026-06-02]** `backupSkillToSidecar()` 备份 materialized skill 时不能先 `mkdir` 最终目标目录再直接 `cp`，否则 HTTP `source update --force` 在目录/符号链接形态下会触发 `ERR_FS_CP_NON_DIR_TO_DIR`。应先清理旧 backup、确保父目录存在，再用 `cp(..., { dereference: true })` 复制真实内容；对应回归应覆盖已存在 backup + symlinked skill。
+
+- **[2026-06-02]** `refresh` 的最终命令面不再接受 `--status`。无 flag 时等价于本地+远端刷新后直接输出 status；`--local` / `--remote` 只刷新不打印状态。help、README、usage guide、skill 文档和相关 integration/doc tests 都要跟着这套语义走。
+
+- **[2026-06-02]** 文档里的 `skills-registry.json` v2 语义也要严格跟实现一致：只写 `http_baselines`；ignored 真相源在 `config.sources[*].ignore[]`。README / guides / docs tests 若还出现 registry `ignored` map，说明文档还在描述旧状态模型。
+
+- **[2026-06-02]** 测试里凡是手写 `skills-registry.json` / `config` 夹具，都要按当前 v2 模型写：配置优先用 `saveConfig(createDefaultConfig(...))` 或 `ctx.writeConfig()` 产出 `config.json`；非 HTTP 场景的 registry 通常应是 `{ version: 2, http_baselines: {} }`，不要再断言 v1 `registry.skills[*]` active/path/origin。
+- **[2026-06-03]** `tests/unit/source.test.ts` 里 same-repo / addSource / buildSkillsIndex 这类“当前行为”测试不应再把 `config.yaml` 当默认初始化；应统一走 `saveConfig(createDefaultConfig(...))` 写 `config.json`。只有显式验证旧配置兼容读取（例如 legacy `store` 字段）时，才保留手写 `config.yaml` fixture。
+- **[2026-06-03]** `tests/end2end/cases/sync/pull-target.test.ts` 和 `pull-skill-placement.test.ts` 这类“验证 pull 后路径放置 / link 结果”的 e2e，不应再手写 `registry.skills[*]` 夹具；这类断言要直接验证 `.sources/`、`skills/`、symlink target 和当前 `config.sources` object 语义。local source 配置也不要再写数组形态。
+- **[2026-06-03]** 当命令面发生收缩（例如移除 `refresh --status`）时，文档收口不能只改命令总览和 help 摘要；还要扫 workflow/example 段落，并在 `tests/unit/docs.test.ts` 里补 `not.toContain(...)` 负向断言，防止旧 CLI 形态从后文示例里漏回去。
+- **[2026-06-03]** `getSyncPaths()` 这类返回对象的 contract test 若使用 `toEqual` 锁整对象，新增字段（如 `backupsDir`）时要同步更新单测；milestone 级 `npm run build && npm test` 很适合抓这类“实现已对、测试落后”的残留漂移。
+- **[2026-06-03]** 当 CLI 向 engine 新增透传字段（如 `timeout` / `noInteractive` / `yesDestructive` / `json`）时，优先更新 integration test 预期而不是回退实现；这些字段属于命令面 contract 的一部分。
+- **[2026-06-03]** 用户可见的 `server` 命令面正在向 `remote` 收口：CLI/help/tests 应优先改成 `remote list/show/takeover`，旧 `config server` 入口不要继续保留在用户可见面上。
+- **[2026-06-03]** 文档里还要区分两类“remote 信息源”：`config show` / `config.json` 负责展示传输配置（`host`/`user`/`port`/`identity_file`/配置里的 `remote_agents`），`remote show <name>` 展示的是本地 receiver backup（`updated_at`/`remote_agents`/`links`）。两者不能混写成同一个“show server configuration”。
+- **[2026-06-03]** docs/config-guide.md 与 docs/design-guide.md 也要显式写出 `~/.syncskill/receivers/<server>.json`，否则 receiver-backup 已成为实现真相源但文档仍只描述 manifests/registry，读者会误以为 `refresh --remote` 只改 manifest 不改本地拓扑缓存。
+- **[2026-06-03]** `remote agent rm` / `remote link rm` 这类 receiver-backup 写命令会刷新 `updated_at`；integration test 不应锁死旧时间戳，而应断言结构与关键业务字段。
+- **[2026-06-03]** `E_REMOTE_NOT_INITIALIZED` 属于本地 receiver backup 缺失，应映射到 `CONFIG_ERROR`（exit 3），并由 unit/integration tests 同时锁住，避免 remote takeover 契约回退。
+- **[2026-06-03]** `refresh <server>` 现在会在 remote manifest refresh 之后额外调用 `scanRemoteAgents()` 来更新 `receivers/<server>.json`；凡是 mock 了 `refreshRemoteManifestFromServer()` 的 CLI/integration 测试，也必须同步 mock `scanRemoteAgents()`，否则会意外打到真实 SSH。
+- **[2026-06-03]** push 侧 remote receiver config 的真相源应优先使用本地 receiver backup（`receivers/<server>.json`）里的 `remote_agents + links`，不能只回显 `config.servers[*].remote_agents`，否则会把 per-server links 矩阵和已刷新/手动维护的 agent 拓扑丢掉。
+- **[2026-06-03]** `remote agent/link` 这类 receiver-backup 写命令的 snapshot / `updated_at` / save 流程应集中走 `src/core/server.ts` helper（如 `mutateReceiverBackup()` / `snapshotReceiverBackupState()`），不要在 `src/index.ts` 各 action 里重复手写，否则很容易出现 save 语义漂移或只改到部分命令。
+- **[2026-06-03]** receiver-backup 的领域规则（push 用的 receiver config payload、refresh 扫描后的 topology merge）也应集中在 `src/core/server.ts`，`src/refresh.ts` 和 `src/core/sync_engine.ts` 只做 orchestration；这样同一套 `remote_agents + links` 语义不会在两个调用方各自漂移。
+- **[2026-06-03]** `refresh <server>` 的 CLI integration test 不应只锁输出行，还要同时断言 `receivers/<server>.json` 的 side effect；`remote takeover` CLI 测试也要覆盖非 dry-run happy path，并确认只把 linked agents 传给 transport，避免命令面 contract 只剩 helper/transport 层覆盖。
+- **[2026-06-03]** 现有 end2end harness 还不支持真实 SSH/remote transport；凡是 remote push / receiver update / server integrity 这类无法真实执行的 e2e，不要保留大段 TODO 伪场景来制造“已有覆盖”的错觉，至少应显式改成 skipped stub 或降级到 integration。
+- **[2026-06-03]** `tests/end2end/cases/sync/pull-target.test.ts` / `pull-skill-placement.test.ts` 这类靠手写文件、symlink 和“post-pull state”来模拟 remote pull 的 case，也不应继续算作真实 pull e2e；如果 harness 不能真正执行 SSH pull，就应显式 skipped，避免路径断言看起来像端到端覆盖。
 
 ## Do-Not-Repeat
 
@@ -40,6 +67,7 @@
 - [2026-05-06] **严重事故：删除用户 home 目录数据** — 绝对不能执行 `rm -rf ~/` 或任何针对 home 目录的递归删除。任何破坏性操作必须先停下来询问用户，列出影响范围，等待明确同意。
 - [2026-05-07] `.wolf/memory.md` and `.wolf/buglog.json` are in `.gitignore` — never include them in git commits. They are local-only tracking files.
 - [2026-05-18] **CRITICAL: Tilde (~) in paths must be expanded** — Node.js treats `~` as a literal directory name, NOT as home directory shortcut. Using `join(config.agents[x], skill)` directly when config contains `~/.claude/skills` creates `./~/.claude/skills/` in CWD. Always use `resolveAgentPath(agentPath, homeDir)` to expand `~` before any filesystem operation. This bug caused users to accidentally delete their home directory when running `rm -rf ~/` thinking they're cleaning up test artifacts.
+- [2026-06-03] `failWithOutputError()` / destructive gates inside commander actions cannot rely on `process.exit()` alone to stop execution in tests, because integration tests mock `process.exit`. After a blocked destructive path, return explicitly or guard the rest of the action, otherwise the handler can fall through into real transport/SSH work.
 
 ## Decision Log
 

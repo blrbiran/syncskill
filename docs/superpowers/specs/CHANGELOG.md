@@ -4,6 +4,158 @@
 
 ---
 
+## v2.7.4（2026-06-02 — 草案，待 user 批准 + 实施）
+
+v2.7.3 落地后第四轮 audit 的实施版本。基于 critic（Opus）三角度审查（必要性 / 合理性 / AI agent CLI 一等公民）的 14 项 + 一项 API 稳定性承诺机制（A5）。
+
+**决议依据**：[`decisions-2026-06-02-spec-cleanup-round4.md`](./decisions-2026-06-02-spec-cleanup-round4.md) — 14 项 + A5 完整讨论 + 选项对比 + 决议。
+
+**实施计划**：[`../plans/2026-06-02-v2.7.4-implementation.md`](../plans/2026-06-02-v2.7.4-implementation.md) — 7 个 PR（含 PR 5a/5b/5c 三个 BREAKING 拆分 + PR 6 reconcile 内核抽取）。
+
+### ⚠️ BREAKING CHANGES（PR 5 集中公告）
+
+本版本首次包含直接 breaking changes（项目无生产用户，user 确认 C2 无需 deprecation 窗口）：
+
+1. **`-y` 在破坏性 verb 下不再默认执行**（议题 2.1）：v2.7 起 `-y` 在 `unlink` / `link clear` / `remote takeover` 下默认执行；v2.7.4 起 **`-y` 永远 = safe default**（abort + hint）。破坏性操作必须显式 `--yes-destructive`。
+   - 旧：`syncskill -y unlink foo` → 删除 link
+   - 新：`syncskill -y unlink foo` → abort + exit 2 + hint
+   - 迁移：`syncskill --yes-destructive unlink foo`
+2. **`server` 命令族重命名为 `remote`**（议题 2.3）：原 `server` 管 SSH 凭据（add/rm/ls），`remote` 管 receiver 备份矩阵（show/takeover）。两词混用造成混淆。v2.7.4 起统一到 `remote`，无 `server` alias。
+   - 旧：`syncskill server add prod ...` / `server ls`
+   - 新：`syncskill remote add prod ...` / `remote ls`
+   - 配置文件 `config.yaml` 顶层字段 `servers:` 保留（不破坏既有配置）。
+   - **错误码同步 rename**：`E_SERVER_NOT_FOUND` → `E_REMOTE_NOT_FOUND`（属 extended 层，分层契约允许 rename；避免 "verb 叫 remote、错误码叫 server" 内伤）。Agent 若旧 routing 依赖此 code 需更新。
+3. **`install` 无参数交互菜单删除**（议题 1.5）：v2.7.x 在 TTY 下 `install` 无参数会进入 self/url/cancel 菜单。v2.7.4 起 `install` 无参数永远打印 help。first-run 引导挪到 `init` 命令尾巴。
+   - 旧：`syncskill install` (TTY) → 进菜单
+   - 新：`syncskill install` → 打印 help
+   - 迁移：`syncskill init` 末尾会询问 self-install。
+
+### 用户可见变化
+
+- **API 稳定性分层承诺**（议题 A5 + 1.1，**方案 C 双集模型**）：错误码不再做"全表 API"硬承诺。Core 拆为两个独立集合：
+  - **Core Errors 8 条**（ERROR_CODES entry，`stability: "core"` lint 锁死永不删）：`E_USAGE` / `E_NEEDS_INPUT` / `E_UNRESOLVED` / `E_NETWORK` / `E_RECEIVER_NODE_TOO_OLD` / `W_MANIFEST_MISSING` / `W_TAKEOVER_NEEDED` / `I_FORCE_PROMPT_HINT`
+  - **Core Meta 3 个 envelope 顶层版本字段**（各自 schema 测试管）：`plan.version` / `manifest.version` / `data_schema_version`（v2.7.4 新增）
+  - **Extended 37 条**（剩余 ERROR_CODES，可演化但需 CHANGELOG）
+  - registry entry 加 `stability: "core" \| "extended"` 字段（Core Meta 不在 ERROR_CODES 表内，无需此标）。
+  - 详见 spec **§11.5.1 Core Errors + §11.5.2 Core Meta** 新章节。
+- **`result` 事件加 `data_schema_version: 1` 顶层字段**（议题 3.4）：与 plan/manifest 已有的 version 字段哲学一致。agent 现在可以一行检查 `result.data_schema_version === 1` 判断 schema 兼容性。spec §11.6.0 新增版本承诺段。
+- **`push` / `sync` 在 baseline 缺失时强制 prompt**（议题 2.4，**P0 安全**）：原来 push/sync 在 manifest 缺失时仅 emit warning + 继续执行，rsync `--delete` 可能抹除远端原有但本地未 link 的 skill。v2.7.4 起 plan 阶段 emit 新 unresolved kind `no-baseline`（**core** kind） + `W_NO_BASELINE_RISK` warning（extended），列出"将被删除"的远端条目。execute 阶段非 `-y` 强制 prompt；`-y` 走 safe default abort；`--yes-destructive` 才能强 push。
+- **`status --json` 每 skill 加 hash 三元组**（议题 3.2）：JSON 输出每 skill 项加 `local_hash` / `remote_hash` / `baseline_hash`（nullable hex，extended 层）。agent 现在不必二次调 `diff` 即可判断 delta。plain-text 输出不变（人类无需 hash）。
+
+### 架构不变量收口
+
+- **`TIER1_COMMANDS` Set 重命名为 `PLAN_COMMANDS`**（议题 1.2）：原 "Tier 1 / Tier 2" 术语只在 spec 内部使用，agent 实际通过 `plan_schema !== null` 判断。v2.7.4 删术语；Set 改名；spec §3.0.B.3 重写为「凡 `plan_schema !== null` 即两阶段命令」。顺手修 `src/index.ts:188-194` 注释与代码不一致（link build 是 Tier 2 不是 Tier 1）。
+- **`--force` info hint ast-grep lint**（议题 2.2）：v2.7.1 项 5 option D 把 force-hint heuristic 删了，架构不变量靠 callsite `if (!ctx.flags.force)` 守卫。v2.7.4 新增 `tests/force-callsite-lint.test.ts` 用 ast-grep 扫 `src/` 下所有 `promptConfirm` / `promptSelect` 调用，强制要求静态可见的 force guard。
+- **spec markdown JSON code-fence lint**（议题 3.1）：round-2/3 两次因 spec §11.6 示例落后被 critic 抓出来（plan_ref 字段缺位）。v2.7.4 新增 `tests/spec-json-examples.test.ts`，解析 spec 所有 ```` ```json ```` code-fence，对 §11.6.x 段的 changes[] 示例断言 plan_ref 字段存在；对所有 result 示例断言 data_schema_version 字段存在。
+- **receiver `protected:` 信号统一为 `W_TAKEOVER_NEEDED:` prefix**（议题 3.5）：`src/receiver/sync_receiver.mjs:152` 原 emit `protected: <agent>/<skill> ...` 到 stderr；v2.7.4 改为 `W_TAKEOVER_NEEDED: ...` prefix，与 controller 侧 warning code 对齐。controller `classifySyncError` 双 prefix sniff（兼容旧 receiver）。
+
+### Spec 内部对齐
+
+- **§11.5 "API Stability Tiers" 新章节**（A5，双集模型）：§11.5.1 Core Errors 8 条表 + §11.5.2 Core Meta 3 字段表 + 各自治理规则（升级 core 的标准）。
+- **§3.0.B.3 Tier 术语清理**（议题 1.2）：删 "Tier 1 / Tier 2"，改述 plan_schema 判定。
+- **§3.0.2 `-y` 例外段删除**（议题 2.1）：`-y` 永远 = safe default。
+- **§11.6.0 schema 版本承诺段**（议题 3.4）：声明 `data_schema_version: 1` 在 v2.8 前不变；破坏性变更必 bump。
+- **111 处版本注脚剥离**（议题 1.3）：grep 命中 111 行 `(v2.X)` / `(audit-Y)` 注脚；删纯描述性、保留 15-20 处可反查 decisions/CHANGELOG 的 anchor。
+
+### 测试
+
+859 → ≥ 890 passed。新增：
+- `tests/error-codes-core-stability.test.ts` — A5 core 集 lint（11 条不可删 + stability 字段完整）
+- `tests/spec-json-examples.test.ts` — spec markdown JSON 示例 lint
+- `tests/force-callsite-lint.test.ts` — `--force` callsite ast-grep lint
+- `tests/result-schema-version.test.ts` — 所有 result 事件含 `data_schema_version`
+- `tests/receiver-takeover-prefix.test.ts` — 新旧 receiver prefix 双识别
+- `tests/e2e/no-baseline-block.test.ts` — baseline 缺失三模式（`-y` / 交互 / `--yes-destructive`）
+
+### 兼容性
+
+- **三个 BREAKING**：见上方 BREAKING CHANGES 段；user 确认无生产用户，可直接 break。
+- **API additive**：core 集分层、`data_schema_version`、status hash 三元组、`W_NO_BASELINE_RISK` 警告码 —— 全部 additive，旧 agent 不读新字段无影响。
+- **配置文件不破坏**：`config.yaml` 顶层 `servers:` 字段保留（仅 CLI 文字面统一 "remote"）。
+
+### 内部重构
+
+- **议题 1.4 reconcile 内核抽取**（PR 6，含在 v2.7.4）：抽 `reconcileEngine({ source, scope, intent })` 公共内核，6 命令（`init` / `install` / `scan` / `update` / `link build` / `refresh`）变薄包装。CLI 表面零变化 —— 现有所有测试零修改即通过。新增 `tests/core/reconcile-engine.test.ts` 覆盖内核单测。
+
+### Decline
+
+- **议题 3.3 `--machine` 总开关**：决议 decline（C1 人类优先 + `--json` 已够 agent 用）。如未来 agent 反馈需要单 flag，可考虑让 `--json` 隐含 `--no-interactive` 或加 env `SYNCSKILL_MACHINE=1`。
+
+---
+
+## v2.7.3（2026-06-02）
+
+v2.7.2 round-2 落地后第三轮 audit（spec ↔ code ↔ docs ↔ skill 全面对账）的小幅收口。本轮聚焦：(1) 一处 spec 内部矛盾修订；(2) 一个 `install` flag 注册补齐（spec 长期描述但 commander 漏注册）；(3) docs / repo hygiene。
+
+**决议依据**：[`decisions-2026-06-02-spec-cleanup-round3.md`](./decisions-2026-06-02-spec-cleanup-round3.md) — 6 议题完整讨论 + 选项对比 + 决议。
+
+**用户可见变化**：
+
+- **`install --type git|http|local` flag 现已可用**（議題 R1）：spec §3.5 长期描述此 flag 作为 `detectSourceInput` 推断不出时的 escape hatch（如裸 `https://example.com/x` 既可能是 git 也可能是 archive），错误消息也提示 "Use --type to specify"。但 commander 没注册该 flag，传入会报 `unknown option '--type'`。本版本注册 flag、加 git/http/local 值域校验（非法值 → `E_USAGE` exit 2），并把值传给 buildInstallPlan 的 forceType 字段。新增 2 个 UT + 2 个 IT 覆盖。
+- **`docs/temp/handover-circular-deps.md` 删除**（議題 R2）：2026-05-20 的 circular-deps 修复 handover 文档，工作早已完成（v2.5+ 拆分），引用的 plan 文件也都不存在。本版本删除整个 `docs/temp/` 目录 + lint:md script 移除对应 `--ignore docs/temp` 旧参数。
+- **`docs/release-summary.md` 重写**（議題 R3）：之前包含内部 alibaba-inc.com URL（fork artifact）+ 与 README/usage-guide 大量重复 + 含已 stale 的 "5 态枚举" 文字。本版本重写为 release-cycle 归档，记录 v2.4 - v2.7.3 各版本关键变化，无敏感 URL，无重复的 install/usage 内容。
+- **`docs/README.md` broken link 修复**（議題 R4）：删除指向不存在的 `issue.md` 链接，替换为指向新版 release-summary 的入口。
+
+**Spec 内部对齐**：
+
+- **§3.7 manifest status 枚举 6→7 态文字同步**（議題 S1）：line 1256 长期声明 "6 态枚举"（in-sync / local-changed / remote-changed / remote-deleted / conflict / new），但同节 line 1304/1313/1314 + 代码 + 全部下游 docs/SKILL.md 都已是 7 态（多 `local-deleted`）。这是 v2.3 audit-4 G3 引入 `local-deleted` + `push-delete` 时漏改的文字。本版本同步 line 1256 为 7 态，明确引用 audit-2 S1（remote-deleted）+ audit-4 G3（local-deleted）。零代码影响——代码 / 测试 / 下游 docs 早已全部走 7 态。
+
+**内部清理**：
+
+- **删除已完成的 v2.7 implementation plan**（議題 R5）：`docs/superpowers/plans/2026-06-01-v2.7-implementation.md`（66 KB，untracked）记录的 9 项 v2.7 spec items 已 100% 落地（v2.7.0 / v2.7.1 / v2.7.2 三轮）。决议已固化在 `decisions-*.md` 系列，不需要 plan 长期归档。整个 `docs/superpowers/plans/` 目录一并删除。
+
+**测试**：855 → 859 passed（+2 UT install --type 契约 + 2 IT install --type CLI 接受）。lint 全绿。
+
+**兼容性**：
+
+- 全部 additive 或纯 hygiene 改动，无任何 breaking change；
+- `install --type` 是新功能（spec 长期描述但实现缺失，本版本补齐），不影响既有 install 调用；
+- spec 6→7 文字修订零行为影响（代码与下游早已走 7 态）；
+- doc 删除/重写不影响任何代码路径。
+
+---
+
+## v2.7.2（2026-06-02）
+
+v2.7.1 ratify 后第二轮 spec/code 对账审计的收口版。本轮聚焦：(1) error code 注册表统一为单一权威源 + 自动化不变量保证；(2) 死代码清理；(3) 5 个共享 helper 抽取消除重复模式；(4) 多处 spec 文字与代码对齐。**全部为 additive 或纯内部重构，无用户可见 API 变化**。
+
+**决议依据**：[`decisions-2026-06-02-spec-cleanup-round2.md`](./decisions-2026-06-02-spec-cleanup-round2.md) — 12 议题（A1 / A2+A3 Plan P / A4 / B1-B3 / C1 / D1-D5 / P6）完整讨论 + 选项对比 + 决议。
+
+**用户可见变化**（极小）：
+
+- **`--cross-server-policy` flag 描述更精确**（议题 A4）：commander option help 旧文本 "...or `<server-name>`" 误导用户（v2.7.1 已下线裸 server 名），现改为 "...or `server:<name>` (v2.7.1: bare server names are rejected — use the server: prefix)"。仅影响 `--help` / `--help --json` 输出。
+- **`update` 命令对 local source 错误码改为 `E_USAGE` exit 2**（Plan P P4）：之前 emit 未注册的 `E_SOURCE_NOT_UPDATABLE` exit 1；现统一到 spec §11.4 已有的 `E_USAGE`（语义更准确：跑 update 在 local source 上是用法错误，不是失败模式）。
+- **3 个 spec-only 死 code 删除**（P6）：`E_CONFLICT`（与 `E_UNRESOLVED` 完全重叠，从未单独 emit）、`E_SOURCE_DIRTY`（spec 设计的 `--strict` 升级路径从未 wire-up）、`W_PULL_BACKUP_SKIPPED`（v2.4 设计但代码从未 emit）。从 registry + spec §11.4 表 + tests 同步移除。无脚本会受影响（它们从未 emit）。
+
+**内部变化**（用户无感）：
+
+- **`executeLinkBuildPlan` 死函数删除**（议题 A1-β）：v2.5 link build 降为 Tier 2 后该 executor 失去 caller，但函数体保留至今。本轮删除 ~85 LOC + 7 个未用 import。
+- **Plan P — 单一 canonical error code 注册表**（议题 A2+A3）：
+  - 13 个真实 emit 但未注册的 code 全部入 ERROR_CODES（3 个 E + 10 个 W）+ spec §11.4 表同步补齐；
+  - 新增 `tests/error-codes-coverage.test.ts` 架构不变量：grep src/ 任何 `code: "[EWI]_..."` 字面量，断言每个都在 ERROR_CODES 中；
+  - 同议题 5（force-hint）的设计哲学延伸：用测试不变量替代脆弱的"约定遵守"。
+- **5 个 helper 抽取**（D1-D5）：
+  - `emitNeedsInput(ctx, opts)`（plan.ts）— 替换 3 处 "flat-key resolution + exit 4" 模式。
+  - `findActionId(plan, predicate)`（plan.ts）— 替换 4 处 `plan.actions.find(...)?.id` 内联查询。
+  - `emitError(ctx, code, message, opts?)`（json-output.ts）— 替换 7 处 "if (json) emit error else console.error + exitCode" Pattern A 分支。
+  - `finalizeSyncCommand(ctx, command, acc, ok, ...)`（sync-helpers.ts）— 替换 push/pull/sync 3 处近重复的 "result emit + skip exit code" 收尾。
+  - `expandLinkAgentNames(targets, config): string[]`（linker.ts）— 替换 4 处 `expandLinkTargets(...).map(t => t.agent)` 链。
+- **Spec 文本对齐**：
+  - §3.0.5 收紧 `--strict` 适用范围："仅作用于 update / push / pull / sync 4 命令；install 的 partial skip 多源于用户决策"（C1）。
+  - §11.4 `E_BACKUP_NOT_FOUND` 描述删 "v2.6 sidecar 兼容路径" 残留（v2.7.1 已下线）。
+  - §11.6.15 push/pull/sync 示例的 `changes[]` 项补 `plan_ref` 字段（与 §11.6.0 mandate 一致）。
+  - §11.8 删 `W_PULL_BACKUP_CREATED` 孤儿声明（代码从未 emit）。
+
+**测试**：854/854 unit + integration + e2e passing；新增 14 个 helper 单测 + 1 个 error-code 覆盖率 lint 测试。
+
+**兼容性**：
+
+- spec/registry 删除的 3 个 code 从未被代码 emit → 删除对实际用户脚本零影响；
+- helper 抽取均为内部 refactor，CLI 表面无变化；
+- 唯一面向用户的差异是 `update` 命令对 local source 的 exit code 从 1 改为 2（更准确的 usage-error 分类）—— 但脚本若简单判断 "exit !== 0" 仍能识别失败。
+
+---
+
 ## v2.7.1（2026-06-02）
 
 v2.7 ratify 后的 spec/code 收口版。v2.7 spec 是 spec-only 增量（9 项 design-review），v2.7.1 把代码追到 spec 一致 + 清理 v2.6 兼容包袱（用户确认 v2.6 无生产用户）+ 把 spec 内部 5 项不一致定稿。
