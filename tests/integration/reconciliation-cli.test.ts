@@ -331,6 +331,76 @@ describe('reconciliation CLI', () => {
     });
   });
 
+  it('refresh --remote [server] updates receiver backup without printing status rows', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {
+              claude: '/srv/skills'
+            }
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    vi.spyOn(transportModule, 'refreshRemoteManifestFromServer').mockResolvedValue({
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-02T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: null,
+          remote_hash: 'remote-hash',
+          recorded_hash: null,
+          direction: 'pull',
+          status: 'new'
+        }
+      }
+    });
+    vi.spyOn(transportModule, 'scanRemoteAgents').mockResolvedValue({
+      discovered_agents: [
+        {
+          name: 'claude',
+          path: '/srv/skills',
+          symlinked_skills: ['welcome'],
+          directory_skills: ['manual']
+        }
+      ],
+      remote_only_skills: ['detached']
+    });
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'refresh', '--remote', 'alpha'], {
+      from: 'node'
+    });
+
+    expect(consoleLog).not.toHaveBeenCalled();
+    await expect(loadReceiverBackupIfExists(homeDir, 'alpha')).resolves.toMatchObject({
+      version: 1,
+      server: 'alpha',
+      remote_agents: {
+        claude: '/srv/skills'
+      },
+      links: {
+        detached: [],
+        manual: [],
+        welcome: ['claude']
+      }
+    });
+  });
+
   it('status auto-refresh updates persisted manifests by default but not with --no-refresh', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
     tempDirs.push(homeDir);
