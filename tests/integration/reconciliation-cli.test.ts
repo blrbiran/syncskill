@@ -22,6 +22,7 @@ vi.mock('@inquirer/prompts', async () => {
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config/config.js';
 import { getSyncPaths } from '../../src/config/config.js';
 import { loadServerManifest, saveServerManifest } from '../../src/core/manifest.js';
+import { loadReceiverBackupIfExists } from '../../src/core/server.js';
 import * as refreshModule from '../../src/refresh.js';
 import * as transportModule from '../../src/core/transport.js';
 import { createProgram } from '../../src/index.js';
@@ -318,6 +319,16 @@ describe('reconciliation CLI', () => {
     });
 
     expect(consoleLog.mock.calls).toEqual([['welcome\talpha\tpull\tnew']]);
+    await expect(loadReceiverBackupIfExists(homeDir, 'alpha')).resolves.toMatchObject({
+      version: 1,
+      server: 'alpha',
+      remote_agents: {
+        claude: '/srv/skills'
+      },
+      links: {
+        welcome: ['claude']
+      }
+    });
   });
 
   it('status auto-refresh updates persisted manifests by default but not with --no-refresh', async () => {

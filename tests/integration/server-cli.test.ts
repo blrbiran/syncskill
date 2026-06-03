@@ -153,6 +153,78 @@ describe('remote CLI', () => {
     ]);
   });
 
+  it('remote takeover delegates only linked agents to transport helper', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {
+              claude: '~/.claude/skills',
+              codex: '~/.codex/skills'
+            }
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    await saveReceiverBackup(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-06-03T09:01:00.000Z',
+      remote_agents: {
+        claude: '~/.claude/skills',
+        codex: '~/.codex/skills'
+      },
+      links: {
+        welcome: ['claude']
+      }
+    });
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const takeoverSpy = vi.spyOn(await import('../../src/core/transport.js'), 'takeOverRemoteSkill').mockResolvedValue({
+      server: 'alpha',
+      skill: 'welcome',
+      takeovers: [
+        {
+          agent: 'claude',
+          path: '~/.claude/skills/welcome',
+          action: 'takeover',
+          remote_type: 'directory'
+        }
+      ],
+      skipped: []
+    });
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'remote', 'takeover', 'alpha', 'welcome'], {
+      from: 'node'
+    });
+
+    expect(takeoverSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'alpha',
+        host: 'alpha.example.com',
+        remote_agents: {
+          claude: '~/.claude/skills'
+        }
+      }),
+      'welcome',
+      { agent: undefined, dryRun: undefined }
+    );
+    expect(consoleLog.mock.calls).toEqual([
+      ['takeover\tclaude\t~/.claude/skills/welcome\tdirectory']
+    ]);
+  });
+
   it('remote takeover requires --yes-destructive in non-interactive mode', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
     tempDirs.push(homeDir);
