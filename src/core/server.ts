@@ -15,6 +15,8 @@ export interface ReceiverBackup {
   links: Record<string, string[]>;
 }
 
+type ReceiverBackupSection = 'remote_agents' | 'links';
+
 const EMPTY_BACKUP_UPDATED_AT = '1970-01-01T00:00:00.000Z';
 
 export function formatServerListLines(names: string[]): string[] {
@@ -65,6 +67,42 @@ export function expandReceiverLinkAgents(backup: ReceiverBackup, skill: string):
   }
 
   return [...new Set(targets)].sort();
+}
+
+export function snapshotReceiverBackupState(
+  backup: ReceiverBackup,
+  section: ReceiverBackupSection
+): Record<ReceiverBackupSection, Record<string, string> | Record<string, string[]>> {
+  return JSON.parse(JSON.stringify({ [section]: backup[section] })) as Record<ReceiverBackupSection, Record<string, string> | Record<string, string[]>>;
+}
+
+export function touchReceiverBackup(backup: ReceiverBackup, updatedAt: string): ReceiverBackup {
+  backup.updated_at = updatedAt;
+  return backup;
+}
+
+export async function mutateReceiverBackup(
+  homeDir: string,
+  server: string,
+  mutate: (backup: ReceiverBackup) => boolean | void,
+  options: { createIfMissing?: boolean; updatedAt?: string } = {}
+): Promise<ReceiverBackup | null> {
+  const backup = options.createIfMissing === false
+    ? await loadReceiverBackupIfExists(homeDir, server)
+    : await loadReceiverBackup(homeDir, server);
+
+  if (backup === null) {
+    return null;
+  }
+
+  const changed = mutate(backup);
+  if (changed === false) {
+    return backup;
+  }
+
+  touchReceiverBackup(backup, options.updatedAt ?? new Date().toISOString());
+  await saveReceiverBackup(homeDir, backup);
+  return backup;
 }
 
 export async function listServers(homeDir: string): Promise<string[]> {

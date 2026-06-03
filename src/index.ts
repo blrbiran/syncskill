@@ -102,7 +102,8 @@ import {
   listServers,
   loadReceiverBackup,
   loadReceiverBackupIfExists,
-  saveReceiverBackup,
+  mutateReceiverBackup,
+  snapshotReceiverBackupState,
   showServer,
 } from './core/server.js';
 import { initializeRepo } from './repo.js';
@@ -1982,12 +1983,19 @@ export function createProgram(homeDir?: string): Command {
     .command('add <server> <name> <path>')
     .description('Add one remote agent path to local receiver backup')
     .action(async (serverName: string, agentName: string, remotePath: string) => {
-      const backup = await loadReceiverBackup(resolvedHomeDir, serverName);
-      const before = JSON.parse(JSON.stringify({ remote_agents: backup.remote_agents })) as Record<string, unknown>;
+      let before: Record<string, unknown> | null = null;
+      const backup = await mutateReceiverBackup(
+        resolvedHomeDir,
+        serverName,
+        (currentBackup) => {
+          before = snapshotReceiverBackupState(currentBackup, 'remote_agents') as Record<string, unknown>;
+          currentBackup.remote_agents[agentName] = remotePath;
+        }
+      );
 
-      backup.remote_agents[agentName] = remotePath;
-      backup.updated_at = new Date().toISOString();
-      await saveReceiverBackup(resolvedHomeDir, backup);
+      if (backup === null || before === null) {
+        return;
+      }
 
       if (program.opts<{ json?: boolean }>().json) {
         getGlobalOutput().result(true, {
@@ -2010,28 +2018,34 @@ export function createProgram(homeDir?: string): Command {
     .command('rm <server> <name>')
     .description('Remove one remote agent from local receiver backup')
     .action(async (serverName: string, agentName: string) => {
-      const backup = await loadReceiverBackupIfExists(resolvedHomeDir, serverName);
-      if (backup === null) {
+      let before: Record<string, unknown> | null = null;
+      let changed = true;
+      const backup = await mutateReceiverBackup(
+        resolvedHomeDir,
+        serverName,
+        (currentBackup) => {
+          const hadAgent = agentName in currentBackup.remote_agents;
+          const previousAgents = Object.keys(currentBackup.remote_agents).sort();
+          before = snapshotReceiverBackupState(currentBackup, 'remote_agents') as Record<string, unknown>;
+
+          delete currentBackup.remote_agents[agentName];
+          for (const [skillName, targets] of Object.entries(currentBackup.links)) {
+            currentBackup.links[skillName] = targets.includes('*')
+              ? previousAgents.filter((target) => target !== agentName)
+              : targets.filter((target) => target !== agentName);
+          }
+
+          if (!hadAgent && previousAgents.every((target) => !Object.values(currentBackup.links).some((targets) => targets.includes(target)))) {
+            changed = false;
+            return false;
+          }
+        },
+        { createIfMissing: false }
+      );
+
+      if (backup === null || before === null || !changed) {
         return;
       }
-
-      const hadAgent = agentName in backup.remote_agents;
-      const previousAgents = Object.keys(backup.remote_agents).sort();
-      const before = JSON.parse(JSON.stringify({ remote_agents: backup.remote_agents })) as Record<string, unknown>;
-
-      delete backup.remote_agents[agentName];
-      for (const [skillName, targets] of Object.entries(backup.links)) {
-        backup.links[skillName] = targets.includes('*')
-          ? previousAgents.filter((target) => target !== agentName)
-          : targets.filter((target) => target !== agentName);
-      }
-
-      if (!hadAgent && previousAgents.every((target) => !Object.values(backup.links).some((targets) => targets.includes(target)))) {
-        return;
-      }
-
-      backup.updated_at = new Date().toISOString();
-      await saveReceiverBackup(resolvedHomeDir, backup);
 
       if (program.opts<{ json?: boolean }>().json) {
         getGlobalOutput().result(true, {
@@ -2074,16 +2088,27 @@ export function createProgram(homeDir?: string): Command {
     .command('add <server> <skill> <agent>')
     .description('Add one remote skill link to local receiver backup')
     .action(async (serverName: string, skill: string, agentName: string) => {
-      const backup = await loadReceiverBackup(resolvedHomeDir, serverName);
-      if (!(agentName in backup.remote_agents)) {
-        return failWithOutputError('E_AGENT_NOT_CONFIGURED', `Remote agent not configured: ${agentName}`);
-      }
+      let before: Record<string, unknown> | null = null;
+      let blocked = false;
+      const backup = await mutateReceiverBackup(
+        resolvedHomeDir,
+        serverName,
+        (currentBackup) => {
+          if (!(agentName in currentBackup.remote_agents)) {
+            blocked = true;
+            failWithOutputError('E_AGENT_NOT_CONFIGURED', `Remote agent not configured: ${agentName}`);
+            return false;
+          }
 
-      const before = JSON.parse(JSON.stringify({ links: backup.links })) as Record<string, unknown>;
-      const currentTargets = backup.links[skill] ?? [];
-      backup.links[skill] = currentTargets.includes('*') ? ['*'] : [...new Set([...currentTargets, agentName])].sort();
-      backup.updated_at = new Date().toISOString();
-      await saveReceiverBackup(resolvedHomeDir, backup);
+          before = snapshotReceiverBackupState(currentBackup, 'links') as Record<string, unknown>;
+          const currentTargets = currentBackup.links[skill] ?? [];
+          currentBackup.links[skill] = currentTargets.includes('*') ? ['*'] : [...new Set([...currentTargets, agentName])].sort();
+        }
+      );
+
+      if (backup === null || before === null || blocked) {
+        return;
+      }
 
       if (program.opts<{ json?: boolean }>().json) {
         getGlobalOutput().result(true, {
@@ -2106,24 +2131,31 @@ export function createProgram(homeDir?: string): Command {
     .command('rm <server> <skill> [agent]')
     .description('Remove one remote skill link from local receiver backup')
     .action(async (serverName: string, skill: string, agentName: string | undefined) => {
-      const backup = await loadReceiverBackupIfExists(resolvedHomeDir, serverName);
-      if (backup === null) {
+      let before: Record<string, unknown> | null = null;
+      let changed = true;
+      const backup = await mutateReceiverBackup(
+        resolvedHomeDir,
+        serverName,
+        (currentBackup) => {
+          const currentTargets = currentBackup.links[skill] ?? [];
+          if (currentTargets.length === 0 && agentName !== undefined) {
+            changed = false;
+            return false;
+          }
+
+          before = snapshotReceiverBackupState(currentBackup, 'links') as Record<string, unknown>;
+          currentBackup.links[skill] = agentName === undefined
+            ? []
+            : currentTargets.includes('*')
+              ? Object.keys(currentBackup.remote_agents).filter((target) => target !== agentName).sort()
+              : currentTargets.filter((target) => target !== agentName);
+        },
+        { createIfMissing: false }
+      );
+
+      if (backup === null || before === null || !changed) {
         return;
       }
-
-      const currentTargets = backup.links[skill] ?? [];
-      if (currentTargets.length === 0 && agentName !== undefined) {
-        return;
-      }
-
-      const before = JSON.parse(JSON.stringify({ links: backup.links })) as Record<string, unknown>;
-      backup.links[skill] = agentName === undefined
-        ? []
-        : currentTargets.includes('*')
-          ? Object.keys(backup.remote_agents).filter((target) => target !== agentName).sort()
-          : currentTargets.filter((target) => target !== agentName);
-      backup.updated_at = new Date().toISOString();
-      await saveReceiverBackup(resolvedHomeDir, backup);
 
       if (program.opts<{ json?: boolean }>().json) {
         getGlobalOutput().result(true, {
