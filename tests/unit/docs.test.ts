@@ -40,6 +40,8 @@ describe('ship-readiness docs', () => {
 
     expect(docsReadme).toContain('syncskill link build');
     expect(docsReadme).toContain('remove stale symlinks');
+    expect(docsReadme).toContain('Remote Lifecycle Workflow');
+    expect(docsReadme).toContain('receivers/<server>.json');
 
     expect(configGuide).toContain('# Configuration Guide');
     expect(configGuide).toContain('version');
