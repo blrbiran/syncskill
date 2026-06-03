@@ -45,6 +45,8 @@ Default layout:
 ├── .sources/                      # Internal source state and materialized checkouts
 ├── manifests/                     # Per-server sync state (JSON per server)
 │   └── <server>.json
+├── receivers/                     # Per-server receiver backups discovered from remote scans
+│   └── <server>.json
 ├── manifest_history.json          # Hash change history
 ├── skills-registry.json           # Skill registry metadata
 ├── .backups/                      # Sidecar backups from update/pull/sync protection

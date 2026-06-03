@@ -198,6 +198,7 @@ Local state lives under `~/.syncskill/`:
 | `skills/` | Manually managed skills |
 | `.sources/` | Internal source state and materialized checkouts |
 | `manifests/<server>.json` | Per-server reconciliation snapshots |
+| `receivers/<server>.json` | Per-server receiver backups (`remote_agents`, `links`, `updated_at`) |
 | `manifest_history.json` | Hash change audit trail |
 | `skills-registry.json` | HTTP dirty-detection baselines (`http_baselines`) |
 | `.backups/` | Sidecar backups for forced source updates and pre-pull protection |
@@ -206,7 +207,7 @@ Local state lives under `~/.syncskill/`:
 
 When a dirty source is overwritten during top-level `update --force`, syncskill writes HTTP source backups to `~/.syncskill/.backups/sources/<source>/pre-update/`. Pull and sync flows also write skill backups to `~/.syncskill/.backups/skills/<skill>/pre-pull/` before overwriting local content. Recovery is path-based rather than driven by `update-history.json` or a `source restore` command.
 
-Remote synchronization exchanges skill trees plus manifest state, while transport details remain isolated from conflict and orchestration logic.
+Remote synchronization exchanges skill trees plus manifest state, while `receivers/<server>.json` preserves the locally cached remote receiver topology (`remote_agents`, `links`) that refresh and remote commands operate on.
 
 ## Sync Protocol
 
