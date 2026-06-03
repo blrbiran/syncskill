@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { cp, readFile, stat, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 
 import { checkbox, select, confirm, input } from '@inquirer/prompts';
 import { Command, InvalidArgumentError, Option } from 'commander';
@@ -107,7 +107,7 @@ import {
   showServer,
 } from './core/server.js';
 import { initializeRepo } from './repo.js';
-import { getPullBackupDir } from './utils/backup.js';
+import { getPullBackupDir, getRestorePreBackupDir, restoreSkillFromPullBackup } from './utils/backup.js';
 import { pathExists } from './utils/utils.js';
 import { takeOverRemoteSkill } from './core/transport.js';
 import {
@@ -819,10 +819,6 @@ async function executeInstallPlan(
   output.result(true, summary);
 }
 
-function getRestorePreBackupDir(homeDir: string, skill: string): string {
-  return join(getSyncPaths(homeDir).backupsDir, 'skills', skill, 'pre-restore');
-}
-
 async function resolveRestoreTargetPath(homeDir: string, skill: string): Promise<string> {
   const registry = await buildSkillsRegistry(homeDir);
   const registryPath = registry.skills[skill]?.path;
@@ -832,25 +828,6 @@ async function resolveRestoreTargetPath(homeDir: string, skill: string): Promise
   }
 
   return join(getSyncPaths(homeDir).skillsDir, skill);
-}
-
-async function executeRestoreSkill(
-  homeDir: string,
-  skill: string,
-  targetPath: string,
-  backupPath: string,
-  preRestoreBackupPath: string
-): Promise<void> {
-  await rm(preRestoreBackupPath, { recursive: true, force: true });
-  await mkdir(dirname(preRestoreBackupPath), { recursive: true });
-
-  const preRestoreSource = (await pathExists(targetPath)) ? targetPath : backupPath;
-  await cp(preRestoreSource, preRestoreBackupPath, { recursive: true });
-
-  await rm(targetPath, { recursive: true, force: true });
-  await mkdir(dirname(targetPath), { recursive: true });
-  await cp(backupPath, targetPath, { recursive: true });
-  await rm(backupPath, { recursive: true, force: true });
 }
 
 async function markRestoreConflicts(
@@ -2600,7 +2577,11 @@ export function createProgram(homeDir?: string): Command {
           return;
         }
 
-        await executeRestoreSkill(resolvedHomeDir, skill, targetPath, backupPath, preRestoreBackupPath);
+        await restoreSkillFromPullBackup({
+          homeDir: resolvedHomeDir,
+          skillName: skill,
+          targetPath
+        });
 
         output.info(`Restored ${skill} from ${backupPath}`);
         output.info(`Pre-restore backup saved at ${preRestoreBackupPath}`);

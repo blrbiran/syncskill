@@ -2,6 +2,21 @@ import { cp, mkdir, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { getSyncPaths } from '../config/config.js';
+import { pathExists } from './utils.js';
+
+interface CopyDirectorySnapshotOptions {
+  sourcePath: string;
+  destinationPath: string;
+  dereference?: boolean;
+}
+
+async function copyDirectorySnapshot(options: CopyDirectorySnapshotOptions): Promise<void> {
+  const { sourcePath, destinationPath, dereference = false } = options;
+
+  await rm(destinationPath, { recursive: true, force: true });
+  await mkdir(dirname(destinationPath), { recursive: true });
+  await cp(sourcePath, destinationPath, { recursive: true, dereference });
+}
 
 export function getSidecarBackupDir(homeDir: string, sourceName: string): string {
   return join(getSyncPaths(homeDir).backupsDir, 'sources', sourceName, 'pre-update');
@@ -20,9 +35,11 @@ export async function backupSkillToSidecar(options: BackupSkillToSidecarOptions)
   const sidecarDir = getSidecarBackupDir(homeDir, sourceName);
   const skillBackupDir = join(sidecarDir, skillName);
 
-  await rm(skillBackupDir, { recursive: true, force: true });
-  await mkdir(dirname(skillBackupDir), { recursive: true });
-  await cp(skillPath, skillBackupDir, { recursive: true, dereference: true });
+  await copyDirectorySnapshot({
+    sourcePath: skillPath,
+    destinationPath: skillBackupDir,
+    dereference: true
+  });
 
   return skillBackupDir;
 }
@@ -42,21 +59,49 @@ export function getPullBackupDir(homeDir: string, skillName: string): string {
   return join(getSyncPaths(homeDir).backupsDir, 'skills', skillName, 'pre-pull');
 }
 
+export function getRestorePreBackupDir(homeDir: string, skillName: string): string {
+  return join(getSyncPaths(homeDir).backupsDir, 'skills', skillName, 'pre-restore');
+}
+
 export interface BackupSkillBeforePullOptions {
   homeDir: string;
   skillName: string;
   skillPath: string;
 }
 
+export interface RestoreSkillFromPullBackupOptions {
+  homeDir: string;
+  skillName: string;
+  targetPath: string;
+}
+
 export async function backupSkillBeforePull(options: BackupSkillBeforePullOptions): Promise<string> {
   const { homeDir, skillName, skillPath } = options;
   const backupDir = getPullBackupDir(homeDir, skillName);
 
-  await rm(backupDir, { recursive: true, force: true });
-  await mkdir(dirname(backupDir), { recursive: true });
-  await cp(skillPath, backupDir, { recursive: true });
+  await copyDirectorySnapshot({
+    sourcePath: skillPath,
+    destinationPath: backupDir
+  });
 
   return backupDir;
+}
+
+export async function restoreSkillFromPullBackup(options: RestoreSkillFromPullBackupOptions): Promise<void> {
+  const { homeDir, skillName, targetPath } = options;
+  const backupPath = getPullBackupDir(homeDir, skillName);
+  const preRestoreBackupPath = getRestorePreBackupDir(homeDir, skillName);
+  const preRestoreSource = (await pathExists(targetPath)) ? targetPath : backupPath;
+
+  await copyDirectorySnapshot({
+    sourcePath: preRestoreSource,
+    destinationPath: preRestoreBackupPath
+  });
+  await copyDirectorySnapshot({
+    sourcePath: backupPath,
+    destinationPath: targetPath
+  });
+  await rm(backupPath, { recursive: true, force: true });
 }
 
 export async function backupDirtySkillsToSidecar(

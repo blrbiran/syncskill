@@ -60,6 +60,7 @@
 - **[2026-06-03]** `tests/end2end/cases/sync/pull-target.test.ts` / `pull-skill-placement.test.ts` 这类靠手写文件、symlink 和“post-pull state”来模拟 remote pull 的 case，也不应继续算作真实 pull e2e；如果 harness 不能真正执行 SSH pull，就应显式 skipped，避免路径断言看起来像端到端覆盖。
 - **[2026-06-04]** `restore <skill>` 若要把 manifest 强制留在 `conflict`，不能只依赖 `reconcileManifest()` 基于 hash 重新分类；restore 后 local/remote/recorded 可能仍然相等，所以需要持久化一个 sticky `forced_conflict` 标记，并在 `resolve` 成功时显式清掉。
 - **[2026-06-04]** `install --type` 的 source 类型选择已经在 `src/source.ts` 支持，但命令面是否真正可用取决于 `src/index.ts` 选项注册和 `src/install.ts` 透传；spec/CLI drift 在这类“底层已支持、入口未接线”的场景里很常见，审计时要同时看 command 注册层和 wrapper 层。
+- **[2026-06-04]** `pre-pull` / `pre-restore` / source sidecar 这类“删旧目录 → 建父目录 → 复制目录快照”的备份流程应集中放在 `src/utils/backup.ts`，`src/index.ts` 只保留 restore 命令编排；否则同一套备份语义会在 CLI action 里继续重复并逐步漂移。
 
 ## Do-Not-Repeat
 

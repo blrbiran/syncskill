@@ -7,7 +7,9 @@ import {
   backupSkillBeforePull,
   backupSkillToSidecar,
   getPullBackupDir,
-  getSidecarBackupDir
+  getRestorePreBackupDir,
+  getSidecarBackupDir,
+  restoreSkillFromPullBackup
 } from '../../src/utils/backup.js';
 
 describe('backup - sidecar pattern', () => {
@@ -85,6 +87,13 @@ describe('backup - sidecar pattern', () => {
     });
   });
 
+  describe('getRestorePreBackupDir', () => {
+    it('returns pre-restore backup path for a skill', () => {
+      const result = getRestorePreBackupDir('/tmp/home', 'my-skill');
+      expect(result).toBe('/tmp/home/.syncskill/.backups/skills/my-skill/pre-restore');
+    });
+  });
+
   describe('backupSkillBeforePull', () => {
     it('replaces any previous pre-pull backup with current local contents', async () => {
       const skillPath = join(tempDir, '.syncskill', 'skills', 'my-skill');
@@ -102,6 +111,45 @@ describe('backup - sidecar pattern', () => {
 
       expect(backupPath).toBe(existingBackup);
       await expect(readFile(join(existingBackup, 'SKILL.md'), 'utf8')).resolves.toBe('# Current Skill');
+    });
+  });
+
+  describe('restoreSkillFromPullBackup', () => {
+    it('moves pre-pull backup back into place and snapshots the current target first', async () => {
+      const skillPath = join(tempDir, '.syncskill', 'skills', 'my-skill');
+      const pullBackupDir = getPullBackupDir(tempDir, 'my-skill');
+      const restoreBackupDir = getRestorePreBackupDir(tempDir, 'my-skill');
+      await mkdir(skillPath, { recursive: true });
+      await mkdir(pullBackupDir, { recursive: true });
+      await writeFile(join(skillPath, 'SKILL.md'), '# current');
+      await writeFile(join(pullBackupDir, 'SKILL.md'), '# backup');
+
+      await restoreSkillFromPullBackup({
+        homeDir: tempDir,
+        skillName: 'my-skill',
+        targetPath: skillPath
+      });
+
+      await expect(readFile(join(skillPath, 'SKILL.md'), 'utf8')).resolves.toBe('# backup');
+      await expect(readFile(join(restoreBackupDir, 'SKILL.md'), 'utf8')).resolves.toBe('# current');
+    });
+
+    it('still creates a pre-restore snapshot when the target path is missing', async () => {
+      const skillPath = join(tempDir, '.syncskill', 'skills', 'missing-skill');
+      const pullBackupDir = getPullBackupDir(tempDir, 'missing-skill');
+      const restoreBackupDir = getRestorePreBackupDir(tempDir, 'missing-skill');
+      await mkdir(pullBackupDir, { recursive: true });
+      await writeFile(join(pullBackupDir, 'SKILL.md'), '# backup only');
+
+      await restoreSkillFromPullBackup({
+        homeDir: tempDir,
+        skillName: 'missing-skill',
+        targetPath: skillPath
+      });
+
+      await expect(readFile(join(skillPath, 'SKILL.md'), 'utf8')).resolves.toBe('# backup only');
+      await expect(readFile(join(restoreBackupDir, 'SKILL.md'), 'utf8')).resolves.toBe('# backup only');
+      await expect(readFile(join(pullBackupDir, 'SKILL.md'), 'utf8')).rejects.toThrow();
     });
   });
 
