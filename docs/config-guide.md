@@ -249,7 +249,7 @@ syncskill link build
 
 ### `servers`
 
-Defines named remote sync targets used by `diff`, `push`, `pull`, `sync`, `server show`, and `refresh --remote`.
+Defines named remote sync targets used by `diff`, `push`, `pull`, `sync`, `remote add/rm/list`, and `refresh --remote`.
 
 Each server entry supports:
 
@@ -282,9 +282,9 @@ Example:
 
 Remote lifecycle notes:
 
-- `server show <name>` prints the configured `host`, optional `user`, optional `port`, optional `identity_file`, and each configured `remote_agents` path
-- Use `server show <name>` to inspect configured transport fields before running sync commands
-- `refresh --remote <server>` scans the configured `remote_agents` roots and rebuilds remote manifest state from the real remote skill directories
+- `config show` or direct inspection of `~/.syncskill/config.json` is the source of truth for configured transport fields such as `host`, optional `user`, optional `port`, optional `identity_file`, and configured `remote_agents`
+- `refresh --remote <server>` scans the configured `remote_agents` roots and updates `~/.syncskill/receivers/<server>.json` from the real remote skill directories
+- `remote show <name>` prints the local receiver backup for one remote (`version`, `server`, `updated_at`, `remote_agents`, `links`)
 - If a configured remote agent root path does not exist, `refresh --remote` fails instead of treating the remote skill tree as empty
 
 ### `sources`

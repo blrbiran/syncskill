@@ -17,7 +17,7 @@ The system is split so each layer has one primary concern:
 | Sources | `src/source.ts` | External source management (git/http/local) |
 | Transport | `src/core/transport.ts` | SSH/rsync primitives, receiver deployment |
 | Sync | `src/core/sync_engine.ts` | Push/pull/sync orchestration across servers |
-| Registry | `src/core/skills-registry.ts` | Unified skills registry (v2: ignored + http_baselines) |
+| Registry | `src/core/skills-registry.ts` | Unified skills registry (v2: http_baselines only) |
 | Archive | `src/utils/archive.ts` | Archive format detection and extraction |
 | Backup | `src/utils/backup.ts` | Sidecar backup for dirty skills during updates |
 | CLI Output | `src/cli/output.ts` | JSONL event system for AI agent integration |
@@ -326,12 +326,11 @@ The skills registry v2 stores only deviation data:
 ```typescript
 interface SkillsRegistryV2 {
   version: 2;
-  ignored: Record<string, IgnoredSkillEntry>;
   http_baselines: Record<string, HttpBaseline>;
 }
 ```
 
-- `ignored`: Skills marked as ignored (duplicate, user-choice, conflict)
 - `http_baselines`: Hash baselines for HTTP sources (dirty detection)
+- ignored state lives in `config.sources[*].ignore[]`, not in the registry
 
 Active skills are derived from filesystem state, not stored in registry.

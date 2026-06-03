@@ -308,25 +308,26 @@ Recommended flow:
 
 ## Remote Lifecycle Workflow
 
-Use remote lifecycle commands to inspect server wiring or refresh reconciliation state without pulling skill contents.
+Use remote lifecycle commands to manage configured remotes and inspect the local receiver backup that syncskill uses for remote receiver operations.
 
 ```bash
-# List configured servers
-syncskill server list
+# List configured remotes
+syncskill remote list
 
-# Show server configuration
-syncskill server show alpha
-
-# Refresh remote manifest without pulling content
+# Refresh remote manifest + receiver backup without pulling content
 syncskill refresh --remote alpha
+
+# Show the local receiver backup for one remote
+syncskill remote show alpha
 ```
 
 Recommended flow:
 
-1. Run `syncskill server list` to see configured remote targets
-2. Run `syncskill server show alpha` to inspect `host`, `user`, `port`, `identity_file`, and `remote_agents` paths
-3. Run `syncskill refresh --remote alpha` when you want reconciliation to reflect the real remote skill tree without pulling skill contents into the local repository
-4. Run `syncskill pull alpha` when you want to materialize remote skill contents locally.
+1. Run `syncskill remote list` to see configured remote targets
+2. Run `syncskill config show` or inspect `~/.syncskill/config.json` to review transport fields such as `host`, `user`, `port`, and `identity_file`
+3. Run `syncskill refresh --remote alpha` when you want reconciliation to rescan the remote skill tree and update `~/.syncskill/receivers/alpha.json`
+4. Run `syncskill remote show alpha` to inspect the resulting local receiver backup (`updated_at`, `remote_agents`, `links`)
+5. Run `syncskill pull alpha` when you want to materialize remote skill contents locally.
 
 Note: `server probe` was removed in v2.
 
@@ -424,16 +425,17 @@ syncskill config set --show-paths
 # Edit skill -> agent links (matrix editor)
 syncskill link edit
 
-# Edit skill -> server sync mapping (matrix editor)
+# Edit skill -> remote sync mapping (matrix editor)
 syncskill remote
 syncskill config remote
 
-# Manage servers (interactive menu)
-syncskill server
-syncskill config server
+# Add or inspect configured remotes
+syncskill remote add alpha --host alpha.example.com --user alice
+syncskill remote list
+syncskill remote show alpha
 ```
 
-Note: `syncskill server` and `syncskill remote` are shortcuts that go directly to the respective configuration menus.
+Note: `syncskill remote` with no subcommand opens the remote matrix editor. Use `syncskill config remote` for the same UI entrypoint.
 
 ## Diagnostics
 

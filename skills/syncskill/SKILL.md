@@ -64,13 +64,18 @@ In v2, `source add`, `source update`, and `source restore` are removed. Use `ins
 | `scan --migrate-unmanaged` | Migrate unmanaged skills to `~/.syncskill/skills/` |
 | `scan --dry-run` | Preview scan results |
 
-### Server Management
+### Remote Management
 
 | Command | Description |
 |---------|-------------|
-| `server` | Open server management menu |
-| `server list` / `server ls` | List configured servers |
-| `server show <name>` | Show server configuration |
+| `remote` | Open the skill → remote sync matrix editor |
+| `remote add <name> --host <host>` | Add a configured remote endpoint |
+| `remote rm <name>` | Remove a configured remote endpoint |
+| `remote list` / `remote ls` | List configured remotes |
+| `remote show <name>` | Show the local receiver backup for one remote |
+| `remote agent ls/add/rm ...` | Inspect or edit remote agent paths in the local receiver backup |
+| `remote link ls/add/rm ...` | Inspect or edit remote skill links in the local receiver backup |
+| `remote takeover <server> <skill>` | Replace remote directories with syncskill-managed symlinks |
 
 In v2, `server probe` is removed.
 
@@ -94,9 +99,8 @@ In v2, `server probe` is removed.
 | `config show` | Print current config as JSON |
 | `config set <key> <value>` | Set config value |
 | `config set --show-paths` | Show all configurable paths |
-| `config server` | Server management menu |
-| `config remote` | Remote skills matrix editor |
-| `remote` | Shortcut for `config remote` |
+| `config remote` | Open the remote sync matrix editor |
+| `remote` | Open the remote sync matrix editor; subcommands manage configured remotes and local receiver backups |
 | `doctor` | Diagnose config issues (agents, links, sources, registry) |
 | `doctor --fix [-y]` | Interactive repair of config issues |
 

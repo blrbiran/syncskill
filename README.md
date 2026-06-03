@@ -104,14 +104,18 @@ In v2, `source add`, `source update`, and `source restore` were removed. Use `in
 | `syncskill resolve <skill>` | Resolve a conflict |
 | `syncskill refresh [server\|--all] [--local\|--remote]` | Refresh manifest state; no flags also print status |
 
-### Remote Servers
+### Remote Management
 
 | Command | Description |
 |---------|-------------|
-| `syncskill server` | Open server management menu |
-| `syncskill server list` / `ls` | List configured servers |
-| `syncskill server show <name>` | Show server configuration |
-| `syncskill remote` | Open skill → server matrix editor |
+| `syncskill remote` | Open skill → remote sync matrix editor |
+| `syncskill remote add <name> --host <host>` | Add a configured remote endpoint |
+| `syncskill remote rm <name>` | Remove a configured remote endpoint |
+| `syncskill remote list` / `ls` | List configured remotes |
+| `syncskill remote show <name>` | Show the local receiver backup for one remote |
+| `syncskill remote agent ls/add/rm ...` | Inspect or edit remote agent paths in the local receiver backup |
+| `syncskill remote link ls/add/rm ...` | Inspect or edit remote skill links in the local receiver backup |
+| `syncskill remote takeover <server> <skill>` | Replace remote directories with syncskill-managed symlinks |
 
 ### Remote Sync
 
@@ -137,10 +141,11 @@ In v2, `source add`, `source update`, and `source restore` were removed. Use `in
 - `-y, --yes` - Skip confirmation prompts
 - `--dry-run` - Preview changes without executing
 
-Use `refresh --remote <server>` when you want reconciliation to reflect the real remote skill tree without pulling remote skill contents into the local repository.
+Use `refresh --remote <server>` when you want reconciliation to rescan the real remote skill tree and update `~/.syncskill/receivers/<server>.json` without pulling remote skill contents into the local repository.
 Use `pull` when you want to copy remote skill contents into the local repository.
-Use `server show` to inspect the configured `host`, `user`, `port`, `identity_file`, and `remote_agents` paths before mutating sync operations.
-For v2 migrations: `server probe` was removed; use `server show` plus sync/refresh commands to validate server configuration.
+Use `remote show <name>` to inspect the local receiver backup (`updated_at`, `remote_agents`, `links`) for one remote.
+Use `config show` or inspect `~/.syncskill/config.json` when you need the configured transport fields such as `host`, `user`, `port`, and `identity_file`.
+For v2 migrations: `server probe` was removed; use `remote list`, `config show`, and sync/refresh commands to validate remote configuration.
 
 ## Configuration Notes
 

@@ -114,7 +114,7 @@ describe('help output', () => {
     expect(refreshCmd?.description()).toBe('Refresh manifest state (no flags: local + remote, then show status)');
     expect(refreshCmd?.options.map(o => o.long)).not.toContain('--status');
     expect(doctorCmd?.description()).toBe('Diagnose and repair config issues');
-    expect(installCmd?.options.find(o => o.long === '--path')?.description).toBe('Subdirectory within source containing skills');
+    expect(installCmd?.options.find(o => o.long === '--path')?.description).toBe('Repo-relative subdirectory within source containing skills');
     expect(installCmd?.options.find(o => o.long === '--skill-subdir')?.description).toBe('Alias for --path');
     expect(pushCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
     expect(pullCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');

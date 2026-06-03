@@ -960,7 +960,7 @@ export function createProgram(homeDir?: string): Command {
     .alias('i')
     .description('Install skill(s). Use "self" for built-in skill; URL/path for external source')
     .option('--name <name>', 'Source name (for URL/path)')
-    .option('--path <path>', 'Subdirectory within source containing skills')
+    .option('--path <path>', 'Repo-relative subdirectory within source containing skills')
     .option('--skill-subdir <dir>', 'Alias for --path')
     .option('--branch <branch>', 'Git branch')
     .option('-y, --yes', 'Skip confirmation prompts')
@@ -1195,7 +1195,7 @@ export function createProgram(homeDir?: string): Command {
 
   configCommand
     .command('remote')
-    .description('Edit skill → server sync mapping (matrix editor)')
+    .description('Edit skill → remote sync mapping (matrix editor)')
     .action(async () => {
       if (isNoInteractive(program)) {
         failForNoInteractive();

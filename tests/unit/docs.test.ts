@@ -29,7 +29,7 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('push');
     expect(readme).toContain('pull');
     expect(readme).toContain('sync');
-    expect(readme).toContain('server list');
+    expect(readme).toContain('remote list');
     expect(readme).toContain('refresh --remote <server>');
     expect(readme).toContain('--json');
     expect(readme).toContain('--no-interactive');
@@ -49,7 +49,7 @@ describe('ship-readiness docs', () => {
     expect(configGuide).toContain('servers');
     expect(configGuide).toContain('sources');
     expect(configGuide).toContain('config.json');
-    expect(configGuide).toContain('server show <name>');
+    expect(configGuide).toContain('remote show <name>');
     expect(configGuide).toContain('refresh --remote <server>');
     expect(configGuide).toContain('remote_agents');
     expect(configGuide).toContain('http_baselines');
@@ -62,8 +62,8 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('syncskill status');
     expect(usageGuide).toContain('syncskill diff alpha');
     expect(usageGuide).toContain('syncskill refresh alpha');
-    expect(usageGuide).toContain('syncskill server list');
-    expect(usageGuide).toContain('syncskill server show alpha');
+    expect(usageGuide).toContain('syncskill remote list');
+    expect(usageGuide).toContain('syncskill remote show alpha');
     expect(usageGuide).toContain('syncskill refresh --remote alpha');
     expect(usageGuide).not.toContain('refresh --status');
     expect(usageGuide).not.toContain('refresh --remote --status');
