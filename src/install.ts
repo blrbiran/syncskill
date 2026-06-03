@@ -64,6 +64,7 @@ export interface InstallFromSourceOptions {
   name?: string;
   path?: string;
   skillSubdir?: string;
+  type?: 'git' | 'http' | 'local';
   branch?: string;
   skipPrompt?: boolean;
   onSelectSkills?: (skills: DiscoveredSkill[], existingSkills: Set<string>) => Promise<string[]>;
@@ -87,6 +88,7 @@ export async function installFromSource(
     name: options.name,
     path: options.path,
     skillSubdir: options.skillSubdir,
+    type: options.type,
     branch: options.branch,
     skipPrompt: options.skipPrompt,
     onSelectSkills: options.onSelectSkills

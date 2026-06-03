@@ -24,6 +24,7 @@ describe('CLI introspection', () => {
     expect(commandNames).toContain('push');
     expect(commandNames).toContain('pull');
     expect(commandNames).toContain('sync');
+    expect(commandNames).toContain('restore');
   });
 
   it('returns text help by default', () => {

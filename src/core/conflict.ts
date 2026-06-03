@@ -59,9 +59,20 @@ export function reconcileManifest(manifest: ServerManifest): ServerManifest {
     Object.entries(manifest.skills)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([skill, state]) => {
-        const classification = classifySkillDelta(state.local_hash, state.remote_hash, state.recorded_hash);
+        const forcedConflict = state.forced_conflict === true;
+        const classification: SkillDeltaClassification = forcedConflict
+          ? { direction: 'conflict', status: 'conflict' }
+          : classifySkillDelta(state.local_hash, state.remote_hash, state.recorded_hash);
+        const { forced_conflict: _forcedConflict, ...restState } = state;
 
-        return [skill, ({ ...state, ...classification } satisfies ManifestSkillState)];
+        return [
+          skill,
+          ({
+            ...restState,
+            ...classification,
+            ...(forcedConflict ? { forced_conflict: true } : {})
+          } satisfies ManifestSkillState)
+        ];
       })
   );
 
@@ -143,7 +154,8 @@ export function applyResolution(
       ...reconciled.skills,
       [skill]: {
         ...resolvedCurrent,
-        recorded_hash: nextRecordedHash
+        recorded_hash: nextRecordedHash,
+        forced_conflict: false
       }
     }
   });

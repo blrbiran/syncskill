@@ -199,6 +199,7 @@ describe('install module', () => {
           name: undefined,
           path: undefined,
           skillSubdir: undefined,
+          type: undefined,
           branch: undefined,
           skipPrompt: undefined,
           onSelectSkills: undefined
@@ -206,6 +207,61 @@ describe('install module', () => {
         expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo' });
         expect(result.installedSkills).toEqual(['demo']);
         expect(result.linkedAgents).toEqual(['claude', 'cursor']);
+      } finally {
+        vi.doUnmock('../../src/source.js');
+        vi.doUnmock('../../src/linker.js');
+        vi.resetModules();
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('passes explicit source type through to addSourceFromUrl', async () => {
+      const tempDir = join(import.meta.dirname, `../../.test-tmp-install-source-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const homeDir = join(tempDir, 'home');
+
+      await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
+      await writeFile(
+        join(homeDir, '.syncskill', 'config.json'),
+        JSON.stringify(
+          {
+            version: 1,
+            conflict_resolution: 'manual',
+            agents: {},
+            links: {},
+            servers: {},
+            sources: {},
+          },
+          null,
+          2
+        )
+      );
+
+      try {
+        vi.resetModules();
+        const addSourceFromUrl = vi.fn().mockResolvedValue({
+          name: 'demo-source',
+          source: { type: 'http', url: 'https://example.com/archive.zip', path: 'skills' }
+        });
+        const linkConfiguredSkills = vi.fn().mockResolvedValue([]);
+
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl }));
+        vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
+
+        const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
+        await mockedInstallFromSource(homeDir, 'https://example.com/archive.zip', {
+          type: 'http',
+          path: 'skills'
+        });
+
+        expect(addSourceFromUrl).toHaveBeenCalledWith(homeDir, 'https://example.com/archive.zip', {
+          name: undefined,
+          path: 'skills',
+          skillSubdir: undefined,
+          type: 'http',
+          branch: undefined,
+          skipPrompt: undefined,
+          onSelectSkills: undefined
+        });
       } finally {
         vi.doUnmock('../../src/source.js');
         vi.doUnmock('../../src/linker.js');

@@ -40,7 +40,8 @@ export function errorCodeToExitCode(errorCode: string): ExitCodeValue {
     return ExitCode.NEEDS_INPUT;
   }
   if (errorCode === 'E_NO_VALID_AGENTS' || errorCode === 'E_REGISTRY_CORRUPT' ||
-      errorCode === 'E_CONFIG_NOT_FOUND' || errorCode === 'E_REMOTE_NOT_INITIALIZED') {
+      errorCode === 'E_CONFIG_NOT_FOUND' || errorCode === 'E_REMOTE_NOT_INITIALIZED' ||
+      errorCode === 'E_BACKUP_NOT_FOUND') {
     return ExitCode.CONFIG_ERROR;
   }
   if (errorCode === 'E_NETWORK' || errorCode === 'E_TIMEOUT' || errorCode === 'E_TAKEOVER_FAILED') {

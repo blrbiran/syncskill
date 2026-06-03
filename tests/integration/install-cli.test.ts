@@ -91,6 +91,7 @@ describe('install CLI command', () => {
     });
     expect(stdout).toContain('--name');
     expect(stdout).toContain('--path');
+    expect(stdout).toContain('--type');
     expect(stdout).toContain('--branch');
     expect(stdout).toContain('--yes');
   });

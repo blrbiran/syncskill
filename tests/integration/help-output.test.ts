@@ -19,6 +19,7 @@ describe('help output', () => {
     expect(help).toContain('link');
     expect(help).toContain('unlink');
     expect(help).toContain('remote');
+    expect(help).toContain('restore');
   });
 
   it('includes dashboard-oriented wording for the root command', () => {
@@ -104,6 +105,7 @@ describe('help output', () => {
     const doctorCmd = program.commands.find(c => c.name() === 'doctor');
     const installCmd = program.commands.find(c => c.name() === 'install');
     const refreshCmd = program.commands.find(c => c.name() === 'refresh');
+    const restoreCmd = program.commands.find(c => c.name() === 'restore');
 
     expect(sourceCmd?.description()).toBe('Manage external skill sources');
     expect(sourceCmd?.commands.find(c => c.name() === 'add')).toBeUndefined();
@@ -113,9 +115,14 @@ describe('help output', () => {
     expect(scanCmd?.options.map(o => o.long)).not.toContain('--migrate');
     expect(refreshCmd?.description()).toBe('Refresh manifest state (no flags: local + remote, then show status)');
     expect(refreshCmd?.options.map(o => o.long)).not.toContain('--status');
+    expect(restoreCmd?.description()).toBe('Restore a skill from its latest pre-pull backup and mark manifests as conflict');
+    expect(restoreCmd?.options.map(o => o.long)).toContain('--server');
+    expect(restoreCmd?.options.map(o => o.long)).toContain('--all-servers');
+    expect(restoreCmd?.options.map(o => o.long)).toContain('--dry-run');
     expect(doctorCmd?.description()).toBe('Diagnose and repair config issues');
     expect(installCmd?.options.find(o => o.long === '--path')?.description).toBe('Repo-relative subdirectory within source containing skills');
     expect(installCmd?.options.find(o => o.long === '--skill-subdir')?.description).toBe('Alias for --path');
+    expect(installCmd?.options.find(o => o.long === '--type')?.description).toBe('Source type: git, http, or local');
     expect(pushCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
     expect(pullCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
     expect(syncCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');

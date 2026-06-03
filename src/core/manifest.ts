@@ -40,6 +40,7 @@ export interface ManifestSkillState {
   recorded_hash: string | null;
   direction: ManifestDirection;
   status: ManifestStatus;
+  forced_conflict?: boolean;
 }
 
 export interface ServerManifest {
@@ -344,7 +345,8 @@ function normalizeSkillState(value: unknown): ManifestSkillState {
       state.status === 'conflict' ||
       state.status === 'new'
         ? state.status
-        : 'in-sync'
+        : 'in-sync',
+    ...(state.forced_conflict === true ? { forced_conflict: true } : {})
   };
 }
 

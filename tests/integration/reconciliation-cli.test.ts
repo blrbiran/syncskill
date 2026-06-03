@@ -26,6 +26,7 @@ import { loadReceiverBackupIfExists } from '../../src/core/server.js';
 import * as refreshModule from '../../src/refresh.js';
 import * as transportModule from '../../src/core/transport.js';
 import { createProgram } from '../../src/index.js';
+import { getPullBackupDir } from '../../src/utils/backup.js';
 
 describe('reconciliation CLI', () => {
   const tempDirs = useTempDirs();
@@ -188,6 +189,117 @@ describe('reconciliation CLI', () => {
         }
       }
     });
+  });
+
+  it('restore replaces the skill from pre-pull backup and keeps manifests in conflict before refresh', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
+    tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
+
+    const syncPaths = getSyncPaths(homeDir);
+    const skillDir = join(syncPaths.skillsDir, 'welcome');
+    const backupDir = getPullBackupDir(homeDir, 'welcome');
+    const preRestoreDir = join(syncPaths.backupsDir, 'skills', 'welcome', 'pre-restore');
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# current\n', 'utf8');
+    await mkdir(backupDir, { recursive: true });
+    await writeFile(join(backupDir, 'SKILL.md'), '# backup\n', 'utf8');
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-06-04T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: '11111111111111111111111111111111',
+          remote_hash: '11111111111111111111111111111111',
+          recorded_hash: '11111111111111111111111111111111',
+          direction: 'skip',
+          status: 'in-sync'
+        }
+      }
+    });
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'beta',
+      updated_at: '2026-06-04T00:00:00.000Z',
+      skills: {}
+    });
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'restore', 'welcome'], { from: 'node' });
+
+    await expect(readFile(join(skillDir, 'SKILL.md'), 'utf8')).resolves.toBe('# backup\n');
+    await expect(readFile(join(preRestoreDir, 'SKILL.md'), 'utf8')).resolves.toBe('# current\n');
+    await expect(access(backupDir)).rejects.toThrow();
+    await expect(loadServerManifest(homeDir, 'alpha')).resolves.toMatchObject({
+      skills: {
+        welcome: {
+          direction: 'conflict',
+          status: 'conflict',
+          forced_conflict: true
+        }
+      }
+    });
+
+    consoleLog.mockClear();
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'status'], { from: 'node' });
+
+    expect(consoleLog.mock.calls).toEqual([
+      ['welcome\talpha\tconflict\tconflict']
+    ]);
+  });
+
+  it('restore --dry-run previews changes without modifying files or manifests', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
+    tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
+
+    const syncPaths = getSyncPaths(homeDir);
+    const skillDir = join(syncPaths.skillsDir, 'welcome');
+    const backupDir = getPullBackupDir(homeDir, 'welcome');
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# current\n', 'utf8');
+    await mkdir(backupDir, { recursive: true });
+    await writeFile(join(backupDir, 'SKILL.md'), '# backup\n', 'utf8');
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-06-04T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: '11111111111111111111111111111111',
+          remote_hash: '11111111111111111111111111111111',
+          recorded_hash: '11111111111111111111111111111111',
+          direction: 'skip',
+          status: 'in-sync'
+        }
+      }
+    });
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'restore', 'welcome', '--dry-run'], { from: 'node' });
+
+    await expect(readFile(join(skillDir, 'SKILL.md'), 'utf8')).resolves.toBe('# current\n');
+    await expect(readFile(join(backupDir, 'SKILL.md'), 'utf8')).resolves.toBe('# backup\n');
+    await expect(loadServerManifest(homeDir, 'alpha')).resolves.toMatchObject({
+      skills: {
+        welcome: {
+          direction: 'skip',
+          status: 'in-sync'
+        }
+      }
+    });
+
+    expect(consoleLog.mock.calls.map((call) => call[0])).toContain(
+      `[dry-run] Would restore welcome from ${backupDir}; would mark conflict in: alpha`
+    );
   });
 
   it('refresh --local [server] updates manifests without printing status rows', async () => {

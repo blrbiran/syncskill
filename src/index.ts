@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 
 import { checkbox, select, confirm, input } from '@inquirer/prompts';
 import { Command, InvalidArgumentError, Option } from 'commander';
@@ -107,6 +107,7 @@ import {
   showServer,
 } from './core/server.js';
 import { initializeRepo } from './repo.js';
+import { getPullBackupDir } from './utils/backup.js';
 import { pathExists } from './utils/utils.js';
 import { takeOverRemoteSkill } from './core/transport.js';
 import {
@@ -131,6 +132,7 @@ import {
   SourceType,
   updateAllSources,
   updateSource,
+  buildSkillsRegistry,
 } from './source.js';
 import { rebuildRegistryV2 } from './core/registry-builder.js';
 import { saveSkillsRegistryV2 } from './core/skills-registry.js';
@@ -161,7 +163,8 @@ function shouldSkipAutoRefresh(command: Command): boolean {
     'config set',
     'config link',
     'config remote',
-    'refresh'
+    'refresh',
+    'restore'
   ];
   return skipCommands.includes(getCommandPath(command));
 }
@@ -816,6 +819,85 @@ async function executeInstallPlan(
   output.result(true, summary);
 }
 
+function getRestorePreBackupDir(homeDir: string, skill: string): string {
+  return join(getSyncPaths(homeDir).backupsDir, 'skills', skill, 'pre-restore');
+}
+
+async function resolveRestoreTargetPath(homeDir: string, skill: string): Promise<string> {
+  const registry = await buildSkillsRegistry(homeDir);
+  const registryPath = registry.skills[skill]?.path;
+
+  if (typeof registryPath === 'string' && registryPath.length > 0) {
+    return registryPath;
+  }
+
+  return join(getSyncPaths(homeDir).skillsDir, skill);
+}
+
+async function executeRestoreSkill(
+  homeDir: string,
+  skill: string,
+  targetPath: string,
+  backupPath: string,
+  preRestoreBackupPath: string
+): Promise<void> {
+  await rm(preRestoreBackupPath, { recursive: true, force: true });
+  await mkdir(dirname(preRestoreBackupPath), { recursive: true });
+
+  const preRestoreSource = (await pathExists(targetPath)) ? targetPath : backupPath;
+  await cp(preRestoreSource, preRestoreBackupPath, { recursive: true });
+
+  await rm(targetPath, { recursive: true, force: true });
+  await mkdir(dirname(targetPath), { recursive: true });
+  await cp(backupPath, targetPath, { recursive: true });
+  await rm(backupPath, { recursive: true, force: true });
+}
+
+async function markRestoreConflicts(
+  homeDir: string,
+  skill: string,
+  servers: string[],
+  updatedAt: string,
+  dryRun: boolean
+): Promise<{
+  affected_servers: Array<{ server: string; status_set: 'conflict'; direction_set: 'conflict' }>;
+  skipped_servers: Array<{ server: string; reason: string }>;
+}> {
+  const affected_servers: Array<{ server: string; status_set: 'conflict'; direction_set: 'conflict' }> = [];
+  const skipped_servers: Array<{ server: string; reason: string }> = [];
+
+  for (const server of servers) {
+    const manifest = await loadServerManifest(homeDir, server);
+
+    if (!(skill in manifest.skills)) {
+      skipped_servers.push({ server, reason: 'skill not in manifest' });
+      continue;
+    }
+
+    affected_servers.push({ server, status_set: 'conflict', direction_set: 'conflict' });
+
+    if (dryRun) {
+      continue;
+    }
+
+    await saveServerManifest(homeDir, {
+      ...manifest,
+      updated_at: updatedAt,
+      skills: {
+        ...manifest.skills,
+        [skill]: {
+          ...manifest.skills[skill],
+          direction: 'conflict',
+          status: 'conflict',
+          forced_conflict: true
+        }
+      }
+    });
+  }
+
+  return { affected_servers, skipped_servers };
+}
+
 /**
  * Build CLI introspection data for --help --json.
  * See spec §11.10 for schema.
@@ -962,12 +1044,14 @@ export function createProgram(homeDir?: string): Command {
     .option('--name <name>', 'Source name (for URL/path)')
     .option('--path <path>', 'Repo-relative subdirectory within source containing skills')
     .option('--skill-subdir <dir>', 'Alias for --path')
+    .option('--type <type>', 'Source type: git, http, or local')
     .option('--branch <branch>', 'Git branch')
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (urlOrPath: string | undefined, options: {
       name?: string;
       path?: string;
       skillSubdir?: string;
+      type?: 'git' | 'http' | 'local';
       branch?: string;
       yes?: boolean;
       _planMode?: boolean;
@@ -1096,6 +1180,7 @@ export function createProgram(homeDir?: string): Command {
         name: options.name,
         path: options.path,
         skillSubdir: options.skillSubdir,
+        type: options.type,
         branch: options.branch,
         skipPrompt: options.yes,
         onSelectSkills: async (skills: DiscoveredSkill[], existingSkills: Set<string>) => {
@@ -2464,6 +2549,84 @@ export function createProgram(homeDir?: string): Command {
         }
       }
     );
+
+  program
+    .command('restore <skill>')
+    .description('Restore a skill from its latest pre-pull backup and mark manifests as conflict')
+    .option('--server <server>', 'Only mark one tracked manifest as conflict')
+    .option('--all-servers', 'Mark all tracked manifests as conflict (default)')
+    .option('--dry-run', 'Preview restore without modifying files or manifests')
+    .action(async (skill: string, options: { server?: string; allServers?: boolean; dryRun?: boolean }) => {
+      setCommandName('restore');
+      const output = getGlobalOutput();
+
+      if (options.server && options.allServers) {
+        return failWithOutputError('E_USAGE', 'Cannot specify both --server and --all-servers');
+      }
+
+      const backupPath = getPullBackupDir(resolvedHomeDir, skill);
+      if (!(await pathExists(backupPath))) {
+        return failWithOutputError(
+          'E_BACKUP_NOT_FOUND',
+          `No backup found for ${skill}`,
+          'Backups are created only when --no-pull-backup is not set and config.pull_backup is true (default).'
+        );
+      }
+
+      const targetPath = await resolveRestoreTargetPath(resolvedHomeDir, skill);
+      const preRestoreBackupPath = getRestorePreBackupDir(resolvedHomeDir, skill);
+      const scopedServers = options.server ? [options.server] : await listTrackedServers(resolvedHomeDir);
+      const updatedAt = new Date().toISOString();
+
+      try {
+        const manifestSummary = await markRestoreConflicts(
+          resolvedHomeDir,
+          skill,
+          scopedServers,
+          updatedAt,
+          Boolean(options.dryRun)
+        );
+
+        if (options.dryRun) {
+          const conflictTargets = scopedServers.length > 0 ? scopedServers.join(', ') : '(none)';
+          output.info(`[dry-run] Would restore ${skill} from ${backupPath}; would mark conflict in: ${conflictTargets}`);
+          output.result(true, {
+            skill,
+            restored_from: backupPath,
+            restored_to: targetPath,
+            pre_restore_backup: preRestoreBackupPath,
+            ...manifestSummary
+          });
+          return;
+        }
+
+        await executeRestoreSkill(resolvedHomeDir, skill, targetPath, backupPath, preRestoreBackupPath);
+
+        output.info(`Restored ${skill} from ${backupPath}`);
+        output.info(`Pre-restore backup saved at ${preRestoreBackupPath}`);
+        if (manifestSummary.affected_servers.length > 0) {
+          output.info(`Marked conflict in manifests: ${manifestSummary.affected_servers.map(({ server }) => server).join(', ')}`);
+        }
+        if (manifestSummary.skipped_servers.length > 0) {
+          output.info(`Skipped manifests without skill entry: ${manifestSummary.skipped_servers.map(({ server }) => server).join(', ')}`);
+        }
+        output.info(`Run \`syncskill resolve ${skill}\` to choose final direction.`);
+        output.result(true, {
+          skill,
+          restored_from: backupPath,
+          restored_to: targetPath,
+          pre_restore_backup: preRestoreBackupPath,
+          ...manifestSummary
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return failWithOutputError(
+          'E_RESTORE_FAILED',
+          `Failed to restore ${skill}: ${message}`,
+          `Manual recovery: restore from ${preRestoreBackupPath} if it exists.`
+        );
+      }
+    });
 
   program
     .command('push [server]')
