@@ -5,10 +5,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildReceiverConfigPayload,
   formatProbeLines,
   formatServerListLines,
   formatServerShowLines,
   loadReceiverBackupIfExists,
+  mergeRefreshedReceiverBackup,
   mutateReceiverBackup,
   snapshotReceiverBackupState,
 } from '../../src/core/server.js';
@@ -103,6 +105,87 @@ describe('server helpers', () => {
         claude: '/srv/claude'
       },
       links: {
+        welcome: ['claude']
+      }
+    });
+  });
+
+  it('builds receiver config payload from backup when present', () => {
+    expect(buildReceiverConfigPayload(
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        remote_agents: {
+          stale: '/srv/stale'
+        }
+      },
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-06-03T10:00:00.000Z',
+        remote_agents: {
+          claude: '/srv/claude'
+        },
+        links: {
+          welcome: ['claude']
+        }
+      }
+    )).toEqual({
+      remote_agents: {
+        claude: '/srv/claude'
+      },
+      links: {
+        welcome: ['claude']
+      }
+    });
+  });
+
+  it('merges scanned remote topology into receiver backup', () => {
+    expect(mergeRefreshedReceiverBackup(
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-06-03T09:00:00.000Z',
+        remote_agents: {
+          codex: '/srv/codex'
+        },
+        links: {
+          shared: ['*'],
+          stale: ['codex']
+        }
+      },
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        remote_agents: {
+          claude: '/srv/claude'
+        }
+      },
+      {
+        discovered_agents: [
+          {
+            name: 'claude',
+            path: '/srv/claude',
+            symlinked_skills: ['welcome', 'shared'],
+            directory_skills: ['manual']
+          }
+        ],
+        remote_only_skills: ['detached']
+      },
+      '2026-06-03T10:00:00.000Z'
+    )).toEqual({
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-06-03T10:00:00.000Z',
+      remote_agents: {
+        claude: '/srv/claude',
+        codex: '/srv/codex'
+      },
+      links: {
+        detached: [],
+        manual: [],
+        shared: ['*'],
+        stale: ['codex'],
         welcome: ['claude']
       }
     });

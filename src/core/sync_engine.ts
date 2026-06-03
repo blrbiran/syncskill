@@ -32,7 +32,7 @@ import {
   type ReceiverConfigPayload,
   type TransportRuntime
 } from './transport.js';
-import { loadReceiverBackupIfExists } from './server.js';
+import { buildReceiverConfigPayload, loadReceiverBackupIfExists } from './server.js';
 import { backupSkillBeforePull } from '../utils/backup.js';
 
 export interface SyncEngineOptions {
@@ -451,7 +451,7 @@ export async function pushToServers(homeDir: string, servers?: string[], options
   for (const serverName of targetServers) {
     const server = getConfiguredServer(config, serverName);
     const receiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
-    const receiverConfig = buildReceiverConfig(server, receiverBackup);
+    const receiverConfig = buildReceiverConfigPayload(server, receiverBackup);
     const updated = await prepareManifest(homeDir, server, runtime, options.now);
     let manifest = applyConflictPolicy(updated.manifest, configuredConflictPolicy, updated.updatedAt);
 
@@ -879,20 +879,6 @@ async function prepareManifest(
     previousManifest,
     manifest: nextManifest,
     updatedAt
-  };
-}
-
-function buildReceiverConfig(
-  server: ConfiguredServer,
-  receiverBackup: Awaited<ReturnType<typeof loadReceiverBackupIfExists>>
-): ReceiverConfigPayload {
-  if (receiverBackup === null) {
-    return { remote_agents: server.remote_agents };
-  }
-
-  return {
-    remote_agents: receiverBackup.remote_agents,
-    links: receiverBackup.links
   };
 }
 

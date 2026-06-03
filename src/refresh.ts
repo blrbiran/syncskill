@@ -13,12 +13,11 @@ import {
   type ServerManifest
 } from './core/manifest.js';
 import {
-  createEmptyReceiverBackup,
   loadReceiverBackupIfExists,
+  mergeRefreshedReceiverBackup,
   saveReceiverBackup,
-  type ReceiverBackup
 } from './core/server.js';
-import { createTransportRuntime, refreshRemoteManifestFromServer, scanRemoteAgents, type RemoteAgentScanResult } from './core/transport.js';
+import { createTransportRuntime, refreshRemoteManifestFromServer, scanRemoteAgents } from './core/transport.js';
 
 export interface RefreshStoredManifestOptions {
   all?: boolean;
@@ -172,64 +171,6 @@ async function saveRefreshedReceiverBackup(
   const scanned = await scanRemoteAgents(server, runtime, { deploy: false });
   const backup = mergeRefreshedReceiverBackup(previous, server, scanned, updatedAt);
   await saveReceiverBackup(homeDir, backup);
-}
-
-function mergeRefreshedReceiverBackup(
-  previous: ReceiverBackup | null,
-  server: ConfiguredServer,
-  scanned: RemoteAgentScanResult,
-  updatedAt: string
-): ReceiverBackup {
-  const backup: ReceiverBackup = previous === null
-    ? createEmptyReceiverBackup(server.name)
-    : {
-        version: 1,
-        server: previous.server,
-        updated_at: previous.updated_at,
-        remote_agents: { ...previous.remote_agents },
-        links: Object.fromEntries(Object.entries(previous.links).map(([skill, agents]) => [skill, [...agents]]))
-      };
-
-  backup.server = server.name;
-  backup.updated_at = updatedAt;
-
-  const discoveredAgents = scanned.discovered_agents.length > 0
-    ? scanned.discovered_agents.map(({ name, path }) => [name, path] as const)
-    : previous === null
-      ? Object.entries(server.remote_agents)
-      : [];
-
-  for (const [name, path] of discoveredAgents) {
-    backup.remote_agents[name] = path;
-  }
-
-  for (const agent of scanned.discovered_agents) {
-    for (const skill of agent.symlinked_skills) {
-      const currentTargets = backup.links[skill] ?? [];
-      backup.links[skill] = currentTargets.includes('*')
-        ? ['*']
-        : [...new Set([...currentTargets, agent.name])].sort();
-    }
-
-    for (const skill of agent.directory_skills) {
-      backup.links[skill] ??= [];
-    }
-  }
-
-  for (const skill of scanned.remote_only_skills) {
-    backup.links[skill] ??= [];
-  }
-
-  backup.remote_agents = Object.fromEntries(
-    Object.entries(backup.remote_agents).sort(([left], [right]) => left.localeCompare(right))
-  );
-  backup.links = Object.fromEntries(
-    Object.entries(backup.links)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([skill, agents]) => [skill, agents.includes('*') ? ['*'] : [...new Set(agents)].sort()])
-  );
-
-  return backup;
 }
 
 async function listConfiguredServers(homeDir: string): Promise<string[]> {
