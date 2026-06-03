@@ -31,29 +31,41 @@ async function withMockedHomeDir<T>(homeDir: string, run: () => Promise<T>): Pro
   }
 }
 
-async function runReceiverCommand(homeDir: string, command: string) {
+async function runReceiverCommandWithOutput(homeDir: string, command: string) {
   return withMockedHomeDir(homeDir, async () => {
     const argv = process.argv.slice();
     const stdoutWrite = process.stdout.write.bind(process.stdout);
+    const stderrWrite = process.stderr.write.bind(process.stderr);
     let stdout = '';
+    let stderr = '';
     process.argv = ['node', receiverPath, command];
     process.stdout.write = ((chunk: string | Uint8Array) => {
       stdout += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
       return true;
     }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+      return true;
+    }) as typeof process.stderr.write;
 
     try {
       await importReceiverModule();
-      return stdout;
+      return { stdout, stderr };
     } finally {
       process.argv = argv;
       process.stdout.write = stdoutWrite;
+      process.stderr.write = stderrWrite;
     }
   });
 }
 
+async function runReceiverCommand(homeDir: string, command: string) {
+  const { stdout } = await runReceiverCommandWithOutput(homeDir, command);
+  return stdout;
+}
+
 async function runReceiverApply(homeDir: string) {
-  await runReceiverCommand(homeDir, 'apply');
+  return runReceiverCommandWithOutput(homeDir, 'apply');
 }
 
 function createReceiverManifest(updatedAt: string) {
@@ -62,6 +74,7 @@ function createReceiverManifest(updatedAt: string) {
 
 
 import {
+  applyRemoteLinks,
   deployReceiver,
   fetchRemoteManifest,
   pullSkillDirectory,
@@ -69,6 +82,7 @@ import {
   pushManifest,
   pushSkillDirectory,
   refreshRemoteManifestFromServer,
+  scanRemoteAgents,
   type TransportRuntime
 } from '../../src/core/transport.js';
 
@@ -117,7 +131,15 @@ describe('transport', () => {
           claude: '~/.claude/skills'
         }
       },
-      runtime
+      runtime,
+      {
+        remote_agents: {
+          claude: '~/.claude/skills'
+        },
+        links: {
+          welcome: ['claude']
+        }
+      }
     );
 
     expect(runtime.calls.map((call) => [call.file, ...call.args])).toEqual(
@@ -147,6 +169,35 @@ describe('transport', () => {
         ]
       ])
     );
+    expect(runtime.calls.find((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > ~/.syncskill/receiver_config.json')).toMatchObject({
+      stdin: expect.stringContaining('"links"')
+    });
+  });
+
+  it('applyRemoteLinks runs receiver apply after uploading receiver config', async () => {
+    const runtime = createRuntime();
+
+    await applyRemoteLinks(
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        remote_agents: {
+          claude: '/srv/skills'
+        }
+      },
+      runtime,
+      {
+        remote_agents: {
+          claude: '/srv/skills'
+        },
+        links: {
+          welcome: ['claude']
+        }
+      }
+    );
+
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > ~/.syncskill/receiver_config.json' && call.stdin?.includes('"links"'))).toBe(true);
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'apply')).toBe(true);
   });
 
   it('deployReceiver propagates bootstrap script errors', async () => {
@@ -584,6 +635,84 @@ describe('transport', () => {
     await expect(runReceiverCommand(homeDir, 'scan-skills')).rejects.toThrow('Missing remote skill root for claude');
   });
 
+  it('receiver scan-agents classifies managed, manual, and remote-only skills', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+
+    const syncRoot = join(homeDir, '.syncskill');
+    const receiverConfigPath = join(syncRoot, 'receiver_config.json');
+    const receiverSkillsDir = join(syncRoot, 'skills');
+    const agentDir = join(homeDir, 'agent-skills');
+
+    await mkdir(join(receiverSkillsDir, 'welcome'), { recursive: true });
+    await writeFile(join(receiverSkillsDir, 'welcome', 'SKILL.md'), '# welcome\n', 'utf8');
+    await mkdir(join(receiverSkillsDir, 'detached'), { recursive: true });
+    await writeFile(join(receiverSkillsDir, 'detached', 'SKILL.md'), '# detached\n', 'utf8');
+    await mkdir(join(agentDir, 'manual'), { recursive: true });
+    await writeFile(join(agentDir, 'manual', 'SKILL.md'), '# manual\n', 'utf8');
+    await mkdir(syncRoot, { recursive: true });
+    await symlink(join(receiverSkillsDir, 'welcome'), join(agentDir, 'welcome'), 'dir');
+    await writeFile(receiverConfigPath, `${JSON.stringify({ remote_agents: { claude: agentDir } }, null, 2)}\n`, 'utf8');
+
+    const output = await runReceiverCommand(homeDir, 'scan-agents');
+    const parsed = JSON.parse(output) as {
+      discovered_agents: Array<{ name: string; path: string; symlinked_skills: string[]; directory_skills: string[] }>;
+      remote_only_skills: string[];
+    };
+
+    expect(parsed).toEqual({
+      discovered_agents: [
+        {
+          name: 'claude',
+          path: agentDir,
+          symlinked_skills: ['welcome'],
+          directory_skills: ['manual']
+        }
+      ],
+      remote_only_skills: ['detached']
+    });
+  });
+
+  it('scanRemoteAgents reads remote receiver scan output', async () => {
+    const runtime = createRuntime({
+      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs scan-agents': JSON.stringify({
+        discovered_agents: [
+          {
+            name: 'claude',
+            path: '/srv/skills',
+            symlinked_skills: ['welcome'],
+            directory_skills: ['manual']
+          }
+        ],
+        remote_only_skills: ['detached']
+      })
+    });
+
+    await expect(
+      scanRemoteAgents(
+        {
+          name: 'alpha',
+          host: 'alpha.example.com',
+          remote_agents: {
+            claude: '/srv/skills'
+          }
+        },
+        runtime,
+        { deploy: false }
+      )
+    ).resolves.toEqual({
+      discovered_agents: [
+        {
+          name: 'claude',
+          path: '/srv/skills',
+          symlinked_skills: ['welcome'],
+          directory_skills: ['manual']
+        }
+      ],
+      remote_only_skills: ['detached']
+    });
+  });
+
   it('receiver import-skill rejects entries that escape the skill directory', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
     tempDirs.push(homeDir);
@@ -862,6 +991,116 @@ describe('transport', () => {
 
     await expect(readFile(join(agentDir, 'welcome', 'SKILL.md'), 'utf8')).resolves.toBe('# welcome\n');
     await expect(readFile(join(agentDir, 'stale', 'SKILL.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('receiver apply preserves existing directories and emits takeover warnings', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    const syncRoot = join(homeDir, '.syncskill');
+    const skillsDir = join(syncRoot, 'skills');
+    const receiverConfigPath = join(syncRoot, 'receiver_config.json');
+    const manifestPath = join(syncRoot, 'manifest.json');
+    const agentDir = join(homeDir, 'agent-skills');
+
+    await mkdir(join(skillsDir, 'welcome'), { recursive: true });
+    await writeFile(join(skillsDir, 'welcome', 'SKILL.md'), '# welcome\n', 'utf8');
+    await mkdir(join(agentDir, 'welcome'), { recursive: true });
+    await writeFile(join(agentDir, 'welcome', 'LOCAL.md'), 'keep me\n', 'utf8');
+
+    const manifest = createReceiverManifest('2026-05-01T00:00:00.000Z');
+    manifest.skills.welcome = {
+      local_hash: null,
+      remote_hash: 'placeholder',
+      recorded_hash: 'placeholder',
+      direction: 'skip',
+      status: 'in-sync'
+    };
+
+    await writeFile(receiverConfigPath, `${JSON.stringify({ remote_agents: { claude: agentDir } }, null, 2)}\n`, 'utf8');
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+    const { stdout, stderr } = await runReceiverApply(homeDir);
+
+    expect(stderr).toContain('W_TAKEOVER_NEEDED: claude/welcome is not a syncskill-managed symlink; use `remote takeover` to replace');
+    expect(JSON.parse(stdout)).toMatchObject({
+      skills: {
+        welcome: {
+          status: 'in-sync',
+          direction: 'skip'
+        }
+      }
+    });
+    await expect(readFile(join(agentDir, 'welcome', 'LOCAL.md'), 'utf8')).resolves.toBe('keep me\n');
+    await expect(readFile(join(agentDir, 'welcome', 'SKILL.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('receiver apply honors links matrix and removes unlinked symlinks', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+
+    const syncRoot = join(homeDir, '.syncskill');
+    const skillsDir = join(syncRoot, 'skills');
+    const receiverConfigPath = join(syncRoot, 'receiver_config.json');
+    const manifestPath = join(syncRoot, 'manifest.json');
+    const claudeDir = join(homeDir, 'claude-skills');
+    const codexDir = join(homeDir, 'codex-skills');
+
+    await mkdir(join(skillsDir, 'welcome'), { recursive: true });
+    await writeFile(join(skillsDir, 'welcome', 'SKILL.md'), '# welcome\n', 'utf8');
+    await mkdir(join(skillsDir, 'shared'), { recursive: true });
+    await writeFile(join(skillsDir, 'shared', 'SKILL.md'), '# shared\n', 'utf8');
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(codexDir, { recursive: true });
+    await symlink(join(skillsDir, 'welcome'), join(codexDir, 'welcome'), 'dir');
+    await mkdir(syncRoot, { recursive: true });
+
+    const manifest = createReceiverManifest('2026-05-01T00:00:00.000Z');
+    manifest.skills.welcome = {
+      local_hash: null,
+      remote_hash: 'welcome-hash',
+      recorded_hash: 'welcome-hash',
+      direction: 'skip',
+      status: 'in-sync'
+    };
+    manifest.skills.shared = {
+      local_hash: null,
+      remote_hash: 'shared-hash',
+      recorded_hash: 'shared-hash',
+      direction: 'skip',
+      status: 'in-sync'
+    };
+
+    await writeFile(receiverConfigPath, `${JSON.stringify({
+      remote_agents: {
+        claude: claudeDir,
+        codex: codexDir
+      },
+      links: {
+        welcome: ['claude'],
+        shared: ['*']
+      }
+    }, null, 2)}\n`, 'utf8');
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+    await runReceiverApply(homeDir);
+
+    await expect(readFile(join(claudeDir, 'welcome', 'SKILL.md'), 'utf8')).resolves.toBe('# welcome\n');
+    await expect(readFile(join(codexDir, 'welcome', 'SKILL.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(join(claudeDir, 'shared', 'SKILL.md'), 'utf8')).resolves.toBe('# shared\n');
+    await expect(readFile(join(codexDir, 'shared', 'SKILL.md'), 'utf8')).resolves.toBe('# shared\n');
   });
 
   it('pushSkillDirectory fallback includes symlinks in the transmitted data', async () => {

@@ -12,6 +12,24 @@ export interface ServerProbeResult {
   ok: boolean;
   detail: string;
 }
+
+export interface RemoteAgentScanEntry {
+  name: string;
+  path: string;
+  symlinked_skills: string[];
+  directory_skills: string[];
+}
+
+export interface RemoteAgentScanResult {
+  discovered_agents: RemoteAgentScanEntry[];
+  remote_only_skills: string[];
+}
+
+export interface ReceiverConfigPayload {
+  remote_agents: Record<string, string>;
+  links?: Record<string, string[]>;
+}
+
 const REMOTE_ROOT = '~/.syncskill';
 const REMOTE_RECEIVER = `${REMOTE_ROOT}/sync_receiver.mjs`;
 const REMOTE_SKILLS_DIR = `${REMOTE_ROOT}/skills`;
@@ -125,6 +143,31 @@ function buildRsyncArgs(server: ConfiguredServer, source: string, destination: s
   ];
 }
 
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string').sort()
+    : [];
+}
+
+function normalizeRemoteAgentScanEntry(value: unknown): RemoteAgentScanEntry[] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return [];
+  }
+
+  const record = value as Record<string, unknown>;
+
+  if (typeof record.name !== 'string' || typeof record.path !== 'string') {
+    return [];
+  }
+
+  return [{
+    name: record.name,
+    path: record.path,
+    symlinked_skills: normalizeStringArray(record.symlinked_skills),
+    directory_skills: normalizeStringArray(record.directory_skills)
+  }];
+}
+
 export async function refreshRemoteManifestFromServer(
   server: ConfiguredServer,
   runtime: TransportRuntime,
@@ -168,6 +211,29 @@ export async function refreshRemoteManifestFromServer(
 
   await pushManifest(server, corrected, runtime);
   return corrected;
+}
+
+export async function scanRemoteAgents(
+  server: ConfiguredServer,
+  runtime: TransportRuntime,
+  options: { deploy?: boolean } = {}
+): Promise<RemoteAgentScanResult> {
+  if (options.deploy !== false) {
+    await deployReceiver(server, runtime);
+  }
+
+  const result = await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'scan-agents']));
+  const parsed = JSON.parse(result.stdout || '{}') as {
+    discovered_agents?: unknown[];
+    remote_only_skills?: unknown;
+  };
+
+  return {
+    discovered_agents: Array.isArray(parsed.discovered_agents)
+      ? parsed.discovered_agents.flatMap(normalizeRemoteAgentScanEntry).sort((left, right) => left.name.localeCompare(right.name))
+      : [],
+    remote_only_skills: normalizeStringArray(parsed.remote_only_skills)
+  };
 }
 
 export async function probeServerAccess(
@@ -249,7 +315,11 @@ export async function receiverNeedsUpdate(server: ConfiguredServer, runtime: Tra
   }
 }
 
-export async function deployReceiver(server: ConfiguredServer, runtime: TransportRuntime): Promise<void> {
+export async function deployReceiver(
+  server: ConfiguredServer,
+  runtime: TransportRuntime,
+  receiverConfig: ReceiverConfigPayload = { remote_agents: server.remote_agents }
+): Promise<void> {
   const needsUpdate = await receiverNeedsUpdate(server, runtime);
 
   if (needsUpdate) {
@@ -260,10 +330,18 @@ export async function deployReceiver(server: ConfiguredServer, runtime: Transpor
     await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${REMOTE_RECEIVER}`]), { stdin: receiver });
   }
 
-  // Always push config (remote_agents may change)
   await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${REMOTE_ROOT}/receiver_config.json`]), {
-    stdin: `${JSON.stringify({ remote_agents: server.remote_agents }, null, 2)}\n`
+    stdin: `${JSON.stringify(receiverConfig, null, 2)}\n`
   });
+}
+
+export async function applyRemoteLinks(
+  server: ConfiguredServer,
+  runtime: TransportRuntime,
+  receiverConfig: ReceiverConfigPayload = { remote_agents: server.remote_agents }
+): Promise<void> {
+  await deployReceiver(server, runtime, receiverConfig);
+  await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'apply']));
 }
 
 export async function listRemoteSkills(server: ConfiguredServer, runtime: TransportRuntime): Promise<string[]> {
@@ -297,6 +375,151 @@ export async function deleteRemoteSkills(
 
   const paths = skills.map(skill => `${REMOTE_SKILLS_DIR}/${skill}`);
   await runtime.exec('ssh', buildSshArgs(server, ['rm', '-rf', ...paths]));
+}
+
+export interface RemoteTakeoverAction {
+  agent: string;
+  path: string;
+  action: 'takeover';
+  remote_type: 'directory' | 'file' | 'other';
+}
+
+export interface RemoteTakeoverSkip {
+  agent: string;
+  path: string;
+  reason: 'not present' | 'already symlink';
+}
+
+export interface RemoteTakeoverResult {
+  server: string;
+  skill: string;
+  takeovers: RemoteTakeoverAction[];
+  skipped: RemoteTakeoverSkip[];
+}
+
+export interface RemoteTakeoverOptions {
+  agent?: string;
+  dryRun?: boolean;
+  runtime?: TransportRuntime;
+}
+
+function createTransportError(code: 'E_USAGE' | 'E_AGENT_NOT_CONFIGURED' | 'E_TAKEOVER_FAILED', message: string): Error {
+  return new Error(`${code}: ${message}`);
+}
+
+function joinRemotePath(basePath: string, skill: string): string {
+  return `${basePath.replace(/\/+$/, '')}/${skill}`;
+}
+
+function quoteRemotePath(path: string): string {
+  const normalized = path === '~'
+    ? '$HOME'
+    : path.startsWith('~/')
+      ? `$HOME/${path.slice(2)}`
+      : path;
+
+  return `"${normalized.replace(/[\\"`]/g, '\\$&')}"`;
+}
+
+async function inspectRemotePath(
+  server: ConfiguredServer,
+  remotePath: string,
+  runtime: TransportRuntime
+): Promise<'missing' | 'symlink' | 'directory' | 'file' | 'other'> {
+  const quotedPath = quoteRemotePath(remotePath);
+  const result = await runtime.exec('ssh', buildSshArgs(server, [
+    'sh',
+    '-lc',
+    `if [ -L ${quotedPath} ]; then printf symlink; elif [ -d ${quotedPath} ]; then printf directory; elif [ -f ${quotedPath} ]; then printf file; elif [ -e ${quotedPath} ]; then printf other; else printf missing; fi`
+  ]));
+
+  const type = result.stdout.trim();
+  if (type === 'missing' || type === 'symlink' || type === 'directory' || type === 'file' || type === 'other') {
+    return type;
+  }
+
+  return 'other';
+}
+
+export async function takeOverRemoteSkill(
+  server: ConfiguredServer,
+  skill: string,
+  options: RemoteTakeoverOptions = {}
+): Promise<RemoteTakeoverResult> {
+  if (!SAFE_SKILL_NAME.test(skill)) {
+    throw createTransportError('E_USAGE', `Invalid skill name: ${skill}`);
+  }
+
+  const runtime = options.runtime ?? createTransportRuntime();
+  const remoteAgents = server.remote_agents ?? {};
+  if (options.agent && !(options.agent in remoteAgents)) {
+    throw createTransportError('E_AGENT_NOT_CONFIGURED', `Remote agent not configured: ${options.agent}`);
+  }
+
+  const selectedAgents = options.agent
+    ? [[options.agent, remoteAgents[options.agent]]]
+    : Object.entries(remoteAgents).sort(([left], [right]) => left.localeCompare(right));
+
+  if (selectedAgents.length === 0) {
+    throw createTransportError('E_USAGE', `No remote agents configured for ${server.name}`);
+  }
+
+  try {
+    const remoteSkillType = await inspectRemotePath(server, `${REMOTE_SKILLS_DIR}/${skill}`, runtime);
+    if (remoteSkillType === 'missing') {
+      throw createTransportError('E_USAGE', `Remote skill not found: ${skill}. Push it first: \`syncskill push ${server.name}\``);
+    }
+
+    const result: RemoteTakeoverResult = {
+      server: server.name,
+      skill,
+      takeovers: [],
+      skipped: []
+    };
+
+    for (const [agent, agentPath] of selectedAgents) {
+      const remotePath = joinRemotePath(agentPath, skill);
+      const remoteType = await inspectRemotePath(server, remotePath, runtime);
+
+      if (remoteType === 'missing') {
+        result.skipped.push({ agent, path: remotePath, reason: 'not present' });
+        continue;
+      }
+
+      if (remoteType === 'symlink') {
+        result.skipped.push({ agent, path: remotePath, reason: 'already symlink' });
+        continue;
+      }
+
+      result.takeovers.push({
+        agent,
+        path: remotePath,
+        action: 'takeover',
+        remote_type: remoteType
+      });
+
+      if (options.dryRun) {
+        continue;
+      }
+
+      await runtime.exec('ssh', buildSshArgs(server, [
+        'sh',
+        '-lc',
+        `rm -rf ${quoteRemotePath(remotePath)} && ln -s ${quoteRemotePath(`${REMOTE_SKILLS_DIR}/${skill}`)} ${quoteRemotePath(remotePath)}`
+      ]));
+    }
+
+    return result;
+  } catch (error) {
+    if (error instanceof Error && /^E_[A-Z_]+:/.test(error.message)) {
+      throw error;
+    }
+
+    throw createTransportError(
+      'E_TAKEOVER_FAILED',
+      `Failed to take over ${skill} on ${server.name}: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 export async function fetchRemoteManifest(server: ConfiguredServer, runtime: TransportRuntime): Promise<ServerManifest> {

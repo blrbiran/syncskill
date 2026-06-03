@@ -49,6 +49,10 @@ describe('exit-codes', () => {
       expect(errorCodeToExitCode('E_REGISTRY_CORRUPT')).toBe(ExitCode.CONFIG_ERROR);
     });
 
+    it('maps E_REMOTE_NOT_INITIALIZED to CONFIG_ERROR', () => {
+      expect(errorCodeToExitCode('E_REMOTE_NOT_INITIALIZED')).toBe(ExitCode.CONFIG_ERROR);
+    });
+
     it('maps E_RECEIVER_DEPLOY to REMOTE_INCONSISTENT', () => {
       expect(errorCodeToExitCode('E_RECEIVER_DEPLOY')).toBe(ExitCode.REMOTE_INCONSISTENT);
     });

@@ -512,7 +512,7 @@ export async function editRemote(config: SyncSkillConfig, homeDir: string): Prom
   const servers = Object.keys(config.servers);
 
   if (servers.length === 0) {
-    console.log('No servers configured. Add servers first with "config server".');
+    console.log('No servers configured. Add remotes first with "syncskill remote".');
     return;
   }
 

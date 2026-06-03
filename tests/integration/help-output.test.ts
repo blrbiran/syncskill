@@ -13,7 +13,6 @@ describe('help output', () => {
 
     expect(help).toContain('Multi-device AI Agent Skill sync tool');
     expect(help).toContain('init');
-    expect(help).toContain('server');
     expect(help).toContain('source');
     expect(help).toContain('push');
     expect(help).toContain('sync');
@@ -46,10 +45,10 @@ describe('help output', () => {
     expect(listCmd?.aliases()).toContain('ls');
   });
 
-  it('server list has ls alias', () => {
+  it('remote list has ls alias', () => {
     const program = createProgram('/tmp');
-    const serverCmd = program.commands.find(c => c.name() === 'server');
-    const listCmd = serverCmd?.commands.find(c => c.name() === 'list');
+    const remoteCmd = program.commands.find(c => c.name() === 'remote');
+    const listCmd = remoteCmd?.commands.find(c => c.name() === 'list');
 
     expect(listCmd?.aliases()).toContain('ls');
   });

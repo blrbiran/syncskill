@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
-import { deleteRemoteSkills, listRemoteSkills, receiverNeedsUpdate, type TransportRuntime } from '../../src/core/transport.js';
+import { deleteRemoteSkills, listRemoteSkills, receiverNeedsUpdate, takeOverRemoteSkill, type TransportRuntime } from '../../src/core/transport.js';
 
 const receiverPath = new URL('../../src/receiver/sync_receiver.mjs', import.meta.url).pathname;
 
@@ -104,6 +104,98 @@ describe('listRemoteSkills', () => {
 
     const result = await listRemoteSkills(mockServer, runtime);
     expect(result).toEqual([]);
+  });
+});
+
+describe('takeOverRemoteSkill', () => {
+  it('takes over directories and skips missing or managed paths', async () => {
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const runtime: TransportRuntime = {
+      calls,
+      async exec(file, args) {
+        calls.push({ file, args });
+        const script = args.at(-1) ?? '';
+
+        if (script.includes('$HOME/.syncskill/skills/welcome')) {
+          return { stdout: 'directory', stderr: '' };
+        }
+        if (script.includes('$HOME/.claude/skills/welcome')) {
+          return { stdout: 'directory', stderr: '' };
+        }
+        if (script.includes('$HOME/.cursor/skills/welcome')) {
+          return { stdout: 'symlink', stderr: '' };
+        }
+        if (script.includes('$HOME/.zed/skills/welcome')) {
+          return { stdout: 'missing', stderr: '' };
+        }
+        return { stdout: '', stderr: '' };
+      }
+    };
+
+    const result = await takeOverRemoteSkill(
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        remote_agents: {
+          claude: '~/.claude/skills',
+          cursor: '~/.cursor/skills',
+          zed: '~/.zed/skills'
+        }
+      },
+      'welcome',
+      { runtime }
+    );
+
+    expect(result).toEqual({
+      server: 'alpha',
+      skill: 'welcome',
+      takeovers: [
+        {
+          agent: 'claude',
+          path: '~/.claude/skills/welcome',
+          action: 'takeover',
+          remote_type: 'directory'
+        }
+      ],
+      skipped: [
+        {
+          agent: 'cursor',
+          path: '~/.cursor/skills/welcome',
+          reason: 'already symlink'
+        },
+        {
+          agent: 'zed',
+          path: '~/.zed/skills/welcome',
+          reason: 'not present'
+        }
+      ]
+    });
+    expect(calls.some((call) => call.file === 'ssh' && (call.args.at(-1) ?? '').includes('rm -rf "$HOME/.claude/skills/welcome" && ln -s "$HOME/.syncskill/skills/welcome" "$HOME/.claude/skills/welcome"'))).toBe(true);
+  });
+
+  it('supports dry-run without executing takeover commands', async () => {
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const runtime: TransportRuntime = {
+      calls,
+      async exec(file, args) {
+        calls.push({ file, args });
+        return { stdout: 'directory', stderr: '' };
+      }
+    };
+
+    await takeOverRemoteSkill(
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        remote_agents: {
+          claude: '~/.claude/skills'
+        }
+      },
+      'welcome',
+      { runtime, dryRun: true }
+    );
+
+    expect(calls.some((call) => call.file === 'ssh' && (call.args.at(-1) ?? '').includes('rm -rf'))).toBe(false);
   });
 });
 

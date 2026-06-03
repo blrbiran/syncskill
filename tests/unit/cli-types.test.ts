@@ -21,6 +21,7 @@ describe('cli/types', () => {
       type: 'result',
       command: 'push',
       ok: true,
+      data_schema_version: 1,
       summary: { pushed: 3, skipped: 0 }
     };
 

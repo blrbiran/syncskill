@@ -119,7 +119,7 @@ describe('config CLI', () => {
     });
   });
 
-  it('unlink <skill> --yes removes all links and clears configured agents', async () => {
+  it('unlink <skill> --yes --yes-destructive removes all links and clears configured agents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);
 
@@ -150,7 +150,7 @@ describe('config CLI', () => {
     await expect(readlink(join(homeDir, '.cursor', 'skills', 'to-unlink'))).resolves.toBeDefined();
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'unlink', '--yes', 'to-unlink'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--yes-destructive', 'unlink', '--yes', 'to-unlink'], { from: 'node' });
 
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
     expect(loggedOutput).toContain('✓ Unlinked to-unlink from all agents (claude, cursor)');

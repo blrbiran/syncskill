@@ -30,7 +30,7 @@ async function selectTargetServers(
 
   if (server) {
     if (!allServers.includes(server)) {
-      return failWithOutputError('E_SERVER_NOT_FOUND', `Server not found: ${server}`, 'Use `syncskill server list` to inspect configured servers');
+      return failWithOutputError('E_REMOTE_NOT_FOUND', `Remote not found: ${server}`, 'Use `syncskill remote list` to inspect configured remotes');
     }
 
     return [server];
@@ -89,15 +89,28 @@ import {
   type RepairOptions
 } from './config/config-doctor.js';
 import { installSyncskillSkill, installFromSource } from './install.js';
-import { expandTargetAgents, getConfigPaths, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
+import { expandTargetAgents, getConfigPaths, getConfiguredServer, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
 import { createPromptApi, runConfigUi } from './config/config-ui.js';
 import { collectLinkStatus, discoverSkills, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
 import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './core/manifest.js';
-import { formatServerListLines, formatServerShowLines, listServers, showServer } from './core/server.js';
+import {
+  expandReceiverLinkAgents,
+  formatRemoteAgentLines,
+  formatRemoteLinkLines,
+  formatServerListLines,
+  formatServerShowLines,
+  listServers,
+  loadReceiverBackup,
+  loadReceiverBackupIfExists,
+  saveReceiverBackup,
+  showServer,
+} from './core/server.js';
 import { initializeRepo } from './repo.js';
 import { pathExists } from './utils/utils.js';
+import { takeOverRemoteSkill } from './core/transport.js';
 import {
   autoRefreshManifests,
+  buildStatusJson,
   formatDiffLines,
   formatStatusLines,
   listTrackedServers,
@@ -146,7 +159,6 @@ function shouldSkipAutoRefresh(command: Command): boolean {
     'config show',
     'config set',
     'config link',
-    'config server',
     'config remote',
     'refresh'
   ];
@@ -529,6 +541,26 @@ function isStrictMode(program: Command): boolean {
   return mergeWithFlags(envConfig, { strict: options.strict }).strict;
 }
 
+function isYesDestructiveEnabled(program: Command): boolean {
+  const options = program.opts<{ yesDestructive?: boolean }>();
+  return options.yesDestructive === true || process.env.SYNCSKILL_YES_DESTRUCTIVE === '1';
+}
+
+function ensureDestructiveVerbAllowed(program: Command, verb: string, options: { yes?: boolean }): void {
+  const rootOptions = program.opts<{ json?: boolean }>();
+  const requiresNonInteractiveOverride = options.yes === true || isNoInteractive(program) === true || rootOptions.json === true;
+
+  if (!requiresNonInteractiveOverride || isYesDestructiveEnabled(program)) {
+    return;
+  }
+
+  failWithOutputError(
+    'E_USAGE',
+    `Destructive command \"${verb}\" requires --yes-destructive in non-interactive mode`,
+    `Re-run with --yes-destructive to allow ${verb}`
+  );
+}
+
 function shouldExitDirtySkip<T>(
   results: T[],
   options: {
@@ -666,8 +698,8 @@ function handleSyncCommandError(error: unknown): never {
     throw error;
   }
 
-  if (parsed.code === 'E_SERVER_NOT_FOUND') {
-    return failWithOutputError(parsed.code, parsed.message, 'Use `syncskill server list` to inspect configured servers');
+  if (parsed.code === 'E_SERVER_NOT_FOUND' || parsed.code === 'E_REMOTE_NOT_FOUND') {
+    return failWithOutputError(parsed.code, parsed.message, 'Use `syncskill remote list` to inspect configured remotes');
   }
 
   if (parsed.code === 'E_CONFLICT') {
@@ -676,6 +708,14 @@ function handleSyncCommandError(error: unknown): never {
 
   if (parsed.code === 'E_NEEDS_INPUT') {
     return failWithOutputError(parsed.code, parsed.message, 'Use --cross-server-policy / --on-conflict / --on-deletion, or remove --no-interactive');
+  }
+
+  if (parsed.code === 'E_USAGE') {
+    return failWithOutputError(parsed.code, parsed.message, 'Re-run with --yes-destructive or remove non-interactive flags');
+  }
+
+  if (parsed.code === 'E_TAKEOVER_FAILED' || parsed.code === 'E_AGENT_NOT_CONFIGURED') {
+    return failWithOutputError(parsed.code, parsed.message);
   }
 
   throw error;
@@ -847,6 +887,7 @@ export function createProgram(homeDir?: string): Command {
     .description('Multi-device AI Agent Skill sync tool. No args: show local dashboard summary')
     .option('--json', 'Output in JSONL format for machine consumption')
     .option('--no-interactive', 'Disable interactive prompts')
+    .option('--yes-destructive', 'Allow destructive actions in non-interactive mode')
     .option('--plan', 'Output plan without executing')
     .option('--apply <path|->', 'Execute a pre-generated plan file or read plan from stdin')
     .addOption(new Option('--apply-stdin').hideHelp())
@@ -1149,17 +1190,6 @@ export function createProgram(homeDir?: string): Command {
 
       console.log('Note: "config link" is deprecated. Use "syncskill link" instead.');
       await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'link' });
-    });
-
-  configCommand
-    .command('server')
-    .description('Manage remote servers')
-    .action(async () => {
-      if (isNoInteractive(program)) {
-        failForNoInteractive();
-      }
-
-      await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'server' });
     });
 
   configCommand
@@ -1486,11 +1516,10 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      if (!options.yes) {
-        if (isNoInteractive(program)) {
-          failForNoInteractive();
-        }
+      ensureDestructiveVerbAllowed(program, 'link clear', options);
 
+      const skipPrompt = options.yes === true || isNoInteractive(program) === true || program.opts<{ json?: boolean }>().json === true;
+      if (!skipPrompt) {
         const confirmed = await confirm({
           message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
           default: false,
@@ -1553,11 +1582,10 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      if (!options.yes) {
-        if (isNoInteractive(program)) {
-          failForNoInteractive();
-        }
+      ensureDestructiveVerbAllowed(program, 'unlink', options);
 
+      const skipPrompt = options.yes === true || isNoInteractive(program) === true || program.opts<{ json?: boolean }>().json === true;
+      if (!skipPrompt) {
         const confirmed = await confirm({
           message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
           default: false,
@@ -1849,46 +1877,352 @@ export function createProgram(homeDir?: string): Command {
       output.result(true, summarizeSourceRemoval(resolvedHomeDir, name, action, config, ownedSkills));
     });
 
-  const serverCommand = program.command('server').description('Manage and inspect remote sync servers');
+  const remoteCommand = program.command('remote').description('Manage and inspect remotes');
 
-  serverCommand.action(async () => {
-    await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'server' });
+  remoteCommand.action(async () => {
+    if (isNoInteractive(program)) {
+      failForNoInteractive();
+    }
+
+    await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'remote' });
   });
 
-  serverCommand
+  remoteCommand
+    .command('add <name>')
+    .description('Add a configured remote endpoint')
+    .requiredOption('--host <host>', 'SSH host')
+    .option('--user <user>', 'SSH user')
+    .option('--port <port>', 'SSH port', parseInteger)
+    .option('--identity-file <path>', 'SSH identity file')
+    .action(async (name: string, options: { host: string; user?: string; port?: number; identityFile?: string }) => {
+      const config = await loadConfig(resolvedHomeDir);
+      const existing = config.servers[name];
+      const existingRecord = typeof existing === 'object' && existing !== null && !Array.isArray(existing)
+        ? existing as Record<string, unknown>
+        : null;
+      const existingRemoteAgents = existingRecord?.remote_agents;
+      const remoteAgents = typeof existingRemoteAgents === 'object' && existingRemoteAgents !== null && !Array.isArray(existingRemoteAgents)
+        ? Object.fromEntries(Object.entries(existingRemoteAgents).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+        : {};
+
+      config.servers[name] = {
+        host: options.host,
+        ...(typeof options.user === 'string' ? { user: options.user } : {}),
+        ...(typeof options.port === 'number' ? { port: options.port } : {}),
+        ...(typeof options.identityFile === 'string' ? { identity_file: options.identityFile } : {}),
+        remote_agents: remoteAgents
+      };
+      await saveConfig(config, resolvedHomeDir);
+      console.log(name);
+    });
+
+  remoteCommand
+    .command('rm <name>')
+    .description('Remove a configured remote endpoint')
+    .action(async (name: string) => {
+      const config = await loadConfig(resolvedHomeDir);
+      if (!(name in config.servers)) {
+        return failWithOutputError('E_REMOTE_NOT_FOUND', `Remote not found: ${name}`, 'Use `syncskill remote list` to inspect configured remotes');
+      }
+
+      delete config.servers[name];
+      await saveConfig(config, resolvedHomeDir);
+      console.log(name);
+    });
+
+  remoteCommand
     .command('list')
     .alias('ls')
-    .description('List configured remote servers')
+    .description('List configured remotes')
     .action(async () => {
       for (const line of formatServerListLines(await listServers(resolvedHomeDir))) {
         console.log(line);
       }
     });
 
-  serverCommand
+  remoteCommand
     .command('show <name>')
-    .description('Show configured details for one remote server')
+    .description('Show local receiver backup for one remote')
     .action(async (name: string) => {
-      const config = await loadConfig(resolvedHomeDir);
-      const { skillsDir } = getSyncPaths(resolvedHomeDir);
-      await autoDiagnoseConfig(config, skillsDir);
+      const backup = await showServer(resolvedHomeDir, name);
 
-      for (const line of formatServerShowLines(await showServer(resolvedHomeDir, name))) {
+      if (program.opts<{ json?: boolean }>().json) {
+        getGlobalOutput().result(true, {
+          data: JSON.parse(JSON.stringify(backup)) as Record<string, unknown>
+        });
+        return;
+      }
+
+      for (const line of formatServerShowLines(backup)) {
         console.log(line);
       }
     });
 
+  const remoteAgentCommand = remoteCommand.command('agent').description('Manage local remote-agent backup entries');
 
-  program
-    .command('remote')
-    .description('Edit skill → server sync mapping (matrix editor)')
-    .action(async () => {
-      if (isNoInteractive(program)) {
-        failForNoInteractive();
+  remoteAgentCommand
+    .command('ls <server>')
+    .description('List remote agents from local receiver backup')
+    .action(async (serverName: string) => {
+      const backup = await loadReceiverBackup(resolvedHomeDir, serverName);
+
+      if (program.opts<{ json?: boolean }>().json) {
+        getGlobalOutput().result(true, {
+          data: JSON.parse(JSON.stringify(backup.remote_agents)) as Record<string, unknown>
+        });
+        return;
       }
 
-      await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'remote' });
+      for (const line of formatRemoteAgentLines(backup)) {
+        console.log(line);
+      }
     });
+
+  remoteAgentCommand
+    .command('add <server> <name> <path>')
+    .description('Add one remote agent path to local receiver backup')
+    .action(async (serverName: string, agentName: string, remotePath: string) => {
+      const backup = await loadReceiverBackup(resolvedHomeDir, serverName);
+      const before = JSON.parse(JSON.stringify({ remote_agents: backup.remote_agents })) as Record<string, unknown>;
+
+      backup.remote_agents[agentName] = remotePath;
+      backup.updated_at = new Date().toISOString();
+      await saveReceiverBackup(resolvedHomeDir, backup);
+
+      if (program.opts<{ json?: boolean }>().json) {
+        getGlobalOutput().result(true, {
+          data: JSON.parse(JSON.stringify({
+            server: serverName,
+            op: 'agent.add',
+            before,
+            after: { remote_agents: backup.remote_agents }
+          })) as Record<string, unknown>
+        });
+        return;
+      }
+
+      for (const line of formatRemoteAgentLines(backup)) {
+        console.log(line);
+      }
+    });
+
+  remoteAgentCommand
+    .command('rm <server> <name>')
+    .description('Remove one remote agent from local receiver backup')
+    .action(async (serverName: string, agentName: string) => {
+      const backup = await loadReceiverBackupIfExists(resolvedHomeDir, serverName);
+      if (backup === null) {
+        return;
+      }
+
+      const hadAgent = agentName in backup.remote_agents;
+      const previousAgents = Object.keys(backup.remote_agents).sort();
+      const before = JSON.parse(JSON.stringify({ remote_agents: backup.remote_agents })) as Record<string, unknown>;
+
+      delete backup.remote_agents[agentName];
+      for (const [skillName, targets] of Object.entries(backup.links)) {
+        backup.links[skillName] = targets.includes('*')
+          ? previousAgents.filter((target) => target !== agentName)
+          : targets.filter((target) => target !== agentName);
+      }
+
+      if (!hadAgent && previousAgents.every((target) => !Object.values(backup.links).some((targets) => targets.includes(target)))) {
+        return;
+      }
+
+      backup.updated_at = new Date().toISOString();
+      await saveReceiverBackup(resolvedHomeDir, backup);
+
+      if (program.opts<{ json?: boolean }>().json) {
+        getGlobalOutput().result(true, {
+          data: JSON.parse(JSON.stringify({
+            server: serverName,
+            op: 'agent.rm',
+            before,
+            after: { remote_agents: backup.remote_agents }
+          })) as Record<string, unknown>
+        });
+        return;
+      }
+
+      for (const line of formatRemoteAgentLines(backup)) {
+        console.log(line);
+      }
+    });
+
+  const remoteLinkCommand = remoteCommand.command('link').description('Manage local remote-link backup entries');
+
+  remoteLinkCommand
+    .command('ls <server>')
+    .description('List remote skill links from local receiver backup')
+    .action(async (serverName: string) => {
+      const backup = await loadReceiverBackup(resolvedHomeDir, serverName);
+
+      if (program.opts<{ json?: boolean }>().json) {
+        getGlobalOutput().result(true, {
+          data: JSON.parse(JSON.stringify(backup.links)) as Record<string, unknown>
+        });
+        return;
+      }
+
+      for (const line of formatRemoteLinkLines(backup)) {
+        console.log(line);
+      }
+    });
+
+  remoteLinkCommand
+    .command('add <server> <skill> <agent>')
+    .description('Add one remote skill link to local receiver backup')
+    .action(async (serverName: string, skill: string, agentName: string) => {
+      const backup = await loadReceiverBackup(resolvedHomeDir, serverName);
+      if (!(agentName in backup.remote_agents)) {
+        return failWithOutputError('E_AGENT_NOT_CONFIGURED', `Remote agent not configured: ${agentName}`);
+      }
+
+      const before = JSON.parse(JSON.stringify({ links: backup.links })) as Record<string, unknown>;
+      const currentTargets = backup.links[skill] ?? [];
+      backup.links[skill] = currentTargets.includes('*') ? ['*'] : [...new Set([...currentTargets, agentName])].sort();
+      backup.updated_at = new Date().toISOString();
+      await saveReceiverBackup(resolvedHomeDir, backup);
+
+      if (program.opts<{ json?: boolean }>().json) {
+        getGlobalOutput().result(true, {
+          data: JSON.parse(JSON.stringify({
+            server: serverName,
+            op: 'link.add',
+            before,
+            after: { links: backup.links }
+          })) as Record<string, unknown>
+        });
+        return;
+      }
+
+      for (const line of formatRemoteLinkLines(backup)) {
+        console.log(line);
+      }
+    });
+
+  remoteLinkCommand
+    .command('rm <server> <skill> [agent]')
+    .description('Remove one remote skill link from local receiver backup')
+    .action(async (serverName: string, skill: string, agentName: string | undefined) => {
+      const backup = await loadReceiverBackupIfExists(resolvedHomeDir, serverName);
+      if (backup === null) {
+        return;
+      }
+
+      const currentTargets = backup.links[skill] ?? [];
+      if (currentTargets.length === 0 && agentName !== undefined) {
+        return;
+      }
+
+      const before = JSON.parse(JSON.stringify({ links: backup.links })) as Record<string, unknown>;
+      backup.links[skill] = agentName === undefined
+        ? []
+        : currentTargets.includes('*')
+          ? Object.keys(backup.remote_agents).filter((target) => target !== agentName).sort()
+          : currentTargets.filter((target) => target !== agentName);
+      backup.updated_at = new Date().toISOString();
+      await saveReceiverBackup(resolvedHomeDir, backup);
+
+      if (program.opts<{ json?: boolean }>().json) {
+        getGlobalOutput().result(true, {
+          data: JSON.parse(JSON.stringify({
+            server: serverName,
+            op: 'link.rm',
+            before,
+            after: { links: backup.links }
+          })) as Record<string, unknown>
+        });
+        return;
+      }
+
+      for (const line of formatRemoteLinkLines(backup)) {
+        console.log(line);
+      }
+    });
+
+  remoteCommand
+    .command('takeover <server> <skill>')
+    .description('Replace remote directories with syncskill-managed symlinks')
+    .option('--agent <agent>', 'Take over only one remote agent path')
+    .option('--dry-run', 'Preview takeover without making changes')
+    .option('-y, --yes', 'Skip confirmation prompts')
+    .action(async (serverName: string, skill: string, options: { agent?: string; dryRun?: boolean; yes?: boolean }) => {
+      const rootOptions = program.opts<{ json?: boolean }>();
+      const destructiveBlocked = (options.yes === true || isNoInteractive(program) === true || rootOptions.json === true)
+        && !isYesDestructiveEnabled(program);
+      if (destructiveBlocked) {
+        ensureDestructiveVerbAllowed(program, 'remote takeover', options);
+        return;
+      }
+
+      try {
+        const backup = await loadReceiverBackupIfExists(resolvedHomeDir, serverName);
+        if (backup === null) {
+          return failWithOutputError('E_REMOTE_NOT_INITIALIZED', `Remote not initialized: ${serverName}`, `Run \`syncskill refresh ${serverName}\` first`);
+        }
+
+        const linkedAgents = expandReceiverLinkAgents(backup, skill);
+        if (linkedAgents.length === 0) {
+          return failWithOutputError('E_USAGE', `Remote skill has no linked agents in backup: ${skill}`, `Run \`syncskill remote link add ${serverName} ${skill} <agent>\` first`);
+        }
+
+        if (options.agent && !linkedAgents.includes(options.agent)) {
+          return failWithOutputError('E_AGENT_NOT_CONFIGURED', `Remote agent not configured for ${skill}: ${options.agent}`);
+        }
+
+        const config = await loadConfig(resolvedHomeDir);
+        const configuredServer = getConfiguredServer(config, serverName);
+        const selectedAgents = options.agent ? [options.agent] : linkedAgents;
+        const selectedRemoteAgents = Object.fromEntries(
+          selectedAgents.map((agent) => [agent, backup.remote_agents[agent]]).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+        );
+
+        if (Object.keys(selectedRemoteAgents).length !== selectedAgents.length) {
+          const missingAgent = selectedAgents.find((agent) => !(agent in selectedRemoteAgents)) ?? options.agent ?? skill;
+          return failWithOutputError('E_AGENT_NOT_CONFIGURED', `Remote agent not configured: ${missingAgent}`);
+        }
+
+        const result = await takeOverRemoteSkill(
+          {
+            ...configuredServer,
+            remote_agents: selectedRemoteAgents
+          },
+          skill,
+          {
+            agent: options.agent,
+            dryRun: options.dryRun,
+          }
+        );
+
+        if (program.opts<{ json?: boolean }>().json) {
+          getGlobalOutput().result(true, {
+            data: JSON.parse(JSON.stringify(result)) as Record<string, unknown>
+          });
+          return;
+        }
+
+        for (const entry of result.takeovers) {
+          console.log(`${options.dryRun ? 'would-takeover' : 'takeover'}\t${entry.agent}\t${entry.path}\t${entry.remote_type}`);
+        }
+
+        for (const entry of result.skipped) {
+          console.log(`skip\t${entry.agent}\t${entry.path}\t${entry.reason}`);
+        }
+
+        if (result.takeovers.length === 0 && result.skipped.length === 0) {
+          console.log('No remote takeover actions needed.');
+        }
+      } catch (error) {
+        const parsed = parseStructuredError(error);
+        if (parsed?.code === 'E_USAGE' || parsed?.code === 'E_AGENT_NOT_CONFIGURED' || parsed?.code === 'E_TAKEOVER_FAILED') {
+          return failWithOutputError(parsed.code, parsed.message);
+        }
+        handleSyncCommandError(error);
+      }
+    });
+
 
   program
     .command('refresh [server]')
@@ -1927,6 +2261,13 @@ export function createProgram(homeDir?: string): Command {
       await autoDiagnoseConfig(config, skillsDir);
 
       const manifests = await loadTrackedManifests(resolvedHomeDir);
+
+      if (program.opts<{ json?: boolean }>().json) {
+        getGlobalOutput().result(true, {
+          data: buildStatusJson(manifests)
+        });
+        return;
+      }
 
       for (const line of formatStatusLines(manifests)) {
         console.log(line);
@@ -2102,41 +2443,48 @@ export function createProgram(homeDir?: string): Command {
     .option('--no-pull-backup', 'Skip pre-pull backups before overwriting or deleting local skills')
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; pullBackup?: boolean; yes?: boolean }) => {
-      const config = await loadConfig(resolvedHomeDir);
-      // Auto-check config health
-      const { skillsDir } = getSyncPaths(resolvedHomeDir);
-      await autoDiagnoseConfig(config, skillsDir);
+      try {
+        const config = await loadConfig(resolvedHomeDir);
+        const { skillsDir } = getSyncPaths(resolvedHomeDir);
+        await autoDiagnoseConfig(config, skillsDir);
 
-      const allServers = Object.keys(config.servers);
+        const allServers = Object.keys(config.servers);
 
-      const targetServers = await selectTargetServers(allServers, server, options, 'push');
-      if (!targetServers) return;
+        const targetServers = await selectTargetServers(allServers, server, options, 'push');
+        if (!targetServers) return;
 
-      const results = await pushToServers(resolvedHomeDir, targetServers, {
-        dryRun: options.dryRun,
-        noRefresh: !program.opts<{ refresh: boolean }>().refresh,
-        timeout: options.timeout,
-        pullBackup: options.pullBackup,
-        yes: options.yes
-      });
+        const json = program.opts<{ json?: boolean }>().json === true;
+        const results = await pushToServers(resolvedHomeDir, targetServers, {
+          dryRun: options.dryRun,
+          noRefresh: !program.opts<{ refresh: boolean }>().refresh,
+          timeout: options.timeout,
+          pullBackup: options.pullBackup,
+          yes: options.yes,
+          noInteractive: isNoInteractive(program),
+          yesDestructive: isYesDestructiveEnabled(program),
+          json
+        });
 
-      if (!program.opts<{ json?: boolean }>().json) {
-        for (const result of results) {
-          for (const line of formatSkillRows('push', result)) {
-            console.log(line);
+        if (!json) {
+          for (const result of results) {
+            for (const line of formatSkillRows('push', result)) {
+              console.log(line);
+            }
           }
         }
-      }
 
-      getGlobalOutput().result(true, summarizePushResults(results));
+        getGlobalOutput().result(true, summarizePushResults(results));
 
-      if (shouldExitDirtySkip(results, {
-        strict: isStrictMode(program),
-        dryRun: options.dryRun,
-        countSkips: countPushSkips,
-        hasSuccessfulTarget: hasSuccessfulPushTarget
-      })) {
-        process.exit(ExitCode.DIRTY_SKIP);
+        if (shouldExitDirtySkip(results, {
+          strict: isStrictMode(program),
+          dryRun: options.dryRun,
+          countSkips: countPushSkips,
+          hasSuccessfulTarget: hasSuccessfulPushTarget
+        })) {
+          process.exit(ExitCode.DIRTY_SKIP);
+        }
+      } catch (error) {
+        handleSyncCommandError(error);
       }
     });
 
@@ -2256,6 +2604,8 @@ export function createProgram(homeDir?: string): Command {
           pullBackup: options.pullBackup,
           yes: options.yes,
           noInteractive: isNoInteractive(program),
+          yesDestructive: isYesDestructiveEnabled(program),
+          json: program.opts<{ json?: boolean }>().json === true,
           crossServerPolicy: options.crossServerPolicy,
           onConflict: options.onConflict,
           onDeletion: options.onDeletion

@@ -64,8 +64,12 @@ describe('sync CLI', () => {
     expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], {
       dryRun: undefined,
       noRefresh: true,
+      timeout: undefined,
       pullBackup: undefined,
-      yes: undefined
+      yes: undefined,
+      noInteractive: undefined,
+      yesDestructive: false,
+      json: false
     });
     expect(consoleLog.mock.calls).toEqual([
       ['welcome\talpha\tpush\tin-sync'],
@@ -165,6 +169,8 @@ describe('sync CLI', () => {
       pullBackup: undefined,
       yes: undefined,
       noInteractive: undefined,
+      yesDestructive: false,
+      json: false,
       crossServerPolicy: undefined,
       onConflict: undefined,
       onDeletion: undefined
@@ -242,6 +248,8 @@ describe('sync CLI', () => {
       pullBackup: undefined,
       yes: undefined,
       noInteractive: undefined,
+      yesDestructive: false,
+      json: false,
       crossServerPolicy: undefined,
       onConflict: undefined,
       onDeletion: 'delete'
@@ -589,8 +597,12 @@ describe('sync CLI', () => {
     expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], {
       dryRun: undefined,
       noRefresh: true,
+      timeout: undefined,
       pullBackup: undefined,
-      yes: true
+      yes: true,
+      noInteractive: undefined,
+      yesDestructive: false,
+      json: false
     });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpush\tin-sync'],
@@ -641,8 +653,12 @@ describe('sync CLI', () => {
     expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha', 'beta'], {
       dryRun: true,
       noRefresh: true,
+      timeout: undefined,
       pullBackup: undefined,
-      yes: true
+      yes: true,
+      noInteractive: undefined,
+      yesDestructive: false,
+      json: false
     });
   });
 
@@ -681,8 +697,12 @@ describe('sync CLI', () => {
     expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], {
       dryRun: undefined,
       noRefresh: true,
+      timeout: undefined,
       pullBackup: undefined,
-      yes: undefined
+      yes: undefined,
+      noInteractive: undefined,
+      yesDestructive: false,
+      json: false
     });
     expect(consoleLog.mock.calls).toEqual([
       ['skill-a\talpha\tpush\tin-sync']

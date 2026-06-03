@@ -91,6 +91,104 @@ describe('reconciliation CLI', () => {
     ]);
   });
 
+  it('status --json emits result event with hash triplet fields', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
+    tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'beta',
+      updated_at: '2026-05-02T00:00:00.000Z',
+      skills: {
+        deploy: {
+          local_hash: null,
+          remote_hash: '333',
+          recorded_hash: null,
+          direction: 'pull',
+          status: 'new'
+        }
+      }
+    });
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        docs: {
+          local_hash: null,
+          remote_hash: '111',
+          recorded_hash: '111',
+          direction: 'push',
+          status: 'new'
+        },
+        welcome: {
+          local_hash: '222',
+          remote_hash: '111',
+          recorded_hash: '111',
+          direction: 'push',
+          status: 'local-changed'
+        }
+      }
+    });
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', 'status'], { from: 'node' });
+
+    expect(consoleLog).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(consoleLog.mock.calls[0][0]))).toEqual({
+      type: 'result',
+      command: 'status',
+      ok: true,
+      data_schema_version: 1,
+      summary: {
+        data: {
+          servers: [
+            {
+              server: 'alpha',
+              skills: [
+                {
+                  name: 'docs',
+                  status: 'local-changed',
+                  action: 'push',
+                  local_hash: null,
+                  remote_hash: '111',
+                  baseline_hash: '111',
+                  recorded_hash: '111'
+                },
+                {
+                  name: 'welcome',
+                  status: 'local-changed',
+                  action: 'push',
+                  local_hash: null,
+                  remote_hash: '111',
+                  baseline_hash: '111',
+                  recorded_hash: '111'
+                }
+              ]
+            },
+            {
+              server: 'beta',
+              skills: [
+                {
+                  name: 'deploy',
+                  status: 'new',
+                  action: 'pull',
+                  local_hash: null,
+                  remote_hash: '333',
+                  baseline_hash: null,
+                  recorded_hash: null
+                }
+              ]
+            }
+          ]
+        }
+      }
+    });
+  });
+
   it('refresh --local [server] updates manifests without printing status rows', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
     tempDirs.push(homeDir);
@@ -200,6 +298,17 @@ describe('reconciliation CLI', () => {
           status: 'new'
         }
       }
+    });
+    vi.spyOn(transportModule, 'scanRemoteAgents').mockResolvedValue({
+      discovered_agents: [
+        {
+          name: 'claude',
+          path: '/srv/skills',
+          symlinked_skills: ['welcome'],
+          directory_skills: []
+        }
+      ],
+      remote_only_skills: []
     });
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);

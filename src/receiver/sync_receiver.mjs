@@ -227,6 +227,59 @@ async function scanSkills() {
   );
 }
 
+async function scanAgents() {
+  const config = await readJson(configFile, { remote_agents: {} });
+  const discoveredAgents = [];
+  const attachedSkills = new Set();
+
+  for (const [agent, agentPath] of Object.entries(config.remote_agents ?? {})) {
+    if (typeof agentPath !== 'string') {
+      continue;
+    }
+
+    const resolvedPath = resolve(agentPath.replace(/^~(?=\/|$)/, homedir()));
+    const entries = await readdir(resolvedPath, { withFileTypes: true }).catch((error) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        throw new Error(`Missing remote skill root for ${agent}: ${agentPath}`);
+      }
+
+      throw error;
+    });
+    const symlinkedSkills = [];
+    const directorySkills = [];
+
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (entry.isSymbolicLink()) {
+        symlinkedSkills.push(entry.name);
+        attachedSkills.add(entry.name);
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        directorySkills.push(entry.name);
+        attachedSkills.add(entry.name);
+      }
+    }
+
+    discoveredAgents.push({
+      name: agent,
+      path: agentPath,
+      symlinked_skills: symlinkedSkills,
+      directory_skills: directorySkills
+    });
+  }
+
+  const remoteOnlySkills = (await readdir(skillsDir, { withFileTypes: true }).catch(() => []))
+    .filter((entry) => entry.isDirectory() && !attachedSkills.has(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+
+  process.stdout.write(`${JSON.stringify({
+    discovered_agents: discoveredAgents.sort((left, right) => left.name.localeCompare(right.name)),
+    remote_only_skills: remoteOnlySkills
+  })}\n`);
+}
+
 async function probeAccess() {
   const manifestExists = (await readJson(manifestFile, null)) !== null;
   const config = await readJson(configFile, { remote_agents: {} });
@@ -261,31 +314,62 @@ async function applyLinks() {
   const manifest = await readManifest();
   const config = await readJson(configFile, { remote_agents: {} });
   const skillNames = Object.keys(manifest.skills).sort();
+  const managedSkillNames = skillNames.filter((skill) => manifest.skills[skill]?.remote_hash !== null);
   const expectedSkills = new Set(skillNames);
+  const takeoverWarnings = [];
+  const hasLinksConfig = typeof config.links === 'object' && config.links !== null && !Array.isArray(config.links);
+  const expectedSkillsByAgent = Object.fromEntries(
+    Object.keys(config.remote_agents ?? {}).map((agent) => [agent, new Set()])
+  );
 
-  for (const agentDir of Object.values(config.remote_agents ?? {})) {
+  if (hasLinksConfig) {
+    for (const skill of managedSkillNames) {
+      const targets = Array.isArray(config.links[skill])
+        ? config.links[skill].filter((item) => typeof item === 'string')
+        : [];
+
+      if (targets.includes('*')) {
+        for (const agent of Object.keys(expectedSkillsByAgent)) {
+          expectedSkillsByAgent[agent].add(skill);
+        }
+        continue;
+      }
+
+      for (const agent of targets) {
+        expectedSkillsByAgent[agent]?.add(skill);
+      }
+    }
+  }
+
+  for (const [agent, agentDir] of Object.entries(config.remote_agents ?? {})) {
     if (typeof agentDir !== 'string') {
       continue;
     }
 
+    const expectedAgentSkills = hasLinksConfig
+      ? expectedSkillsByAgent[agent] ?? new Set()
+      : new Set(managedSkillNames);
     const resolvedAgentDir = resolve(agentDir.replace(/^~(?=\/|$)/, homedir()));
     await mkdir(resolvedAgentDir, { recursive: true });
 
     for (const entry of await readdir(resolvedAgentDir, { withFileTypes: true })) {
-      if (!expectedSkills.has(entry.name)) {
+      if (!expectedAgentSkills.has(entry.name) && entry.isSymbolicLink()) {
         await rm(join(resolvedAgentDir, entry.name), { recursive: true, force: true });
       }
     }
 
-    for (const skill of skillNames) {
+    for (const skill of [...expectedAgentSkills].sort()) {
       const sourceDir = join(skillsDir, skill);
       const targetDir = join(resolvedAgentDir, skill);
 
       try {
         const stats = await lstat(targetDir);
 
-        if (stats.isSymbolicLink() || stats.isDirectory()) {
+        if (stats.isSymbolicLink()) {
           await rm(targetDir, { recursive: true, force: true });
+        } else {
+          takeoverWarnings.push(`W_TAKEOVER_NEEDED: ${agent}/${skill} is not a syncskill-managed symlink; use \`remote takeover\` to replace`);
+          continue;
         }
       } catch {
         // nothing to clean
@@ -355,6 +439,11 @@ async function applyLinks() {
   };
 
   await writeFile(manifestFile, `${JSON.stringify(finalizedManifest, null, 2)}\n`, 'utf8');
+
+  for (const warning of takeoverWarnings) {
+    process.stderr.write(`${warning}\n`);
+  }
+
   process.stdout.write(`${JSON.stringify(finalizedManifest)}\n`);
 }
 
@@ -370,6 +459,8 @@ if (command === 'manifest') {
   await exportSkill(arg);
 } else if (command === 'scan-skills') {
   await scanSkills();
+} else if (command === 'scan-agents') {
+  await scanAgents();
 } else if (command === 'probe-access') {
   await probeAccess();
 } else if (command === 'apply') {

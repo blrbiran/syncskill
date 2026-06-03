@@ -7,25 +7,27 @@ describe('server helpers', () => {
     expect(formatServerListLines(['beta', 'alpha'])).toEqual(['alpha', 'beta']);
   });
 
-  it('formats one server summary with configured connection details', () => {
+  it('formats one receiver backup summary', () => {
     expect(
       formatServerShowLines({
-        name: 'alpha',
-        host: 'alpha.example.com',
-        user: 'deploy',
-        port: 2222,
-        identity_file: '/Users/demo/.ssh/id_syncskill',
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-06-03T09:01:00.000Z',
         remote_agents: {
           claude: '/home/deploy/.claude/skills'
+        },
+        links: {
+          welcome: ['claude'],
+          archived: []
         }
       })
     ).toEqual([
-      'name\talpha',
-      'host\talpha.example.com',
-      'user\tdeploy',
-      'port\t2222',
-      'identity_file\t/Users/demo/.ssh/id_syncskill',
-      'remote_agent\tclaude\t/home/deploy/.claude/skills'
+      'version\t1',
+      'server\talpha',
+      'updated_at\t2026-06-03T09:01:00.000Z',
+      'remote_agent\tclaude\t/home/deploy/.claude/skills',
+      'link\tarchived\t',
+      'link\twelcome\tclaude'
     ]);
   });
 

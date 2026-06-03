@@ -7,6 +7,7 @@ import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config/config.js';
 import { loadManifestHistory, loadServerManifest } from '../../src/core/manifest.js';
+import { saveReceiverBackup } from '../../src/core/server.js';
 import { pullFromServer, pushToServers } from '../../src/core/sync_engine.js';
 import { type TransportRuntime } from '../../src/core/transport.js';
 
@@ -86,7 +87,7 @@ describe('sync engine orchestration', () => {
     expect(results.map((result) => result.server)).toEqual(['beta', 'alpha']);
   });
 
-  it('pushToServers uploads local-only changes and persists finalized manifest state', async () => {
+  it('pushToServers uploads local-only changes, applies receiver links, and persists finalized manifest state', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
     tempDirs.push(homeDir);
 
@@ -99,13 +100,27 @@ describe('sync engine orchestration', () => {
         servers: {
           alpha: {
             host: 'alpha.example.com',
-            remote_agents: {}
+            remote_agents: {
+              stale: '/srv/stale'
+            }
           }
         },
         sources: {}
       },
       homeDir
     );
+
+    await saveReceiverBackup(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:30:00.000Z',
+      remote_agents: {
+        claude: '/srv/claude'
+      },
+      links: {
+        welcome: ['claude']
+      }
+    });
 
     const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
     await mkdir(skillDir, { recursive: true });
@@ -128,6 +143,8 @@ describe('sync engine orchestration', () => {
 
     expect(runtime.calls.some((call) => call.file === 'rsync' && call.args.at(-1) === 'alpha.example.com:~/.syncskill/skills/welcome/')).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'write-manifest')).toBe(true);
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'apply')).toBe(true);
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > ~/.syncskill/receiver_config.json' && call.stdin?.includes('"claude"') && call.stdin?.includes('"links"') && !call.stdin?.includes('"stale"'))).toBe(true);
 
     const manifest = await loadServerManifest(homeDir, 'alpha');
     expect(manifest.skills.welcome.direction).toBe('skip');
@@ -1030,7 +1047,7 @@ describe('sync engine orchestration', () => {
       consoleSpy.mockRestore();
     });
 
-    it('deletes orphan skills when yes=true', async () => {
+    it('deletes orphan skills when yes=true and yesDestructive=true', async () => {
       const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
       tempDirs.push(homeDir);
 
@@ -1081,7 +1098,8 @@ describe('sync engine orchestration', () => {
         runtime,
         now: '2026-05-01T10:00:00.000Z',
         noRefresh: true,
-        yes: true
+        yes: true,
+        yesDestructive: true
       });
 
       // Should have called rm with the orphan skill

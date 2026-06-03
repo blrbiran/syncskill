@@ -7,6 +7,7 @@ import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config/config.js';
 import { loadServerManifest, saveServerManifest } from '../../src/core/manifest.js';
+import { loadReceiverBackupIfExists } from '../../src/core/server.js';
 import { refreshStoredManifests } from '../../src/refresh.js';
 import * as transportModule from '../../src/core/transport.js';
 
@@ -69,6 +70,17 @@ describe('remote refresh orchestration', () => {
         }
       }
     });
+    vi.spyOn(transportModule, 'scanRemoteAgents').mockResolvedValue({
+      discovered_agents: [
+        {
+          name: 'claude',
+          path: '/srv/skills',
+          symlinked_skills: ['welcome'],
+          directory_skills: []
+        }
+      ],
+      remote_only_skills: ['detached']
+    });
 
     const manifests = await refreshStoredManifests(homeDir, {
       local: false,
@@ -79,5 +91,21 @@ describe('remote refresh orchestration', () => {
     expect(manifests[0]?.skills.stale).toBeUndefined();
     expect(manifests[0]?.skills.welcome?.remote_hash).toBe('welcome-hash');
     await expect(loadServerManifest(homeDir, 'alpha')).resolves.toEqual(manifests[0]);
+    await expect(loadReceiverBackupIfExists(homeDir, 'alpha')).resolves.toMatchObject({
+      version: 1,
+      server: 'alpha',
+      remote_agents: {
+        claude: '/srv/skills'
+      },
+      links: {
+        detached: [],
+        welcome: ['claude']
+      }
+    });
+    await expect(loadReceiverBackupIfExists(homeDir, 'alpha')).resolves.toEqual(
+      expect.objectContaining({
+        updated_at: expect.any(String)
+      })
+    );
   });
 });

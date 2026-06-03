@@ -57,6 +57,7 @@ export interface ResultEvent {
   type: 'result';
   command: string;
   ok: boolean;
+  data_schema_version: 1;
   summary: {
     [key: string]: unknown;
     data?: Record<string, unknown>;

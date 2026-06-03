@@ -8,6 +8,7 @@ import { useTempDirs } from '../helpers/temp-dir.js';
 import { createDefaultConfig, saveConfig } from '../../src/config/config.js';
 import { getSyncPaths } from '../../src/config/config.js';
 import { createEmptyManifest, saveServerManifest } from '../../src/core/manifest.js';
+import { loadReceiverBackupIfExists } from '../../src/core/server.js';
 import {
   autoRefreshManifests,
   formatDiffLines,
@@ -622,6 +623,17 @@ describe('refresh orchestration', () => {
         }
       }
     });
+    vi.spyOn(transportModule, 'scanRemoteAgents').mockResolvedValue({
+      discovered_agents: [
+        {
+          name: 'claude',
+          path: '/srv/skills',
+          symlinked_skills: ['welcome'],
+          directory_skills: ['manual']
+        }
+      ],
+      remote_only_skills: ['detached']
+    });
 
     const manifests = await refreshStoredManifests(homeDir, {
       local: false,
@@ -646,6 +658,23 @@ describe('refresh orchestration', () => {
       }
     ]);
     await expect(loadTrackedManifests(homeDir, 'alpha')).resolves.toEqual(manifests);
+    await expect(loadReceiverBackupIfExists(homeDir, 'alpha')).resolves.toMatchObject({
+      version: 1,
+      server: 'alpha',
+      remote_agents: {
+        claude: '/srv/skills'
+      },
+      links: {
+        detached: [],
+        manual: [],
+        welcome: ['claude']
+      }
+    });
+    await expect(loadReceiverBackupIfExists(homeDir, 'alpha')).resolves.toEqual(
+      expect.objectContaining({
+        updated_at: expect.any(String)
+      })
+    );
   });
 
   it('formats status and diff lines from reconciled manifest data', () => {

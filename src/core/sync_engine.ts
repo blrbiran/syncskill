@@ -20,6 +20,7 @@ import {
 } from './manifest.js';
 import { confirm, select } from '@inquirer/prompts';
 import {
+  applyRemoteLinks,
   createTransportRuntime,
   deleteRemoteSkills,
   deployReceiver,
@@ -28,8 +29,10 @@ import {
   pullSkillDirectory,
   pushManifest,
   pushSkillDirectory,
+  type ReceiverConfigPayload,
   type TransportRuntime
 } from './transport.js';
+import { loadReceiverBackupIfExists } from './server.js';
 import { backupSkillBeforePull } from '../utils/backup.js';
 
 export interface SyncEngineOptions {
@@ -39,6 +42,8 @@ export interface SyncEngineOptions {
   noRefresh?: boolean;
   yes?: boolean;
   noInteractive?: boolean;
+  yesDestructive?: boolean;
+  json?: boolean;
   timeout?: number;
   pullBackup?: boolean;
   onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
@@ -55,7 +60,7 @@ interface CrossServerConflict {
   servers: string[];
 }
 
-function createSyncEngineError(code: 'E_CONFLICT' | 'E_SERVER_NOT_FOUND' | 'E_NEEDS_INPUT', message: string): Error {
+function createSyncEngineError(code: 'E_CONFLICT' | 'E_SERVER_NOT_FOUND' | 'E_REMOTE_NOT_FOUND' | 'E_NEEDS_INPUT' | 'E_USAGE', message: string): Error {
   return new Error(`${code}: ${message}`);
 }
 
@@ -281,12 +286,12 @@ function parseCrossServerPolicy(
   }
 
   if (!policy.startsWith('server:')) {
-    throw createSyncEngineError('E_SERVER_NOT_FOUND', `Server not found: ${policy}. Use server:${policy}`);
+    throw createSyncEngineError('E_REMOTE_NOT_FOUND', `Remote not found: ${policy}. Use server:${policy}`);
   }
 
   const server = policy.slice('server:'.length);
   if (!server || !(server in config.servers)) {
-    throw createSyncEngineError('E_SERVER_NOT_FOUND', `Server not found: ${server}`);
+    throw createSyncEngineError('E_REMOTE_NOT_FOUND', `Remote not found: ${server}`);
   }
 
   return { type: 'server', server };
@@ -445,6 +450,8 @@ export async function pushToServers(homeDir: string, servers?: string[], options
 
   for (const serverName of targetServers) {
     const server = getConfiguredServer(config, serverName);
+    const receiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
+    const receiverConfig = buildReceiverConfig(server, receiverBackup);
     const updated = await prepareManifest(homeDir, server, runtime, options.now);
     let manifest = applyConflictPolicy(updated.manifest, configuredConflictPolicy, updated.updatedAt);
 
@@ -571,36 +578,32 @@ export async function pushToServers(homeDir: string, servers?: string[], options
         console.log(`  - ${skill}`);
       }
 
-      let shouldDelete = false;
-      if (options.yes === true) {
-        // --yes flag: auto-confirm deletion
-        shouldDelete = true;
-      } else if (options.yes === false) {
-        // Explicit yes=false: skip without prompting (for tests/scripts)
-        shouldDelete = false;
-      } else {
-        // undefined: prompt interactively
+      cleanupEnsureAllowed(updated.previousManifest, serverName, orphanSkills, options);
+      cleanupRiskWarning(updated.previousManifest, serverName, orphanSkills);
+
+      let shouldDelete = cleanupShouldDelete(options);
+      if (!shouldDelete && cleanupShouldPrompt(options)) {
+        const prompt = cleanupPromptConfig(updated.previousManifest, serverName, orphanSkills);
         try {
-          shouldDelete = await confirm({
-            message: `Remove ${orphanSkills.length} remote skill(s)?`,
-            default: false
-          });
+          shouldDelete = await confirm(prompt);
         } catch {
-          // User cancelled or non-interactive
           shouldDelete = false;
         }
+      } else if (cleanupShouldSkipPrompt(options)) {
+        shouldDelete = false;
       }
 
       if (shouldDelete) {
         await deleteRemoteSkills(server, orphanSkills, runtime);
         console.log(`  Removed ${orphanSkills.length} remote skill(s)`);
       } else {
-        console.log(`  Skipped remote cleanup`);
+        console.log(cleanupSkippedMessage(updated.previousManifest, serverName, orphanSkills));
       }
     }
 
     const finalizedManifest = finalizeDeletedSkills(finalizePushedSkills(manifest, finalPushedSkills, updated.updatedAt), finalPushedSkills, updated.updatedAt);
     await pushManifest(server, finalizedManifest, runtime);
+    await applyRemoteLinks(server, runtime, receiverConfig);
     await persistManifestState(homeDir, updated.previousManifest, finalizedManifest, updated.updatedAt);
 
     results.push({
@@ -879,6 +882,20 @@ async function prepareManifest(
   };
 }
 
+function buildReceiverConfig(
+  server: ConfiguredServer,
+  receiverBackup: Awaited<ReturnType<typeof loadReceiverBackupIfExists>>
+): ReceiverConfigPayload {
+  if (receiverBackup === null) {
+    return { remote_agents: server.remote_agents };
+  }
+
+  return {
+    remote_agents: receiverBackup.remote_agents,
+    links: receiverBackup.links
+  };
+}
+
 async function fetchRemoteState(server: ConfiguredServer, runtime: TransportRuntime): Promise<ServerManifest> {
   await deployReceiver(server, runtime);
   return fetchRemoteManifest(server, runtime);
@@ -912,6 +929,83 @@ function resolveConflicts(manifest: ServerManifest, take: 'local' | 'remote', up
 
 function resolveDeletionPolicy(policy: SyncEngineOptions['onDeletion']): 'keep-local' | 'delete' | 'prompt' {
   return policy ?? 'keep-local';
+}
+
+function requiresDestructiveApproval(options: SyncEngineOptions): boolean {
+  return options.yes === true || options.noInteractive === true || options.json === true;
+}
+
+function listNoBaselineRemoteSkills(previousManifest: ServerManifest, orphanSkills: string[]): string[] {
+  return orphanSkills.filter((skill) => previousManifest.skills[skill]?.recorded_hash == null);
+}
+
+function formatNoBaselineWarning(serverName: string, skills: string[]): string {
+  return `W_NO_BASELINE_RISK: ${serverName} remote-only skills would be deleted without a baseline: ${skills.join(', ')}`;
+}
+
+function cleanupEnsureAllowed(
+  previousManifest: ServerManifest,
+  serverName: string,
+  orphanSkills: string[],
+  options: SyncEngineOptions
+): void {
+  const riskySkills = listNoBaselineRemoteSkills(previousManifest, orphanSkills);
+  if (riskySkills.length === 0) {
+    return;
+  }
+
+  if (requiresDestructiveApproval(options) && options.yesDestructive !== true) {
+    throw createSyncEngineError(
+      'E_USAGE',
+      `Push to ${serverName} would delete remote skills without a baseline: ${riskySkills.join(', ')}`
+    );
+  }
+}
+
+function cleanupRiskWarning(previousManifest: ServerManifest, serverName: string, orphanSkills: string[]): void {
+  const riskySkills = listNoBaselineRemoteSkills(previousManifest, orphanSkills);
+  if (riskySkills.length > 0) {
+    console.log(formatNoBaselineWarning(serverName, riskySkills));
+  }
+}
+
+function cleanupPromptConfig(
+  previousManifest: ServerManifest,
+  serverName: string,
+  orphanSkills: string[]
+): { message: string; default: boolean } {
+  const riskySkills = listNoBaselineRemoteSkills(previousManifest, orphanSkills);
+  if (riskySkills.length === 0) {
+    return {
+      message: `Remove ${orphanSkills.length} remote skill(s)?`,
+      default: false
+    };
+  }
+
+  return {
+    message: `No baseline exists for ${riskySkills.join(', ')} on ${serverName}. Remove ${orphanSkills.length} remote skill(s)?`,
+    default: false
+  };
+}
+
+function cleanupSkippedMessage(_previousManifest: ServerManifest, _serverName: string, _orphanSkills: string[]): string {
+  return '  Skipped remote cleanup';
+}
+
+function cleanupShouldDelete(options: SyncEngineOptions): boolean {
+  return options.yes === true && options.yesDestructive === true;
+}
+
+function cleanupShouldSkipPrompt(options: SyncEngineOptions): boolean {
+  return options.yes === false || (requiresDestructiveApproval(options) && !cleanupShouldDelete(options));
+}
+
+function cleanupShouldPrompt(options: SyncEngineOptions): boolean {
+  return options.yes !== true && options.yes !== false && options.noInteractive !== true && options.json !== true;
+}
+
+function cleanupUsageHint(): string {
+  return 'Re-run with --yes-destructive to allow remote cleanup';
 }
 
 function isRemoteDeletionState(state: ManifestSkillState | undefined): boolean {

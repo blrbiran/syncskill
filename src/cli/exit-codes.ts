@@ -33,17 +33,17 @@ export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode];
 export function errorCodeToExitCode(errorCode: string): ExitCodeValue {
   if (errorCode.startsWith('E_USAGE') || errorCode === 'E_AGENT_NOT_CONFIGURED' ||
       errorCode === 'E_SKILL_NOT_FOUND' || errorCode === 'E_SOURCE_NOT_FOUND' ||
-      errorCode === 'E_SERVER_NOT_FOUND') {
+      errorCode === 'E_SERVER_NOT_FOUND' || errorCode === 'E_REMOTE_NOT_FOUND') {
     return ExitCode.USAGE_ERROR;
   }
   if (errorCode === 'E_NEEDS_INPUT') {
     return ExitCode.NEEDS_INPUT;
   }
   if (errorCode === 'E_NO_VALID_AGENTS' || errorCode === 'E_REGISTRY_CORRUPT' ||
-      errorCode === 'E_CONFIG_NOT_FOUND') {
+      errorCode === 'E_CONFIG_NOT_FOUND' || errorCode === 'E_REMOTE_NOT_INITIALIZED') {
     return ExitCode.CONFIG_ERROR;
   }
-  if (errorCode === 'E_NETWORK' || errorCode === 'E_TIMEOUT') {
+  if (errorCode === 'E_NETWORK' || errorCode === 'E_TIMEOUT' || errorCode === 'E_TAKEOVER_FAILED') {
     return ExitCode.NETWORK_ERROR;
   }
   if (errorCode === 'E_SOURCE_DIRTY') {

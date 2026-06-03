@@ -95,6 +95,7 @@ export class Output {
       type: 'result',
       command: this.commandName,
       ok,
+      data_schema_version: 1,
       summary,
     };
     this.emit(event);
