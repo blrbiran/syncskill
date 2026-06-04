@@ -26,6 +26,16 @@ Based on the current working-tree spec updates in `docs/superpowers/specs/syncsk
 - Run targeted integration tests when behavior/help output changes.
 - Run targeted e2e tests only for step 4.
 
+## Confirmed Current Step-1 Targets
+
+- Treat the current working-tree spec updates as intent, but do not regress behavior where the spec body is clearly stale relative to current implementation and docs.
+- Align the CLI surface with the current v2.8 spec direction where the mismatch is explicit and low-risk:
+  - remove root `--strict` CLI flag and rely on `SYNCSKILL_STRICT`
+  - rename `--on-deletion` to `--on-remote-deletion`, keeping the old name only as a compatibility alias if needed
+  - remove public `--no-pull-backup` CLI exposure and keep env/config control (`SYNCSKILL_PULL_BACKUP`, `config.pull_backup`)
+- Keep the current `install` no-arg TTY interactive UX unless deeper implementation evidence contradicts it.
+- Keep unrelated working-tree changes in `docs/superpowers/specs/syncskill-design.md` out of step commits.
+
 ## Commit Strategy
 
 - Commit step 1 code changes separately.

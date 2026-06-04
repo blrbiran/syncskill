@@ -28,14 +28,15 @@ describe('help output', () => {
     expect(help).toContain('No args: show local dashboard summary');
   });
 
-  it('should show --json, --no-interactive, and --strict in root help', async () => {
+  it('should show --json, --no-interactive, and --yes-destructive in root help', async () => {
     const { stdout } = await execAsync('node', ['dist/index.js', '--help'], {
       cwd: '/Users/biran/code/skills/syncskill'
     });
 
     expect(stdout).toContain('--json');
     expect(stdout).toContain('--no-interactive');
-    expect(stdout).toContain('--strict');
+    expect(stdout).toContain('--yes-destructive');
+    expect(stdout).not.toContain('--strict');
   });
 
   it('source list has ls alias', () => {

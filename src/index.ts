@@ -539,10 +539,8 @@ function isNoInteractive(program: Command): true | undefined {
   return options.noInteractive === true || options.interactive === false ? true : undefined;
 }
 
-function isStrictMode(program: Command): boolean {
-  const envConfig = loadEnvConfig();
-  const options = program.opts<{ strict?: boolean }>();
-  return mergeWithFlags(envConfig, { strict: options.strict }).strict;
+function isStrictMode(): boolean {
+  return loadEnvConfig().strict;
 }
 
 function isYesDestructiveEnabled(program: Command): boolean {
@@ -711,7 +709,7 @@ function handleSyncCommandError(error: unknown): never {
   }
 
   if (parsed.code === 'E_NEEDS_INPUT') {
-    return failWithOutputError(parsed.code, parsed.message, 'Use --cross-server-policy / --on-conflict / --on-deletion, or remove --no-interactive');
+    return failWithOutputError(parsed.code, parsed.message, 'Use --cross-server-policy / --on-conflict / --on-remote-deletion, or remove --no-interactive');
   }
 
   if (parsed.code === 'E_USAGE') {
@@ -956,7 +954,6 @@ export function createProgram(homeDir?: string): Command {
     .option('--sync-dir <path>', 'Override ~/.syncskill directory')
     .option('--config <path>', 'Override config file path')
     .option('--no-refresh', 'Skip automatic manifest refresh before commands')
-    .option('--strict', 'Treat any partial skip as exit code 6')
     .configureHelp({
       formatHelp: (cmd, helper) => {
         const rootOpts = cmd.parent?.opts() ?? cmd.opts();
@@ -974,7 +971,6 @@ export function createProgram(homeDir?: string): Command {
       const opts = thisCommand.opts<{
         json?: boolean;
         noInteractive?: boolean;
-        strict?: boolean;
         syncDir?: string;
         config?: string;
         refresh?: boolean;
@@ -982,7 +978,6 @@ export function createProgram(homeDir?: string): Command {
       const mergedConfig = mergeWithFlags(envConfig, {
         json: opts.json,
         noInteractive: opts.noInteractive,
-        strict: opts.strict,
         syncDir: opts.syncDir,
         configPath: opts.config,
       });
@@ -1812,7 +1807,7 @@ export function createProgram(homeDir?: string): Command {
     .option('--force', 'Force update dirty sources (backs up first)')
     .option('--dry-run', 'Preview update without making changes')
     .action(async (name: string | undefined, options: { all?: boolean; yes?: boolean; force?: boolean; dryRun?: boolean }) => {
-      const strict = isStrictMode(program);
+      const strict = isStrictMode();
 
       if (options.all || name === undefined) {
         const updatedAt = new Date().toISOString();
@@ -2546,7 +2541,7 @@ export function createProgram(homeDir?: string): Command {
         return failWithOutputError(
           'E_BACKUP_NOT_FOUND',
           `No backup found for ${skill}`,
-          'Backups are created only when --no-pull-backup is not set and config.pull_backup is true (default).'
+          'Backups are created when config.pull_backup is true (default) and SYNCSKILL_PULL_BACKUP is not 0.'
         );
       }
 
@@ -2615,10 +2610,8 @@ export function createProgram(homeDir?: string): Command {
     .option('--all', 'Push to all configured servers')
     .option('--dry-run', 'Preview changes without pushing')
     .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
-    .addOption(new Option('--pull-backup').hideHelp())
-    .option('--no-pull-backup', 'Skip pre-pull backups before overwriting or deleting local skills')
     .option('-y, --yes', 'Skip confirmation prompts')
-    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; pullBackup?: boolean; yes?: boolean }) => {
+    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; yes?: boolean }) => {
       try {
         const config = await loadConfig(resolvedHomeDir);
         const { skillsDir } = getSyncPaths(resolvedHomeDir);
@@ -2634,7 +2627,6 @@ export function createProgram(homeDir?: string): Command {
           dryRun: options.dryRun,
           noRefresh: !program.opts<{ refresh: boolean }>().refresh,
           timeout: options.timeout,
-          pullBackup: options.pullBackup,
           yes: options.yes,
           noInteractive: isNoInteractive(program),
           yesDestructive: isYesDestructiveEnabled(program),
@@ -2652,7 +2644,7 @@ export function createProgram(homeDir?: string): Command {
         getGlobalOutput().result(true, summarizePushResults(results));
 
         if (shouldExitDirtySkip(results, {
-          strict: isStrictMode(program),
+          strict: isStrictMode(),
           dryRun: options.dryRun,
           countSkips: countPushSkips,
           hasSuccessfulTarget: hasSuccessfulPushTarget
@@ -2672,9 +2664,8 @@ export function createProgram(homeDir?: string): Command {
     .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
     .option('--cross-server-policy <policy>', 'How to resolve cross-server conflicts: first-wins, last-wins, abort, prompt, or server:<name>')
     .option('--on-conflict <policy>', 'How to resolve per-server conflicts: keep-local, keep-remote, skip, abort', parseOnConflict)
-    .option('--on-deletion <policy>', 'How to handle remote deletions: keep-local, delete, prompt', parseOnDeletion)
-    .addOption(new Option('--pull-backup').hideHelp())
-    .option('--no-pull-backup', 'Skip pre-pull backups before overwriting or deleting local skills')
+    .option('--on-remote-deletion <policy>', 'How to handle remote deletions: keep-local, delete, prompt', parseOnDeletion)
+    .addOption(new Option('--on-deletion <policy>').hideHelp().argParser(parseOnDeletion))
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (
       server: string | undefined,
@@ -2686,6 +2677,7 @@ export function createProgram(homeDir?: string): Command {
         yes?: boolean;
         crossServerPolicy?: string;
         onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
+        onRemoteDeletion?: 'keep-local' | 'delete' | 'prompt';
         onDeletion?: 'keep-local' | 'delete' | 'prompt';
       }
     ) => {
@@ -2709,7 +2701,7 @@ export function createProgram(homeDir?: string): Command {
           noInteractive: isNoInteractive(program),
           crossServerPolicy: options.crossServerPolicy,
           onConflict: options.onConflict,
-          onDeletion: options.onDeletion
+          onDeletion: options.onRemoteDeletion ?? options.onDeletion
         });
 
         if (!program.opts<{ json?: boolean }>().json) {
@@ -2723,7 +2715,7 @@ export function createProgram(homeDir?: string): Command {
         getGlobalOutput().result(true, summarizePullResults(results));
 
         if (shouldExitDirtySkip(results, {
-          strict: isStrictMode(program),
+          strict: isStrictMode(),
           dryRun: options.dryRun,
           countSkips: countPullSkips,
           hasSuccessfulTarget: hasSuccessfulPullTarget
@@ -2743,9 +2735,8 @@ export function createProgram(homeDir?: string): Command {
     .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
     .option('--cross-server-policy <policy>', 'How to resolve cross-server conflicts: first-wins, last-wins, abort, prompt, or server:<name>')
     .option('--on-conflict <policy>', 'How to resolve per-server conflicts: keep-local, keep-remote, skip, abort', parseOnConflict)
-    .option('--on-deletion <policy>', 'How to handle remote deletions: keep-local, delete, prompt', parseOnDeletion)
-    .addOption(new Option('--pull-backup').hideHelp())
-    .option('--no-pull-backup', 'Skip pre-pull backups before overwriting or deleting local skills')
+    .option('--on-remote-deletion <policy>', 'How to handle remote deletions: keep-local, delete, prompt', parseOnDeletion)
+    .addOption(new Option('--on-deletion <policy>').hideHelp().argParser(parseOnDeletion))
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (
       server: string | undefined,
@@ -2757,6 +2748,7 @@ export function createProgram(homeDir?: string): Command {
         yes?: boolean;
         crossServerPolicy?: string;
         onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
+        onRemoteDeletion?: 'keep-local' | 'delete' | 'prompt';
         onDeletion?: 'keep-local' | 'delete' | 'prompt';
       }
     ) => {
@@ -2784,7 +2776,7 @@ export function createProgram(homeDir?: string): Command {
           json: program.opts<{ json?: boolean }>().json === true,
           crossServerPolicy: options.crossServerPolicy,
           onConflict: options.onConflict,
-          onDeletion: options.onDeletion
+          onDeletion: options.onRemoteDeletion ?? options.onDeletion
         });
 
         if (!program.opts<{ json?: boolean }>().json) {
@@ -2824,7 +2816,7 @@ export function createProgram(homeDir?: string): Command {
         getGlobalOutput().result(true, summarizeSyncResults(results));
 
         if (shouldExitDirtySkip(results, {
-          strict: isStrictMode(program),
+          strict: isStrictMode(),
           dryRun: options.dryRun,
           countSkips: countSyncSkips,
           hasSuccessfulTarget: hasSuccessfulSyncTarget

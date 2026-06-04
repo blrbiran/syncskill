@@ -138,37 +138,6 @@ describe('update skip exit semantics', () => {
     expect(processExit).not.toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
   });
 
-  it('update --all exits 6 on partial skip with --strict', async () => {
-    homeDir = await mkdtemp(join(tmpdir(), 'syncskill-update-exit-'));
-
-    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    vi.spyOn(await import('../../src/source.js'), 'updateAllSources').mockResolvedValue({
-      states: [],
-      results: [
-        {
-          sourceName: 'alpha',
-          status: 'success',
-          previousSkills: [],
-          currentSkills: ['skill-a'],
-          addedSkills: ['skill-a'],
-          removedSkills: []
-        },
-        {
-          sourceName: 'beta',
-          status: 'skipped',
-          reason: 'dirty',
-          previousSkills: ['skill-b'],
-          currentSkills: ['skill-b'],
-          addedSkills: [],
-          removedSkills: []
-        }
-      ]
-    });
-
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--strict', 'update', '--all'], { from: 'node' });
-
-    expect(processExit).toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
-  });
 
   it('update --all exits 6 on partial skip with SYNCSKILL_STRICT=1', async () => {
     homeDir = await mkdtemp(join(tmpdir(), 'syncskill-update-exit-'));

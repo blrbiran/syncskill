@@ -65,7 +65,6 @@ describe('sync CLI', () => {
       dryRun: undefined,
       noRefresh: true,
       timeout: undefined,
-      pullBackup: undefined,
       yes: undefined,
       noInteractive: undefined,
       yesDestructive: false,
@@ -181,7 +180,7 @@ describe('sync CLI', () => {
     ]);
   });
 
-  it('sync forwards on-deletion to engine and prints delete rows', async () => {
+  it('sync forwards on-remote-deletion to engine and prints delete rows', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
     tempDirs.push(homeDir);
 
@@ -237,7 +236,7 @@ describe('sync CLI', () => {
       '--no-refresh',
       'sync',
       'alpha',
-      '--on-deletion',
+      '--on-remote-deletion',
       'delete'
     ], { from: 'node' });
 
@@ -314,41 +313,6 @@ describe('sync CLI', () => {
     ]);
   });
 
-  it('pull forwards no-pull-backup to engine', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
-    tempDirs.push(homeDir);
-
-    await saveConfig(
-      {
-        version: 1,
-        conflict_resolution: 'manual',
-        agents: {},
-        links: {},
-        servers: {
-          alpha: { host: 'alpha.example.com', remote_agents: {} }
-        },
-        sources: {}
-      },
-      homeDir
-    );
-
-    const pullFromServersSpy = vi.spyOn(await import('../../src/core/sync_engine.js'), 'pullFromServers').mockImplementation(async () => []);
-    vi.spyOn(console, 'log').mockImplementation(() => undefined);
-
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'pull', '--all', '--no-pull-backup'], { from: 'node' });
-
-    expect(pullFromServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], {
-      dryRun: undefined,
-      timeout: undefined,
-      pullBackup: false,
-      yes: undefined,
-      noInteractive: undefined,
-      crossServerPolicy: undefined,
-      onConflict: undefined,
-      onDeletion: undefined
-    });
-  });
-
   it('pull forwards cross-server and per-server conflict flags to engine', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
     tempDirs.push(homeDir);
@@ -382,7 +346,7 @@ describe('sync CLI', () => {
       'server:alpha',
       '--on-conflict',
       'abort',
-      '--on-deletion',
+      '--on-remote-deletion',
       'delete'
     ], { from: 'node' });
 
@@ -598,7 +562,6 @@ describe('sync CLI', () => {
       dryRun: undefined,
       noRefresh: true,
       timeout: undefined,
-      pullBackup: undefined,
       yes: true,
       noInteractive: undefined,
       yesDestructive: false,
@@ -654,7 +617,6 @@ describe('sync CLI', () => {
       dryRun: true,
       noRefresh: true,
       timeout: undefined,
-      pullBackup: undefined,
       yes: true,
       noInteractive: undefined,
       yesDestructive: false,
@@ -698,7 +660,6 @@ describe('sync CLI', () => {
       dryRun: undefined,
       noRefresh: true,
       timeout: undefined,
-      pullBackup: undefined,
       yes: undefined,
       noInteractive: undefined,
       yesDestructive: false,
@@ -779,9 +740,10 @@ describe('sync CLI', () => {
     expect(processExit).not.toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
   });
 
-  it('push --all exits 6 on partial skip with --strict', async () => {
+  it('push --all exits 6 on partial skip with SYNCSKILL_STRICT=1', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
     tempDirs.push(homeDir);
+    process.env.SYNCSKILL_STRICT = '1';
 
     await saveConfig(
       {
@@ -817,7 +779,7 @@ describe('sync CLI', () => {
       }
     ]);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--strict', '--no-refresh', 'push', '--all'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', '--all'], { from: 'node' });
 
     expect(processExit).toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
   });
