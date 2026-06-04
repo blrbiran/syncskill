@@ -29,6 +29,11 @@
 - **[2026-06-04]** `pre-pull` / `pre-restore` / source sidecar 目录快照逻辑应集中在 `src/utils/backup.ts`；CLI action 只做 restore 编排。
 - **[2026-06-04]** wrapper 层测试优先锁真实 contract（参数透传、返回值、行为），不要保留“function exists / signature exists”占位测试。
 - **[2026-06-04]** docs smoke test 不要锁 markdown 表格里带 `|` 的整串命令；优先断言稳定子串，避免被 `\|` 转义打成假失败。
+- **[2026-06-04]** v2.8 CLI 面收口时，`strict` 只保留 `SYNCSKILL_STRICT`；用户可见远端删除策略 flag 用 `--on-remote-deletion`；pull backup 开关走 `config.pull_backup` / `SYNCSKILL_PULL_BACKUP`，旧 flag 不再公开。
+- **[2026-06-04]** `push` / `pull` / `sync` 三个命令的“loadConfig + autoDiagnoseConfig + target server selection”前置流程应共用一个小 helper，避免同一 contract 漂移三处。
+- **[2026-06-04]** CLI help 回归测试要同时锁“该出现的公开 flag”和“不该暴露的隐藏兼容 alias / 已废弃 flag”；只测正向出现容易让旧参数悄悄回流到帮助面。
+- **[2026-06-04]** source update 的 removed-skill e2e 应优先锁稳定契约：保留为本地技能的提示、`.syncskill/skills` 仍存在、source checkout 中该技能已消失；不要依赖单源 update 是否打印汇总行。
+- **[2026-06-04]** 文档与技能说明在 sync CLI 收口后要明确区分“公开 flag”和“env/config 开关”：`--on-remote-deletion` 是公开参数，而 strict / pull-backup 控制走 `SYNCSKILL_STRICT`、`SYNCSKILL_PULL_BACKUP` 与 `config.pull_backup`。
 
 ## Do-Not-Repeat
 
@@ -47,7 +52,7 @@
 - **[2026-05-07]** Main design spec is `docs/superpowers/specs/syncskill-design.md`.
 - **[2026-05-14]** Manifest 使用 3-field 模型（`local_hash`, `remote_hash`, `recorded_hash`）而非 2-field；`recorded_hash` 作为 3-way merge 基准点。
 - **[2026-05-16]** 数据优先级原则：`file truth > config > registry`；registry 是派生缓存，不是独立 source of truth。
-- **[2026-05-16]** `install` 无参数显示帮助；内置 skill 只通过位置关键字 `install self` 安装；`install --self` 不做兼容保留。
+- **[2026-05-16]** `install` 无参数时：TTY 进入交互菜单，非 TTY 显示帮助；内置 skill 只通过位置关键字 `install self` 安装；`install --self` 不做兼容保留。
 - **[2026-05-16]** Link 命令双轨设计：人类用 verb（`edit/add/remove/clear`），AI agent 用 declarative（`set + build`）；`unlink <skill>` 是 remove-all alias。
 - **[2026-05-16]** 无参数 `syncskill` 显示本地 dashboard 摘要，不触发网络请求。
 - **[2026-05-21]** syncskill 未正式发布，移除 deprecated CLI 形态时不承担向后兼容包袱。

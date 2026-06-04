@@ -1,9 +1,9 @@
 # Syncskill — TypeScript 实现设计
 
-> **当前版本**：v2.7.5（2026-06-03）
+> **当前版本**：v2.8（2026-06-04）
 > **版本历史**：[CHANGELOG.md](CHANGELOG.md)
 >
-> 主要里程碑：v2.7.5 spec/code 对账（版本头补齐 v2.7.4 round-4 内容 + §3.2 函数描述简化 + `--cwd` 移除 + `restore` preAction 排除补齐 + 残留 "Tier 1" 术语清理）| v2.7.4 round-4 `--yes-destructive` BREAKING + `remote add/rm/list` + `no-baseline` guard + reconcile-engine 框架 + `server` → `remote` rename + `install` 无参数行为变更 | v2.7.3 round-3 spec/code/docs 收口（§3.7 status 枚举 6→7 文字同步 + `install --type` flag 注册补齐 + docs hygiene） | v2.7.2 round-2 spec/code 收口 + 单一 canonical error code 注册表（Plan P + P5 lint 不变量）+ 死 executor 与死 code 清理（E_CONFLICT / E_SOURCE_DIRTY / W_PULL_BACKUP_SKIPPED）+ 5 个共享 helper 抽取（emitNeedsInput / findActionId / emitError / finalizeSyncCommand / expandLinkAgentNames）+ `--strict` 范围收紧到 4 命令 | v2.7.1 spec/code 收口 + v2.6 兼容包袱清零（sidecar 路径 + cross-server 裸名） + 全 Tier 1 命令 plan_ref 落地 + force-hint 架构不变量 | v2.7 -y 破坏性 verb 规则 + plan_ref 可追溯 + sidecar backup 统一目录 + plan flag `-`=stdin + link audience 自省 + cross-server-policy `server:` 前缀 + unresolved resolve_phase | v2.6 source merge 重设计 + takeover 独立命令 + --on-conflict 统一 + cross-server-policy server-name + --plan-file 移除 + per-server result | v2.5 spec 清理 + UnresolvedKind 重命名 + remote refresh 合并 + link build 降 Tier 2 | v2.4 sidecar backup + restore 命令 + conflict 决议接通 | v2.4.1 receiver Node 18 | v2.3 远端备份模型 + remote 命令族 + takeover 协议 | v2.2 plan-then-execute + --strict | v2.1 install self + --apply 命名规则
+> 主要里程碑：v2.8 CLI 表面积优化（`--on-deletion` → `--on-remote-deletion` + `--strict`/`--no-pull-backup` 降级为 env-var-only + 5 个 extended error code 合并 + `--plan`/`--dry-run` 关系明确化）| v2.7.5 spec/code 对账（版本头补齐 v2.7.4 round-4 内容 + §3.2 函数描述简化 + `--cwd` 移除 + `restore` preAction 排除补齐 + 残留 "Tier 1" 术语清理）| v2.7.4 round-4 `--yes-destructive` BREAKING + `remote add/rm/list` + `no-baseline` guard + reconcile-engine 框架 + `server` → `remote` rename + `install` 无参数行为变更 | v2.7.3 round-3 spec/code/docs 收口（§3.7 status 枚举 6→7 文字同步 + `install --type` flag 注册补齐 + docs hygiene） | v2.7.2 round-2 spec/code 收口 + 单一 canonical error code 注册表（Plan P + P5 lint 不变量）+ 死 executor 与死 code 清理（E_CONFLICT / E_SOURCE_DIRTY / W_PULL_BACKUP_SKIPPED）+ 5 个共享 helper 抽取（emitNeedsInput / findActionId / emitError / finalizeSyncCommand / expandLinkAgentNames）+ `--strict` 范围收紧到 4 命令 | v2.7.1 spec/code 收口 + v2.6 兼容包袱清零（sidecar 路径 + cross-server 裸名） + 全 Tier 1 命令 plan_ref 落地 + force-hint 架构不变量 | v2.7 -y 破坏性 verb 规则 + plan_ref 可追溯 + sidecar backup 统一目录 + plan flag `-`=stdin + link audience 自省 + cross-server-policy `server:` 前缀 + unresolved resolve_phase | v2.6 source merge 重设计 + takeover 独立命令 + --on-conflict 统一 + cross-server-policy server-name + --plan-file 移除 + per-server result | v2.5 spec 清理 + UnresolvedKind 重命名 + remote refresh 合并 + link build 降 Tier 2 | v2.4 sidecar backup + restore 命令 + conflict 决议接通 | v2.4.1 receiver Node 18 | v2.3 远端备份模型 + remote 命令族 + takeover 协议 | v2.2 plan-then-execute + --strict | v2.1 install self + --apply 命名规则
 
 **相关文档**：
 - [E2E 测试框架设计](e2e-test-design.md) — End-to-End 测试框架规范
@@ -60,6 +60,8 @@ syncskill/
     │   ├── init.ts                # init 命令
     │   ├── install.ts             # install 命令注册（编排 src/install.ts）
     │   ├── link.ts                # link/unlink 命令（含 edit/add/remove/clear/set/build/list 子命令）
+    │   ├── link-display.ts        # link list 显示逻辑（符号/文字两种模式）
+    │   ├── link-edit.ts           # link edit 交互式矩阵编辑（单 skill / 全局）
     │   ├── refresh.ts             # refresh 命令注册
     │   ├── remote.ts              # remote 命令（v2.7.4 PR 5b: add/rm/list + show/agent/link/takeover 子树；合并自旧 server.ts）
     │   ├── remote-server.ts       # SSH scan-agents 编排层（被 refresh <server> / push auto-synthesize 共用）
@@ -83,7 +85,10 @@ syncskill/
     ├── core/                      # 业务逻辑层（不依赖 src/commands/；可被 src/commands/ + src/ 实现层共用）
     │   ├── manifest.ts            # MD5 hash + manifest 读写/比较 + classifySkillDelta + compareManifests + W_MANIFEST_CORRUPT
     │   ├── pull-backup.ts         # pull sidecar backup 读写 + restore 辅助
-    │   ├── sync_engine.ts         # push/pull 核心流程 + auto-synthesize backup + remote skill reconcile
+    │   ├── backup-paths.ts        # 统一 sidecar 备份路径常量（pre-pull / pre-restore / pre-update）
+    │   ├── sync_engine.ts         # push/pull/sync 编排入口 + 跨 server 冲突检测 + 远程 receiver 调用
+    │   ├── sync-push.ts           # push 流程实现：plan builder + auto-synthesize backup + pushToServer executor（v2.5 从 sync_engine.ts 拆出）
+    │   ├── sync-pull.ts           # pull 流程实现：plan builder + sidecar backup + pullFromServer executor（v2.5 从 sync_engine.ts 拆出）
     │   ├── sync-utils.ts          # 同步层工具函数（getIncludedSkills, computeLocalHashes, buildDirectionMap）
     │   ├── transport.ts           # SSH/rsync 传输 + 降级
     │   ├── conflict.ts            # 三路冲突检测与解决
@@ -92,9 +97,10 @@ syncskill/
     │   ├── registry-builder.ts    # v2 registry 重建（仅 ignored + http_baselines；REGISTRY_CORRUPT 自动恢复）
     │   ├── receiver-backup.ts     # 远端 receiver_config.json 本地备份 schema v1 读写（§3.3）
     │   ├── remote-scanner.ts      # SSH scan-agents primitive（receiver `scan-agents` 子命令调用）
+    │   ├── reconcile-engine.ts    # push/sync reconcile 框架：远端 skill set 清理 + no-baseline guard（v2.7.4 round-4）
     │   ├── takeover.ts            # remote-takeover preflight + resolutions 决议
     │   ├── plan.ts                # Plan-then-execute 框架类型 + 协议 helper（§3.0.B）
-    │   ├── tier-one-runner.ts     # Plan-then-execute runner（PLAN_COMMANDS 统一脚手架；文件名保留历史 Tier 1 词，未来如重构再统一）
+    │   ├── plan-execute-runner.ts  # Plan-then-execute runner（PLAN_COMMANDS 统一脚手架）
     │   ├── context.ts             # CommandContext：per-invocation 上下文 + emitter + 解析后的 flags
     │   ├── events.ts              # JSONL 事件协议（§11.2）
     │   ├── json-output.ts         # --json 渲染共享 helper
@@ -116,7 +122,7 @@ syncskill/
     │   └── backup.ts              # HTTP source --force 更新时的备份 (~/.syncskill/.backups/sources/<source>/pre-update)
     └── receiver/
         ├── bootstrap_remote.sh    # 远程部署脚本
-        └── sync_receiver.mjs      # 远程零依赖接收脚本（含 scan-agents / apply [--takeover=...] / Node 18 guard）
+        └── sync_receiver.mjs      # 远程零依赖接收脚本（含 scan-agents / apply / Node 18 guard）
 
 ~/.syncskill/                    # init 后创建的本地数据目录
 ├── config.json                    # 用户配置（JSON 格式，见 §11.11）
@@ -160,7 +166,7 @@ syncskill/
 | 允许例外 | 只读探查 — 包括只读网络请求（`git ls-remote`、`ssh <host> "cat manifest"`、HTTP HEAD 探针）和本地只读操作（`git status --porcelain`、`stat`、`ls`、本地 hash 计算）—— 用于产出 plan |
 | 输出（text 模式） | 显示"将要发生的变更"，每行前缀 `[dry-run]` |
 | 输出（json 模式） | 完整 plan JSON，等价 `--plan` |
-| 与 `--plan` 关系 | `--dry-run` ≡ `--plan` + text 渲染；`--json --dry-run` ≡ `--json --plan` |
+| 与 `--plan` 关系 | **等价**：`--dry-run` ≡ `--plan` + text 渲染；`--json --dry-run` ≡ `--json --plan`。人类用 `--dry-run`（直觉名）；AI agent 用 `--json --plan`（精确语义）。两者共享同一份 plan-builder 函数，输出内容完全一致 |
 
 #### 3.0.2 `-y` / `--yes` 和 `--yes-destructive`
 
@@ -239,19 +245,19 @@ syncskill/
 | ✗ | skip + `W_SOURCE_DIRTY`；exit 码按 §11.3 多 target skip 规则 |
 | ✓ | 执行更新（git reset --hard / http overwrite） |
 
-| `--strict` | 触发条件（partial skip 时） |
+| `SYNCSKILL_STRICT=1` | 触发条件（partial skip 时） |
 |---|---|
-| ✗ | 默认；多 target 命令至少 1 个成功就 exit 0，skip 列表反映在 `data.skipped[]` |
-| ✓ | 任何 skip 都升级为 exit 6（CI / 严格 AI agent 场景显式 opt-in） |
+| 未设置 | 默认；多 target 命令至少 1 个成功就 exit 0，skip 列表反映在 `data.skipped[]` |
+| `=1` | 任何 skip 都升级为 exit 6（CI / 严格 AI agent 场景显式 opt-in） |
 
-适用范围：`--strict` 影响**`update` / `push` / `pull` / `sync` 这 4 个多 target 命令**。`install` 的 partial skip 多源于用户决策（skill-selection 阶段 deselect），不在范围内 —— install 真正的失败应走 `E_INSTALL` exit 1 而不是 partial-skip exit 6。等价环境变量 `SYNCSKILL_STRICT=1`。
+适用范围：`SYNCSKILL_STRICT=1` 影响**`update` / `push` / `pull` / `sync` 这 4 个多 target 命令**。`install` 的 partial skip 多源于用户决策（skill-selection 阶段 deselect），不在范围内 —— install 真正的失败应走 `E_INSTALL` exit 1 而不是 partial-skip exit 6。（v2.8：`--strict` CLI flag 已移除，仅保留环境变量 `SYNCSKILL_STRICT=1`。）
 
 | `--dry-run` 组合 | 行为 |
 |---|---|
 | `--dry-run -y` | plan 显示"将要做"（含 `-y` 下的默认决策） |
 | `--dry-run --force` | plan 显示"force 下将要做"（dirty source 也算入） |
 | `--dry-run --no-interactive` | plan 照常输出，遇 unresolved 也列出（plan 阶段允许 unresolved 存在，不 exit 4） |
-| `--dry-run --strict` | plan 标注哪些项"将会触发 exit 6"，便于 CI 预判 |
+| `--dry-run` + `SYNCSKILL_STRICT=1` | plan 标注哪些项"将会触发 exit 6"，便于 CI 预判 |
 
 ### 3.0.B Plan-then-Execute 全局协议
 
@@ -321,7 +327,7 @@ syncskill/
 | `link-cleanup` | `link build` | 检测到 config 不再引用的 stale symlink | `approve`（删除 stale link） |
 | `cross-server-conflict` | `sync` / `pull` | 同一 skill 在多个 server 上 hash 不同 | `abort`（停止 plan，exit 7） |
 | `content-conflict` | `push` / `pull` / `sync` | 单 server 上 local/remote/recorded 三方冲突。所有命令统一 `options[]`：`["keep-local", "keep-remote", "skip"]`。push 下 `keep-local` = force push（本地覆盖远端）；`keep-remote` = skip（保留远端现状）。**v2.4 C2/C3**：pull 侧决议起作用——`applySyncResolutions` 把决议写入 `SyncDecisionSink.conflicts`，`pullFromServer.conflictResolutions` 真正消费（v2.4 B1 sidecar backup 兜底数据丢失风险） | `skip`（不动；与 §3.0.5 一致——`-y` 不暗示破坏性操作） |
-| `remote-deletion` | `sync` / `pull` | 远端 manifest 中已删除某 skill，但本地仍存在 | `keep-local`（保留本地） |
+| `remote-deletion` | `sync` / `pull` | 远端 manifest 中已删除某 skill，但本地仍存在。Policy flag: `--on-remote-deletion`（旧名 `--on-deletion` 保留为 alias） | `keep-local`（保留本地） |
 | `local-deletion` | `push` / `sync` | 本地已删除某 skill（baseline 中存在、当前文件不在），远端未改 → 用户可能本地 `rm` 想推送删除，syncskill 默认不主动跨设备删 | `keep-remote`（保留远端，本地下次 pull 会拉回；需用户显式 opt-in） |
 
 **`options[]` 与 `abort` 的关系**：`options[]` 列举的是**per-skill 决议项**（决定该 skill 如何处理）；`abort` 不在任何 `options[]` 中，因为它是**元决策**（停止整个 plan 的执行，不属于"对这个 skill 做什么"的选项）。`abort` 仅出现在 `default_under_y` 字段、`--cross-server-policy=abort`、`--on-conflict=abort` 等 orchestration-level 配置中。这一规则适用于所有 kind。
@@ -632,8 +638,6 @@ syncskill refresh <server>
 - `-y` / `--yes`：同意所有 prompt（safe default）
 - `--dry-run`：预览变更但不执行（等价 `--plan` + text 渲染）
 - `--force`：绕过 dirty 保护
-- `--no-pull-backup`（仅 push / pull / sync）：跳过 pull 写盘前的 backup（路径 `~/.syncskill/.backups/skills/<skill>/pre-pull/`）。等价 `config.pull_backup: false` 与 `SYNCSKILL_PULL_BACKUP=0`。CI / 大 skill 场景的 escape hatch；默认开启
-
 机器/脚本接入层（见 §11 + §3.0.B）：
 
 - `--json`：所有输出走结构化 JSONL（与人类文本互斥）
@@ -1326,7 +1330,7 @@ $ syncskill unlink my-skill -y
 8. local_hash ≠ remote_hash && 以上都不满足                                        → conflict, conflict
 ```
 
-**新增 `--on-local-deletion` flag（push/sync）**：与 §3.9 既有 `--on-deletion`（pull-side）平行。
+**新增 `--on-local-deletion` flag（push/sync）**：与 §3.9 既有 `--on-remote-deletion`（pull-side；旧名 `--on-deletion` 保留为 alias）平行。
 
 | 取值 | 行为 |
 |------|------|
@@ -1740,8 +1744,9 @@ Sync 拆成两个**完全分离**的阶段：
 |------|---------|------|
 | `--cross-server-policy <p>` | sync / `pull --all` | 跨 server 冲突（同一 skill 在多个 server 给出不同 hash）批量策略。取值:`first-wins` / `last-wins` / `abort` / `prompt`（默认）/ **`server:<name>`**（指定该 server 获胜,如 `server:prod`）。`-y` 不暗示 `first-wins`；`-y` 在跨 server 冲突上使用 safe default `abort`（与 §3.0.5 一致，避免误自动选某 server）。push 不暴露此 flag（push 是单向覆盖，远端不会回写到本地）。`server:<name>` 中 `<name>` 不在 `config.servers` → `E_REMOTE_NOT_FOUND` exit 2。**裸 server 名**（如 `--cross-server-policy=prod`）一律 `E_REMOTE_NOT_FOUND` exit 2 |
 | `--on-conflict <p>` | push / pull / sync | 单 server 内容冲突批量策略。**统一值域**：`keep-local` / `keep-remote` / `skip` / `abort`。push 下语义映射：`keep-local` = force push（本地覆盖远端）；`keep-remote` = skip（保留远端，不推）；`skip` = skip；`abort` = abort |
-| `--on-deletion <p>` | pull / sync | 检测到远端 manifest 已删除但本地仍存在时的策略：`keep-local`（默认，等价"保留本地复制为 manual"）/ `delete` / `prompt` |
-| `--no-pull-backup` | push / pull / sync | 跳过 pull 写盘前的 backup(路径 `~/.syncskill/.backups/skills/<skill>/pre-pull/`)。等价 `config.pull_backup: false`、`SYNCSKILL_PULL_BACKUP=0`。push 命令名义上无 pull 行为，但 sync 内嵌 pull 阶段时此 flag 仍生效；为接口对称对 push / pull / sync 三命令都注册 |
+| `--on-remote-deletion <p>` | pull / sync | 检测到远端 manifest 已删除但本地仍存在时的策略：`keep-local`（默认，等价"保留本地复制为 manual"）/ `delete` / `prompt`。旧名 `--on-deletion` 保留为 alias |
+
+Pull 写盘前 backup 仍可通过 `config.pull_backup: false` 或 `SYNCSKILL_PULL_BACKUP=0` 关闭（v2.8：`--no-pull-backup` CLI flag 已移除，仅保留 config 字段与环境变量）。
 
 ```
 Phase A: PLAN（只读，无副作用）
@@ -1837,6 +1842,9 @@ Phase B: EXECUTE（写盘，禁止 prompt）
   },
   "deletion": {
     "removed-on-remote": { "choose": "keep-local" }
+  },
+  "local_deletion": {
+    "deleted-locally": { "choose": "keep-remote" }
   }
 }
 ```
@@ -2420,9 +2428,13 @@ Phase 3: RECONCILE (远程 receiver)
     "skills"
   ],
   "scripts": {
-    "build": "tsc && shx cp -r skills dist/",
+    "build": "tsc && shx cp -r skills dist/ && shx rm -rf dist/receiver && shx cp -r src/receiver dist/receiver && shx chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
-    "test": "vitest run",
+    "test": "vitest run --project unit --project integration",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "vitest run --project e2e",
+    "test:all": "vitest run",
     "bootstrap": "npm install && npm run build"
   },
   "dependencies": {
@@ -2801,16 +2813,15 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 | `E_INSTALL` | error | **v2.7.2 (Plan P)** 起注册的 install / link / update 兜底码（以下至 `W_TAKEOVER_PREFLIGHT_FAILED` 同源）：install 命令通用失败兜底（具体子错误由 classifySyncError 或更细 code 优先路由） | 1 |
 | `E_LINK_FAILED` | error | link build 时 symlink fs 操作失败（createLink / removeLink）；与 `E_NETWORK` 区分（本地 fs 而非 SSH） | 1 |
 | `E_ABORT` | error | update 决议对 dirty source 选择 `abort`（用户主动停止） | 1 |
-| `W_GIT_UNREACHABLE` | warning | install plan 阶段 `git ls-remote` 探测失败；URL 可能不可达 | — |
-| `W_HTTP_UNREACHABLE` | warning | install plan 阶段 HTTP HEAD 探测失败；archive URL 可能不可达 | — |
-| `W_NO_SOURCES` | warning | update plan：无任何 source 配置 | — |
-| `W_NO_UPDATABLE` | warning | update plan：无可更新 source（仅 git / http with URL 可被 update） | — |
-| `W_NOT_UPDATABLE` | warning | update plan：指定 source 不可更新（local 或无 URL 的 HTTP） | — |
+| `W_SOURCE_UNREACHABLE` | warning | install plan 阶段 source 探测失败。`reason` 取值：`git`（`git ls-remote` 失败）/ `http`（HTTP HEAD 失败）。合并自旧 `W_GIT_UNREACHABLE` + `W_HTTP_UNREACHABLE`（v2.8） | — |
+| `W_UPDATE_SKIPPED` | warning | update plan：source 被跳过。`reason` 取值：`no-sources`（无 source）/ `no-updatable`（无可更新 source）/ `not-updatable`（指定 source 不可更新）。合并自旧 `W_NO_SOURCES` + `W_NO_UPDATABLE` + `W_NOT_UPDATABLE`（v2.8） | — |
 | `W_REFRESH` | warning | refresh 子步骤失败（本地 hash 重算或远端 manifest 获取），主流程继续 | — |
 | `W_SERVER_NOT_FOUND` | warning | sync/pull/push plan：`--all` 枚举出的 server 名未在 `config.servers` 中 | — |
 | `W_SOURCE_NOT_FOUND` | warning | source / update plan：指定 source 名未在 `config.sources` 中 | — |
 | `W_UNKNOWN_TYPE` | warning | install plan：source 类型无法推断；传 `--type` 消歧 | — |
 | `W_TAKEOVER_PREFLIGHT_FAILED` | warning | takeover preflight SSH scan 失败；execute 阶段兜底重试（spec §3.18） | — |
+| `W_NO_BASELINE_RISK` | warning | push/sync plan：远端 manifest 无 baseline（从未 sync 过），提示可能覆盖远端内容 | — |
+| `E_REMOTE_NOT_INITIALIZED` | error | `remote takeover` / `remote show` 等需要 receiver backup 但 `receivers/<server>.json` 不存在 | 3 |
 | `I_FORCE_PROMPT_HINT` | info | `--force` 下任何 prompt 真正调用 promptConfirm/promptSelect 时,每个 ctx 一次性 info 提示 ``--force` only bypasses dirty protection; use `-y` to auto-confirm prompts``。dirty-related prompt 在 callsite 已被 `if (!force)` 守卫（不会调用 prompt 函数），因此自然不发；详见 §3.0.3 "架构不变量" | — |
 
 **前缀约定**：`E_*` = error 级别（伴随非 0 exit code），`W_*` = warning 级别（exit 0，但事件流里出现），`I_*` = informational（exit 0,不阻断流程,纯纠偏/迁移提示,例:`I_FORCE_PROMPT_HINT`）。同一逻辑问题可能在不同上下文用不同 severity（例：dirty source 默认 `W_SOURCE_DIRTY` warning + skip + exit 6；`--strict` 下仍走同一 `W_SOURCE_DIRTY` warning + exit 6，行为不变只是 exit code 由 skip-aware 升级）。
@@ -2859,9 +2870,9 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 - 当前值在 v2.8 前不变（plan=1 / manifest=2 / data=1）
 - 破坏性 schema 变更必 bump version + CHANGELOG 公告
 
-#### 11.5.3 Extended（37 条 ERROR_CODES entry）
+#### 11.5.3 Extended（36 条 ERROR_CODES entry）
 
-剩余所有错误码（= 45 − 8），包括 generic 兜底（`E_INSTALL` / `E_LINK_FAILED` / `E_ABORT` / `E_RESTORE_FAILED`）、特化 W 码（`W_NO_SOURCES` / `W_REFRESH` / `W_NO_BASELINE_RISK` 等）、特化 E 码（`E_TIMEOUT` / `E_CONFIG_NOT_FOUND` / `E_AGENT_NOT_CONFIGURED` / `E_SKILL_NOT_FOUND` / `E_SOURCE_NOT_FOUND` / `E_REMOTE_NOT_FOUND` 等）。
+剩余所有错误码（= 44 − 8 = 36 条），包括 generic 兜底（`E_INSTALL` / `E_LINK_FAILED` / `E_ABORT` / `E_RESTORE_FAILED`）、特化 W 码（`W_UPDATE_SKIPPED` / `W_SOURCE_UNREACHABLE` / `W_REFRESH` / `W_NO_BASELINE_RISK` 等）、特化 E 码（`E_TIMEOUT` / `E_CONFIG_NOT_FOUND` / `E_AGENT_NOT_CONFIGURED` / `E_SKILL_NOT_FOUND` / `E_SOURCE_NOT_FOUND` / `E_REMOTE_NOT_FOUND` / `E_REMOTE_NOT_INITIALIZED` 等）。
 
 **Extended 承诺**：
 
