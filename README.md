@@ -123,8 +123,8 @@ In v2, `source add`, `source update`, and `source restore` were removed. Use `in
 | Command | Description |
 |---------|-------------|
 | `syncskill push [server\|--all] [--timeout <seconds>]` | Push local changes to servers |
-| `syncskill pull [server\|--all] [--timeout <seconds>]` | Pull remote changes from servers |
-| `syncskill sync [server\|--all] [--timeout <seconds>]` | Full sync (pull then push) |
+| `syncskill pull [server\|--all] [--timeout <seconds>] [--cross-server-policy <policy>] [--on-conflict <policy>] [--on-remote-deletion <policy>]` | Pull remote changes from servers |
+| `syncskill sync [server\|--all] [--timeout <seconds>] [--cross-server-policy <policy>] [--on-conflict <policy>] [--on-remote-deletion <policy>]` | Full sync (pull then push) |
 
 ### Diagnostics
 
@@ -141,9 +141,13 @@ In v2, `source add`, `source update`, and `source restore` were removed. Use `in
 - `--no-refresh` - Skip automatic manifest refresh
 - `-y, --yes` - Skip confirmation prompts
 - `--dry-run` - Preview changes without executing
+- `SYNCSKILL_STRICT=1` - Treat partial skip results as exit code 6
+- `SYNCSKILL_PULL_BACKUP=0|1` - Disable or force local pre-pull backups for `pull` / `sync`
 
 Use `refresh --remote <server>` when you want reconciliation to rescan the real remote skill tree and update `~/.syncskill/receivers/<server>.json` without pulling remote skill contents into the local repository.
 Use `pull` when you want to copy remote skill contents into the local repository.
+Use `--on-remote-deletion` on `pull` / `sync` when you need to choose how remote deletions affect local skills.
+Use `config.pull_backup` or `SYNCSKILL_PULL_BACKUP` to control local pre-pull backups; `--no-pull-backup` is no longer a public CLI flag.
 Use `remote show <name>` to inspect the local receiver backup (`updated_at`, `remote_agents`, `links`) for one remote.
 Use `config show` or inspect `~/.syncskill/config.json` when you need the configured transport fields such as `host`, `user`, `port`, and `identity_file`.
 For v2 migrations: `server probe` was removed; use `remote list`, `config show`, and sync/refresh commands to validate remote configuration.

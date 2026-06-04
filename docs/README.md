@@ -20,6 +20,7 @@ Documentation for the syncskill CLI tool.
 - **Receiver backup state**: See [Configuration Guide - Directory Structure](config-guide.md#directory-structure) for `~/.syncskill/receivers/<server>.json`
 - **Stale symlink cleanup**: Run `syncskill link build` to reconcile configured links and remove stale symlinks
 - **Dirty source recovery**: See top-level `update --force` and the `~/.syncskill/.backups/` sidecar backup notes in the guides below
+- **Remote sync policies**: See [Usage Guide - Remote Sync Workflow](usage-guide.md#remote-sync-workflow) for `--on-remote-deletion`, conflict policy flags, and `config.pull_backup` / `SYNCSKILL_PULL_BACKUP`
 - **Restore recovery**: See [Usage Guide - Reconciliation Workflow](usage-guide.md#reconciliation-workflow) for `restore <skill>` and [Configuration Guide - Directory Structure](config-guide.md#directory-structure) for `pre-pull` / `pre-restore` backup paths
 - **Install UX**: In a TTY, `syncskill install` opens an interactive menu instead of only showing help
 

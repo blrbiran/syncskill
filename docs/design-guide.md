@@ -298,6 +298,8 @@ Commands output structured JSONL events when `--json` flag is set or `SYNCSKILL_
 | `SYNCSKILL_CONFIG` | Override config file path |
 | `SYNCSKILL_JSON` | Enable JSON mode (`1`, `true`, `yes`) |
 | `SYNCSKILL_NO_INTERACTIVE` | Disable interactive prompts |
+| `SYNCSKILL_STRICT` | Exit with code 6 on partial skip results when set to `1` |
+| `SYNCSKILL_PULL_BACKUP` | Disable (`0`) or force (`1`) local pre-pull backups for `pull` / `sync` |
 
 ### Plan-then-Execute Protocol
 

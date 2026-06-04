@@ -384,13 +384,20 @@ syncskill pull alpha --timeout 60
 syncskill sync --all --timeout 60
 ```
 
-Remote sync timeout options:
+Remote sync options:
 
-| Option | Description |
-|--------|-------------|
-| `--timeout <seconds>` | Override the default SSH/rsync timeout for `push`, `pull`, and `sync` |
+| Option | Commands | Description |
+|--------|----------|-------------|
+| `--timeout <seconds>` | `push`, `pull`, `sync` | Override the default SSH/rsync timeout |
+| `--cross-server-policy <policy>` | `pull`, `sync` | Resolve cross-server conflicts with `first-wins`, `last-wins`, `abort`, `prompt`, or `server:<name>` |
+| `--on-conflict <policy>` | `pull`, `sync` | Resolve per-server conflicts with `keep-local`, `keep-remote`, `skip`, or `abort` |
+| `--on-remote-deletion <policy>` | `pull`, `sync` | Handle remote deletions with `keep-local`, `delete`, or `prompt` |
 
-Use `--timeout` when a remote server is slow to respond or you want the command to fail faster than the system SSH defaults.
+Use `--timeout` when a remote server is slow to respond or you want the command to fail faster than the system SSH defaults. Use `--on-remote-deletion` when you need to choose how remote deletions affect local skills.
+
+Local pre-pull backups for `pull` / `sync` are controlled by `config.pull_backup` and `SYNCSKILL_PULL_BACKUP`; `--no-pull-backup` is no longer a public CLI flag.
+
+Set `SYNCSKILL_STRICT=1` when automation should treat partial skip outcomes as exit code 6.
 
 Example timeout failure:
 
@@ -492,6 +499,8 @@ Global environment variable equivalents:
 | `SYNCSKILL_CONFIG` | Override the config file path |
 | `SYNCSKILL_JSON` | Enable JSON mode (same as `--json`) |
 | `SYNCSKILL_NO_INTERACTIVE` | Disable interactive prompts |
+| `SYNCSKILL_STRICT` | Exit with code 6 on partial skip results when set to `1` |
+| `SYNCSKILL_PULL_BACKUP` | Disable (`0`) or force (`1`) local pre-pull backups for `pull` / `sync` |
 
 Common automation examples:
 

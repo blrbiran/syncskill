@@ -84,8 +84,8 @@ In v2, `server probe` is removed.
 | Command | Description |
 |---------|-------------|
 | `push [server] [--all] [--dry-run] [--timeout <seconds>] [-y]` | Push skills to remote server |
-| `pull [server] [--all] [--dry-run] [--timeout <seconds>] [-y]` | Pull skills from remote server |
-| `sync [server] [--all] [--dry-run] [--timeout <seconds>]` | Full sync (pull then push) |
+| `pull [server] [--all] [--dry-run] [--timeout <seconds>] [--cross-server-policy <policy>] [--on-conflict <policy>] [--on-remote-deletion <policy>] [-y]` | Pull skills from remote server |
+| `sync [server] [--all] [--dry-run] [--timeout <seconds>] [--cross-server-policy <policy>] [--on-conflict <policy>] [--on-remote-deletion <policy>]` | Full sync (pull then push) |
 | `status` | Show sync status for all tracked servers |
 | `diff <server>` | Show pending changes for a server |
 | `resolve <skill> [--local|--remote|--diff]` | Resolve sync conflicts |
@@ -120,7 +120,7 @@ In v2, `server probe` is removed.
 | `--dry-run` | Preview changes without executing |
 | `--force` | Force operation (for example, updating dirty sources) |
 
-For automation, prefer `--json --no-interactive` together with declarative commands such as `config show`, `link set`, `link build`, `status`, `diff`, `push`, `pull`, and `sync`.
+For automation, prefer `--json --no-interactive` together with declarative commands such as `config show`, `link set`, `link build`, `status`, `diff`, `push`, `pull`, and `sync`. Use `SYNCSKILL_STRICT=1` when partial skips should fail automation, and control local pre-pull backups for `pull` / `sync` with `config.pull_backup` or `SYNCSKILL_PULL_BACKUP`.
 
 ## Usage Examples
 

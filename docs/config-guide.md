@@ -33,6 +33,8 @@ Environment variables also support automation:
 
 - `SYNCSKILL_JSON` - enable JSONL output mode
 - `SYNCSKILL_NO_INTERACTIVE` - disable prompts
+- `SYNCSKILL_STRICT` - treat partial skip results as exit code 6 when set to `1`
+- `SYNCSKILL_PULL_BACKUP` - disable (`0`) or force (`1`) local pre-pull backups for `pull` / `sync`
 
 ## Directory Structure
 
@@ -64,7 +66,7 @@ If `SYNCSKILL_DIR` is set, the same structure is created under that directory in
 Backup notes:
 
 - `~/.syncskill/.backups/sources/<source-name>/pre-update/` stores the previous materialized source contents before a forced top-level `update --force` overwrite.
-- `~/.syncskill/.backups/skills/<skill-name>/pre-pull/` stores the latest local skill snapshot before `pull` or `sync` overwrites that skill locally.
+- `~/.syncskill/.backups/skills/<skill-name>/pre-pull/` stores the latest local skill snapshot before `pull` or `sync` overwrites that skill locally. This is enabled by default, can be disabled via `config.pull_backup: false` or `SYNCSKILL_PULL_BACKUP=0`, and can be forced with `SYNCSKILL_PULL_BACKUP=1`.
 - `~/.syncskill/.backups/skills/<skill-name>/pre-restore/` stores the current local skill state immediately before `restore <skill>` replays the latest pre-pull backup.
 
 ## Configuration Shape
