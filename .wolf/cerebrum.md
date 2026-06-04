@@ -8,63 +8,27 @@
 
 <!-- How the user likes things done. Code style, tools, patterns, communication. -->
 
-- **[2026-05-21]** 语言约定：
-  - 对话使用中文
-  - `docs/superpowers/specs/` 下的文档使用中文
-  - 其他文档（README.md, docs/*.md 等）使用英文
-  - 代码、注释、git commit message 使用英文
+- **[2026-05-21]** 语言约定：对话使用中文；`docs/superpowers/specs/` 下文档使用中文；其他文档（`README.md`、`docs/*.md` 等）使用英文；代码、注释、git commit message 使用英文。
 - **[2026-06-03]** 输出被截断或 token hit 后，直接续写，不要道歉、不要 recap，按更小块继续推进。
+- **[2026-06-04]** `.wolf/*` 记录应定期去重、总结、瘦身；优先保留长期有效规律与近期高价值上下文，不要无限追加低信噪比流水。
 
 ## Key Learnings
 
-- **[2026-05-22]** `install` can adopt plan-then-execute incrementally: wire only the deterministic `--self` path through `withPlanExecute` first, and leave interactive URL/path installs on the existing flow until source probing/planning is designed.
-- **[2026-05-22]** `tests/integration/source-update-force.test.ts` should verify stash/sidecar backup behavior only; persisted update history assertions must be removed because spec §3.8 no longer records history.
-- **[2026-05-21]** `docs/config-guide.md` should document v2 config as JSON-only, mention automatic YAML→JSON migration on write, and use `link apply|set|add|remove|clear|list` examples instead of legacy `link --apply`.
-- **Project:** syncskill
-- **Description:** Multi-device AI Agent Skill sync tool
-- **Main Spec:** `docs/superpowers/specs/syncskill-design.md` 是总设计文档，实现前先对比 spec 与当前代码，确定待实现部分
-- **Testing:** 本地测试 CLI 使用 `npm run build && npm link`，然后运行 `syncskill <args>`
-- **CLI Entry Point:** 当通过 npm link 运行时，`process.argv[1]` 是 symlink 路径，与 `import.meta.url` 不匹配。需要使用 `realpathSync` 解析真实路径后比较
-- **Config Defaults:** `private_agents` 使用完整覆盖语义；未配置时回退到默认列表 `['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']`
-
-- **[2026-06-02]** E2E `withInit()` 现在只识别 `skipSelf`，不识别旧的 `skipSkill`。测试若还传 `skipSkill`，built-in `syncskill` 会继续被安装/链接，后续手写覆盖 `config.links` 时就会冒出 stale-link prompt；单-skill 声明式更新也要走 `link set <skill> <agent>`，不能再写旧的 `link <skill> -y`。
-- **[2026-06-02]** GitHub URL 安装/建档必须持久化 repo-relative `source.path`（等价 spec 的 `skill_subdir`），不能回写内部 checkout 目录。裸仓库 URL 应落成 `.`；`/tree/<branch>/<subdir>` 应落成对应子目录；显式 `skillSubdir`/`path` override 优先于 URL 推断。
-- **[2026-06-02]** 用户文档里的 source 运行时布局要写成 `~/.syncskill/.sources/<name>/checkout/`；`config.sources[*].path` 描述的是 checkout 内的 repo-relative 子目录，不是内部 checkout 根路径本身。`skills-registry.json` 示例也应使用当前 v2 形态（`ignored` + `http_baselines`），不要再展示旧的 v1 active-status 示例。
-- **[2026-06-03]** `config.sources[*].path` 对 local / git / http 三类 source 都是“materialized source root 内的相对目录”。local source 也不能写成绝对 skills 目录；实现会拒绝 absolute path，文档与 docs smoke test 也要一起锁住这点。
-- **[2026-06-02]** E2E stale-checkout helper 也必须跟随当前 runtime layout：伪造 git/non-git stale source 时要直接建到 `.syncskill/.sources/<name>/checkout`，否则 helper 本身就和安装/更新路径漂移，容易出现假阴性覆盖。
-- **[2026-06-02]** `install --path` 的最终语义是 source checkout 内“包含 skills 的 repo-relative 子目录”，`--skill-subdir` 只是它的别名；help、README/skill 文档和回归测试都要按这个语义表述，不能再写成内部 source 存储路径或模糊的通用 subdirectory。docs 索引页若提 stale symlink cleanup，也应明确指向 `syncskill link build`，不要笼统写成 `link` 命令本身自动 reconcile。
-
-- **[2026-06-02]** `backupSkillToSidecar()` 备份 materialized skill 时不能先 `mkdir` 最终目标目录再直接 `cp`，否则 HTTP `source update --force` 在目录/符号链接形态下会触发 `ERR_FS_CP_NON_DIR_TO_DIR`。应先清理旧 backup、确保父目录存在，再用 `cp(..., { dereference: true })` 复制真实内容；对应回归应覆盖已存在 backup + symlinked skill。
-
-- **[2026-06-02]** `refresh` 的最终命令面不再接受 `--status`。无 flag 时等价于本地+远端刷新后直接输出 status；`--local` / `--remote` 只刷新不打印状态。help、README、usage guide、skill 文档和相关 integration/doc tests 都要跟着这套语义走。
-
-- **[2026-06-02]** 文档里的 `skills-registry.json` v2 语义也要严格跟实现一致：只写 `http_baselines`；ignored 真相源在 `config.sources[*].ignore[]`。README / guides / docs tests 若还出现 registry `ignored` map，说明文档还在描述旧状态模型。
-
-- **[2026-06-02]** 测试里凡是手写 `skills-registry.json` / `config` 夹具，都要按当前 v2 模型写：配置优先用 `saveConfig(createDefaultConfig(...))` 或 `ctx.writeConfig()` 产出 `config.json`；非 HTTP 场景的 registry 通常应是 `{ version: 2, http_baselines: {} }`，不要再断言 v1 `registry.skills[*]` active/path/origin。
-- **[2026-06-03]** `tests/unit/source.test.ts` 里 same-repo / addSource / buildSkillsIndex 这类“当前行为”测试不应再把 `config.yaml` 当默认初始化；应统一走 `saveConfig(createDefaultConfig(...))` 写 `config.json`。只有显式验证旧配置兼容读取（例如 legacy `store` 字段）时，才保留手写 `config.yaml` fixture。
-- **[2026-06-03]** `tests/end2end/cases/sync/pull-target.test.ts` 和 `pull-skill-placement.test.ts` 这类“验证 pull 后路径放置 / link 结果”的 e2e，不应再手写 `registry.skills[*]` 夹具；这类断言要直接验证 `.sources/`、`skills/`、symlink target 和当前 `config.sources` object 语义。local source 配置也不要再写数组形态。
-- **[2026-06-03]** 当命令面发生收缩（例如移除 `refresh --status`）时，文档收口不能只改命令总览和 help 摘要；还要扫 workflow/example 段落，并在 `tests/unit/docs.test.ts` 里补 `not.toContain(...)` 负向断言，防止旧 CLI 形态从后文示例里漏回去。
-- **[2026-06-03]** `getSyncPaths()` 这类返回对象的 contract test 若使用 `toEqual` 锁整对象，新增字段（如 `backupsDir`）时要同步更新单测；milestone 级 `npm run build && npm test` 很适合抓这类“实现已对、测试落后”的残留漂移。
-- **[2026-06-03]** 当 CLI 向 engine 新增透传字段（如 `timeout` / `noInteractive` / `yesDestructive` / `json`）时，优先更新 integration test 预期而不是回退实现；这些字段属于命令面 contract 的一部分。
-- **[2026-06-03]** 用户可见的 `server` 命令面正在向 `remote` 收口：CLI/help/tests 应优先改成 `remote list/show/takeover`，旧 `config server` 入口不要继续保留在用户可见面上。
-- **[2026-06-03]** 文档里还要区分两类“remote 信息源”：`config show` / `config.json` 负责展示传输配置（`host`/`user`/`port`/`identity_file`/配置里的 `remote_agents`），`remote show <name>` 展示的是本地 receiver backup（`updated_at`/`remote_agents`/`links`）。两者不能混写成同一个“show server configuration”。
-- **[2026-06-03]** docs/config-guide.md 与 docs/design-guide.md 也要显式写出 `~/.syncskill/receivers/<server>.json`，否则 receiver-backup 已成为实现真相源但文档仍只描述 manifests/registry，读者会误以为 `refresh --remote` 只改 manifest 不改本地拓扑缓存。
-- **[2026-06-03]** `remote agent rm` / `remote link rm` 这类 receiver-backup 写命令会刷新 `updated_at`；integration test 不应锁死旧时间戳，而应断言结构与关键业务字段。
-- **[2026-06-03]** `E_REMOTE_NOT_INITIALIZED` 属于本地 receiver backup 缺失，应映射到 `CONFIG_ERROR`（exit 3），并由 unit/integration tests 同时锁住，避免 remote takeover 契约回退。
-- **[2026-06-03]** `refresh <server>` 现在会在 remote manifest refresh 之后额外调用 `scanRemoteAgents()` 来更新 `receivers/<server>.json`；凡是 mock 了 `refreshRemoteManifestFromServer()` 的 CLI/integration 测试，也必须同步 mock `scanRemoteAgents()`，否则会意外打到真实 SSH。
-- **[2026-06-03]** push 侧 remote receiver config 的真相源应优先使用本地 receiver backup（`receivers/<server>.json`）里的 `remote_agents + links`，不能只回显 `config.servers[*].remote_agents`，否则会把 per-server links 矩阵和已刷新/手动维护的 agent 拓扑丢掉。
-- **[2026-06-03]** `remote agent/link` 这类 receiver-backup 写命令的 snapshot / `updated_at` / save 流程应集中走 `src/core/server.ts` helper（如 `mutateReceiverBackup()` / `snapshotReceiverBackupState()`），不要在 `src/index.ts` 各 action 里重复手写，否则很容易出现 save 语义漂移或只改到部分命令。
-- **[2026-06-03]** receiver-backup 的领域规则（push 用的 receiver config payload、refresh 扫描后的 topology merge）也应集中在 `src/core/server.ts`，`src/refresh.ts` 和 `src/core/sync_engine.ts` 只做 orchestration；这样同一套 `remote_agents + links` 语义不会在两个调用方各自漂移。
-- **[2026-06-03]** `refresh <server>` 的 CLI integration test 不应只锁输出行，还要同时断言 `receivers/<server>.json` 的 side effect；`remote takeover` CLI 测试也要覆盖非 dry-run happy path，并确认只把 linked agents 传给 transport，避免命令面 contract 只剩 helper/transport 层覆盖。
-- **[2026-06-03]** 现有 end2end harness 还不支持真实 SSH/remote transport；凡是 remote push / receiver update / server integrity 这类无法真实执行的 e2e，不要保留大段 TODO 伪场景来制造“已有覆盖”的错觉，至少应显式改成 skipped stub 或降级到 integration。
-- **[2026-06-03]** `tests/end2end/cases/sync/pull-target.test.ts` / `pull-skill-placement.test.ts` 这类靠手写文件、symlink 和“post-pull state”来模拟 remote pull 的 case，也不应继续算作真实 pull e2e；如果 harness 不能真正执行 SSH pull，就应显式 skipped，避免路径断言看起来像端到端覆盖。
-- **[2026-06-04]** `restore <skill>` 若要把 manifest 强制留在 `conflict`，不能只依赖 `reconcileManifest()` 基于 hash 重新分类；restore 后 local/remote/recorded 可能仍然相等，所以需要持久化一个 sticky `forced_conflict` 标记，并在 `resolve` 成功时显式清掉。
-- **[2026-06-04]** `install --type` 的 source 类型选择已经在 `src/source.ts` 支持，但命令面是否真正可用取决于 `src/index.ts` 选项注册和 `src/install.ts` 透传；spec/CLI drift 在这类“底层已支持、入口未接线”的场景里很常见，审计时要同时看 command 注册层和 wrapper 层。
-- **[2026-06-04]** `pre-pull` / `pre-restore` / source sidecar 这类“删旧目录 → 建父目录 → 复制目录快照”的备份流程应集中放在 `src/utils/backup.ts`，`src/index.ts` 只保留 restore 命令编排；否则同一套备份语义会在 CLI action 里继续重复并逐步漂移。
-- **[2026-06-04]** `forced_conflict` 只在值为 `true` 时持久化；`applyResolution()` 虽会先写 `forced_conflict: false`，但经过 manifest normalization / reconcile 后字段会被移除。因此测试应断言“该标记不存在”，不要把 `false` 当成稳定持久状态。
-- **[2026-06-04]** `tests/unit/install.test.ts` 这类 wrapper 层测试应优先锁真实 contract（参数透传、返回值整理），删除仅验证“function exists / signature exists”的占位测试，避免噪音用例掩盖真实缺口。
-- **[2026-06-04]** 若某个 e2e 文件只剩过时 TODO/`skip` 场景，而同一行为已经有真实 e2e 覆盖（如 `source-install-stale.test.ts` 被 `source-stale-checkout.test.ts` 的 update stale-checkout 流覆盖），应把旧文件收敛成单一 skipped placeholder，而不是继续保留多段误导性的待实现脚本。
-- **[2026-06-04]** `tests/unit/docs.test.ts` 这类 docs smoke test 若断言 markdown 表格里的完整命令行，不要把 `|` 分隔符当成稳定字面量；README/source markdown 常会把它转义成 `\|`。优先锁更稳定的子串（命令名 + 关键语义词），避免文档实际已对齐却被表格转义打成假失败。
+- **[2026-05-21]** 项目主 spec 是 `docs/superpowers/specs/syncskill-design.md`；大改前先对 spec，再决定实现缺口。
+- **[2026-05-21]** 本地 CLI 验证路径：`npm run build && npm link` 后执行 `syncskill <args>`。
+- **[2026-05-21]** `private_agents` 是完整覆盖语义；未配置时回退默认列表 `['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']`。
+- **[2026-06-02]** `config.sources[*].path` 对 local / git / http 都是 materialized source root 内的相对目录；不能写 absolute path。文档、help、tests 都要锁住这点。
+- **[2026-06-02]** `install --path` 语义是 source checkout 内包含 skills 的 repo-relative 子目录；`--skill-subdir` 只是 alias。不要再写成内部存储路径或模糊 subdirectory。
+- **[2026-06-02]** 运行时 source 布局是 `~/.syncskill/.sources/<name>/checkout/`；docs、fixtures、stale-checkout helpers 都要按这个路径。
+- **[2026-06-02]** `skills-registry.json` v2 只保留 `http_baselines`；ignored 的真相源是 `config.sources[*].ignore[]`；总原则是 `file truth > config > registry`。
+- **[2026-06-02]** `refresh` 最终命令面不再接受 `--status`；无 flag 时刷新并打印 status，`--local` / `--remote` 只刷新不打印。文档收口要同时扫 workflow/example，并在 docs smoke test 里加负向断言。
+- **[2026-06-03]** remote 信息源分两类：`config show` / `config.json` 展示 transport config；`remote show <name>` 展示本地 receiver backup（`updated_at`、`remote_agents`、`links`）。两者不能混写。
+- **[2026-06-03]** receiver-backup 的领域规则和写入流程集中在 `src/core/server.ts`；`src/refresh.ts` 和 `src/core/sync_engine.ts` 只做 orchestration。测试凡 mock `refreshRemoteManifestFromServer()` 的路径，也要同步 mock `scanRemoteAgents()`。
+- **[2026-06-03]** 现有 end2end harness 不支持真实 SSH / remote transport；remote push/pull/receiver 类行为只应算 integration，e2e 最多保留显式 skipped stub，避免假覆盖。
+- **[2026-06-04]** `restore <skill>` 需要 sticky `forced_conflict`；不能只靠 hash reconcile。resolve 后该字段应被清掉，而且持久化上只保留 `true`。
+- **[2026-06-04]** `pre-pull` / `pre-restore` / source sidecar 目录快照逻辑应集中在 `src/utils/backup.ts`；CLI action 只做 restore 编排。
+- **[2026-06-04]** wrapper 层测试优先锁真实 contract（参数透传、返回值、行为），不要保留“function exists / signature exists”占位测试。
+- **[2026-06-04]** docs smoke test 不要锁 markdown 表格里带 `|` 的整串命令；优先断言稳定子串，避免被 `\|` 转义打成假失败。
 
 ## Do-Not-Repeat
 
@@ -73,49 +37,22 @@
 
 - [2026-05-06] **严重事故：删除用户 home 目录数据** — 绝对不能执行 `rm -rf ~/` 或任何针对 home 目录的递归删除。任何破坏性操作必须先停下来询问用户，列出影响范围，等待明确同意。
 - [2026-05-07] `.wolf/memory.md` and `.wolf/buglog.json` are in `.gitignore` — never include them in git commits. They are local-only tracking files.
-- [2026-05-18] **CRITICAL: Tilde (~) in paths must be expanded** — Node.js treats `~` as a literal directory name, NOT as home directory shortcut. Using `join(config.agents[x], skill)` directly when config contains `~/.claude/skills` creates `./~/.claude/skills/` in CWD. Always use `resolveAgentPath(agentPath, homeDir)` to expand `~` before any filesystem operation. This bug caused users to accidentally delete their home directory when running `rm -rf ~/` thinking they're cleaning up test artifacts.
-- [2026-06-03] `failWithOutputError()` / destructive gates inside commander actions cannot rely on `process.exit()` alone to stop execution in tests, because integration tests mock `process.exit`. After a blocked destructive path, return explicitly or guard the rest of the action, otherwise the handler can fall through into real transport/SSH work.
+- [2026-05-18] **CRITICAL: Tilde (~) in paths must be expanded** — Node.js treats `~` as a literal directory name, NOT as home directory shortcut. Always use `resolveAgentPath(...)` before filesystem operations involving configured agent paths.
+- [2026-06-03] `failWithOutputError()` / destructive gates inside commander actions cannot rely on `process.exit()` alone to stop execution in tests, because integration tests mock `process.exit()`. After a blocked destructive path, return explicitly.
 
 ## Decision Log
 
 <!-- Significant technical decisions with rationale. Why X was chosen over Y. -->
 
-- **[2026-05-07]** Main design spec is `docs/superpowers/specs/syncskill-design.md`. All future major changes should prompt whether to update this spec document.
-- **[2026-05-12]** Agent 目录路径跟随各 agent 官方约定，不统一风格（如 amp 用 `~/.config/agents/skills`）
-- **[2026-05-12]** `antigravity` 作为独立 agent 列出，不作为 gemini 变体处理
-- **[2026-05-12]** 多 skills 安装需用户确认，单个 skill 直接安装（避免意外安装大量 skills）
-- **[2026-05-12]** `compressing` 依赖是必要的，CLI 在 Windows 支持不好，需要跨平台纯 JS 方案
-- **[2026-05-14]** Manifest 使用 3-field 模型 (`local_hash`, `remote_hash`, `recorded_hash`) 而非 2-field。`recorded_hash` 作为 3-way merge 基准点，天然解决"syncskill 外部操作"（如 git checkout）场景，无需额外的 in-sync 保护逻辑
-- **[2026-05-15]** Update overwrite recovery metadata should live in `~/.syncskill/update-history.json`, with one record per source keyed by source name.
-- **[2026-05-16]** User-facing docs should mention `private_agents`, `source update --dry-run`, `source restore`, and `--timeout` together because they shipped as one update-flow feature set.
-- **[2026-05-16]** 数据优先级原则：`file truth > config > registry`。registry 是 config 的派生缓存，不是独立 source of truth
-- **[2026-05-16]** `install` 无参数显示帮助；内置 skill 只能通过位置关键字 `install self` 安装，`install --self` 已移除并应由 commander 直接报 `unknown option`；若 cwd 存在 `./self` 目录，只有交互菜单选择 built-in 或无本地 `./self` 时才走内置安装分支。
-- **[2026-05-16]** `link <skill>` 打开单 skill 矩阵编辑器；`link <skill> <agent>` 追加链接；`unlink` 保持纯移除语义
-- **[2026-05-19]** `unlink <skill>` 直接移除该 skill 的所有 agent 链接；不再支持 `<agent>` 参数或 `--all` 选项，保留 `-y/--yes` 与 `--dry-run`
-- **[2026-05-16]** 无参数 `syncskill` 显示仪表盘摘要（不触发网络请求）；health=本地 `diagnoseConfig()` 的 errors+warnings，server 状态仅读 `~/.syncskill/manifests/*.json`，skills 统计来自 `loadSkillsRegistry()`，其中 active=linked、ignored=ignored
-- **[2026-05-17]** Dashboard spec 输出要求固定格式：标题+分隔线、`Skills: total (linked, ignored)`、`Sources: count (names)`、agent 存在性符号、server 基于 manifest 非 `in-sync` 项计为 pending、底部 quick actions 与 help 提示都需要精确覆盖到测试
-- **[2026-05-16]** 支持 `--force --dry-run` 组合预览强制更新的影响
-- **[2026-05-21]** v2 spec 删除所有 deprecated CLI 形态（link 旧形态、source add/update、scan --migrate），因为 syncskill 未正式发布，无向后兼容负担
-- **[2026-05-21]** Config 格式改为 JSON-only（原 YAML）：任何 config 写操作自动迁移 YAML → JSON 并删除旧 `config.yaml`。AI agent 处理 JSON 更可靠（无缩进歧义）
-- **[2026-06-02]** Commander 的否定布尔选项 `--no-interactive` 在运行时体现为 `interactive=false`，不是 `noInteractive=true`。CLI 透传到 engine 前需要统一成显式 `noInteractive`，未设置时保持 `undefined`，避免回归测试和运行时语义漂移。
-- **[2026-06-02]** 现有 manifest 模型尚未显式引入 `delete` / `remote-deleted` 类型时，pull-side 远端删除仍会先表现为 `direction="pull"`。实现 `--on-deletion` 时必须基于 hash 组合 (`remote_hash === null && recorded_hash !== null && local_hash === recorded_hash`) 单独分流，不能把所有 `pull` 都直接送进 `pullSkillDirectory()`。
-- **[2026-06-02]** sync/pull/push 的 server 遍历顺序要保持 `Object.keys(config.servers)` 的插入顺序，不能额外 `.sort()`。这个顺序会直接影响 `--all` 执行顺序，以及 cross-server policy 的 `first-wins` / `last-wins` 语义。
-- **[2026-06-02]** Commander 的否定布尔 flag 若要保留“未设置=undefined”语义，不能只注册 `--no-foo`；需要同时加一个隐藏的正向 option（如 `new Option('--pull-backup').hideHelp()`），这样未传 flag 时不会把值强制变成 `true`，CLI 才能继续让 env/config 决定默认值。
-- **[2026-06-02]** pull-side 覆盖/删除本地 skill 前的 sidecar backup 路径统一为 `~/.syncskill/.backups/skills/<skill>/pre-pull`。优先级是 CLI `--no-pull-backup` / hidden positive option → `SYNCSKILL_PULL_BACKUP` → `config.pull_backup` → 默认开启。
-- **[2026-06-02]** `--strict` / `SYNCSKILL_STRICT` 只应在命令结果里存在“真实 skipped work”时触发 exit 6。`skipped_skills` 不能混入 finalized manifest 中已经执行完成或仅仅变成 `direction="skip"` 的 no-op 项，否则 multi-target partial skip 会被误判。
-- **[2026-06-02]** `push` / `pull` / `sync` 的 `--json` 模式必须只输出 JSONL 事件，不再混入人类可读 rows 或 conflict banner；`result.summary.data` 需要稳定包含 `servers[]`、`changes[]`、`backups[]` 以及顶层计数，供 agent 精确判读 per-server/per-skill 结果。
-- **[2026-06-02]** 用户可见文档与 skill 文档要跟随 spec 的最终命令面同步更新：`install self`、顶级 `update`、`link build`、`--plan` + shell 重定向取代 `--plan-file`，并删除 `doctor --rebuild-registry` 等已移除入口；`tests/unit/docs.test.ts` 也要一起更新，否则会在文档收口时回归失败。
-- **[2026-06-02]** `install --self` 已从最终命令面移除，不做兼容保留。help / integration tests / error 文案都应只指向位置关键字 `install self`，旧 flag 应保持 commander 默认 `unknown option` 行为。
-- **[2026-06-02]** `install self` 的 `--json` / `--apply -` / hidden stdin alias 路径必须保持纯 JSONL；install 流程复用的 helper（如 `ensureSharedSkillsDirectory()`）不能再直接 `console.log` / `console.warn`，而要走统一 output 通道，否则 JSON 模式会被人类文本污染并打断 agent 解析。
-- **[2026-06-02]** `--apply <path|->` / `--resolutions <path|->` 的 `-` 必须按 Unix 约定读取 stdin；旧 `--apply-stdin` / `--resolutions-stdin` 只作为隐藏兼容 alias。`parsePlan()` 也要补齐稳定默认值（缺失 action.id 自动补 `aN`，缺失 unresolved.resolve_phase 默认 `plan`），这样 execute 路径、plan_ref 关联和测试输出才可预测。
-- **[2026-06-02]** `source update --force` 的 HTTP dirty backup 统一落到 `~/.syncskill/.backups/sources/<source>/pre-update`，不要再使用旧的 `skills/<source>.syncskill-pre-update-backup` 位置；CLI 提示也要明确 `--force` 只绕过 dirty protection，`-y/--yes` 才是自动确认 prompt。
-- **[2026-06-02]** `install self` / `install <source>` 返回的 `linkedAgents` 必须来自 `linkConfiguredSkills()` 的真实结果，不能直接回显 `config.agents` 或 `config.links`。否则 wildcard `*` 会泄漏到结果里，且 summary 会错误声称链接到了并未实际创建链接的 agent。
-- **[2026-06-02]** `source remove --json` 和 `link build --json` 的 summary 需要保留可追踪的 `plan_ref`：前者在 `removed_links[]`，后者在 `symlinks_created[]` / `symlinks_removed[]`。这属于 agent 依赖的机器可读契约，应由 integration tests 锁住。
-- **[2026-06-02]** `doctor --rebuild-registry` 已从最终命令面移除；registry 缺失/损坏/孤儿建议统一改成 `syncskill link build` 重新生成 `skills-registry.json`。CLI 集成测试若执行 `dist/index.js`，代码改动后必须先 `npm run build`，否则会误读旧命令面并产生假失败。
-- **[2026-06-02]** ignored state 的唯一真相源现在是 `config.sources[*].ignore[]`；`skills-registry.json` v2 只持久化 `http_baselines`。doctor、dashboard、source dirty detection、link build 和相关 tests 都应基于 `file truth > config > registry`，不要再从 registry 读取 ignored/active/path。
-- **[2026-06-02]** 文档与测试指南也要跟随最终命令面和状态模型一起更新：`link --apply` → `link build`，config 示例写 `config.json` 而不是 `config.yaml`，sidecar 备份目录写 `.backups/sources/<source>/pre-update` / `.backups/skills/<skill>/pre-pull`，skills-registry 描述不能再写成“origin mapping + ignore status”的旧模型。
-- **[2026-06-02]** help/description 文案也属于最终命令面的一部分；像 `doctor` 这种命令的描述不能再写 `config.yaml issues` 之类的旧表述。改完 help 文案后，若集成测试跑 `dist/index.js`，同样要先 `npm run build` 再验证。
-- **[2026-06-02]** `link apply` 旧别名也已从最终命令面移除，不做兼容保留。`link --help` / integration tests 只应暴露 `build`；当前 commander 对 `syncskill link apply` 的失败形态是把 `apply` 视为 `link` 的多余参数，因此回归断言应匹配 `too many arguments for 'link'`，不要再期待 `unknown command`。
-- **[2026-06-02]** 无参数 `syncskill` 也会先走 root command 的 `preAction` 自动 refresh 本地 manifests；dashboard integration fixture 如果手写 manifest，必须写入真实 `local_hash`（或显式关闭 refresh），否则进入 dashboard 前会被本地 hash 刷新成 pending。
-- **[2026-05-21]** Link 命令双轨设计：人类用 verb（edit/add/remove/clear），AI agent 用 declarative（set + build）。`set` 幂等可重放，避免多 agent 并发覆盖
-- **[2026-05-21]** `installFromSource()` 直接复用 `addSourceFromUrl()`；当前 `install` 已覆盖 `source add` 的核心持久化入口（含 git/http/local/archive source 建档），删除 `source add` 不需要额外保留独立逻辑
+- **[2026-05-07]** Main design spec is `docs/superpowers/specs/syncskill-design.md`.
+- **[2026-05-14]** Manifest 使用 3-field 模型（`local_hash`, `remote_hash`, `recorded_hash`）而非 2-field；`recorded_hash` 作为 3-way merge 基准点。
+- **[2026-05-16]** 数据优先级原则：`file truth > config > registry`；registry 是派生缓存，不是独立 source of truth。
+- **[2026-05-16]** `install` 无参数显示帮助；内置 skill 只通过位置关键字 `install self` 安装；`install --self` 不做兼容保留。
+- **[2026-05-16]** Link 命令双轨设计：人类用 verb（`edit/add/remove/clear`），AI agent 用 declarative（`set + build`）；`unlink <skill>` 是 remove-all alias。
+- **[2026-05-16]** 无参数 `syncskill` 显示本地 dashboard 摘要，不触发网络请求。
+- **[2026-05-21]** syncskill 未正式发布，移除 deprecated CLI 形态时不承担向后兼容包袱。
+- **[2026-05-21]** Config 格式改为 JSON-only；任何 config 写操作自动迁移 YAML → JSON 并删除旧 `config.yaml`。
+- **[2026-06-02]** 顶级 `update` 取代 `source update`；`install` 负责新增 source；`source add/update/restore` 从最终命令面移除。
+- **[2026-06-03]** 用户可见的 `server` 命令面向 `remote` 收口；文档、help、tests 都应优先暴露 `remote`。
+- **[2026-06-03]** push 使用 `receivers/<server>.json` 里的 receiver backup 作为远端拓扑真相源，而不是只回显 `config.servers[*].remote_agents`。
+- **[2026-06-04]** `restore <skill>` 是本地 recovery：从最新 `pre-pull` backup 回放，并故意把 manifest 留在显式 `conflict`，直到用户 resolve。
