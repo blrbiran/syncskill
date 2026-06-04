@@ -85,6 +85,35 @@ describe('reconcileManifest', () => {
     expect(reconciled.skills.zebra.direction).toBe('pull');
     expect(reconciled.skills.zebra.status).toBe('remote-changed');
   });
+
+  it('preserves forced conflict state even when hashes would otherwise reconcile to in-sync', () => {
+    const manifest: ServerManifest = {
+      version: 1,
+      server: 'dev',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: 'same',
+          remote_hash: 'same',
+          recorded_hash: 'same',
+          direction: 'skip',
+          status: 'in-sync',
+          forced_conflict: true
+        }
+      }
+    };
+
+    const reconciled = reconcileManifest(manifest);
+
+    expect(reconciled.skills.welcome).toEqual({
+      local_hash: 'same',
+      remote_hash: 'same',
+      recorded_hash: 'same',
+      direction: 'conflict',
+      status: 'conflict',
+      forced_conflict: true
+    });
+  });
 });
 
 describe('status and diff rows', () => {
@@ -314,5 +343,34 @@ describe('applyResolution', () => {
       direction: 'pull',
       status: 'remote-changed'
     });
+  });
+
+  it('clears forced conflict after a resolution is applied', () => {
+    const manifest: ServerManifest = {
+      version: 1,
+      server: 'dev',
+      updated_at: '2026-05-01T00:00:00.000Z',
+      skills: {
+        welcome: {
+          local_hash: 'same',
+          remote_hash: 'same',
+          recorded_hash: 'same',
+          direction: 'conflict',
+          status: 'conflict',
+          forced_conflict: true
+        }
+      }
+    };
+
+    const resolved = applyResolution(manifest, 'welcome', 'local', '2026-05-01T01:00:00.000Z');
+
+    expect(resolved.skills.welcome).toEqual({
+      local_hash: 'same',
+      remote_hash: 'same',
+      recorded_hash: 'same',
+      direction: 'skip',
+      status: 'in-sync'
+    });
+    expect(resolved.skills.welcome).not.toHaveProperty('forced_conflict');
   });
 });

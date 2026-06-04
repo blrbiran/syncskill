@@ -139,21 +139,9 @@ describe('install module', () => {
       expect(configContent).toContain('"claude"');
     });
 
-    it('should throw error if embedded skill not found', async () => {
-      // This test verifies the error path when embedded skill doesn't exist
-      // We can't easily test this without mocking, but we verify the function exists
-      expect(typeof installSyncskillSkill).toBe('function');
-    });
   });
 
   describe('installFromSource', () => {
-    it('should be a function that accepts homeDir, urlOrPath, and options', () => {
-      // installFromSource is a thin wrapper around addSourceFromUrl (100+ tests in source.test.ts)
-      // This test verifies the function signature exists
-      expect(typeof installFromSource).toBe('function');
-      expect(installFromSource.length).toBeGreaterThanOrEqual(2); // 2 required params, options has default
-    });
-
     it('reports actual linked agents instead of raw config targets', async () => {
       const tempDir = join(import.meta.dirname, `../../.test-tmp-install-source-${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const homeDir = join(tempDir, 'home');

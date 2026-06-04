@@ -302,6 +302,67 @@ describe('reconciliation CLI', () => {
     );
   });
 
+  it('restore --server only marks the selected manifest as conflict', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
+    tempDirs.push(homeDir);
+    await saveConfig(createDefaultConfig(), homeDir);
+
+    const syncPaths = getSyncPaths(homeDir);
+    const skillDir = join(syncPaths.skillsDir, 'welcome');
+    const backupDir = getPullBackupDir(homeDir, 'welcome');
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# current\n', 'utf8');
+    await mkdir(backupDir, { recursive: true });
+    await writeFile(join(backupDir, 'SKILL.md'), '# backup\n', 'utf8');
+
+    const trackedState = {
+      local_hash: '11111111111111111111111111111111',
+      remote_hash: '11111111111111111111111111111111',
+      recorded_hash: '11111111111111111111111111111111',
+      direction: 'skip' as const,
+      status: 'in-sync' as const
+    };
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-06-04T00:00:00.000Z',
+      skills: {
+        welcome: trackedState
+      }
+    });
+
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'beta',
+      updated_at: '2026-06-04T00:00:00.000Z',
+      skills: {
+        welcome: trackedState
+      }
+    });
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'restore', 'welcome', '--server', 'beta'], { from: 'node' });
+
+    await expect(loadServerManifest(homeDir, 'alpha')).resolves.toMatchObject({
+      skills: {
+        welcome: {
+          direction: 'skip',
+          status: 'in-sync'
+        }
+      }
+    });
+    await expect(loadServerManifest(homeDir, 'beta')).resolves.toMatchObject({
+      skills: {
+        welcome: {
+          direction: 'conflict',
+          status: 'conflict',
+          forced_conflict: true
+        }
+      }
+    });
+  });
+
   it('refresh --local [server] updates manifests without printing status rows', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
     tempDirs.push(homeDir);
