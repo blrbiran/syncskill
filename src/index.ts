@@ -77,6 +77,23 @@ async function selectTargetServers(
   return selected;
 }
 
+async function prepareSyncTargetServers(
+  homeDir: string,
+  server: string | undefined,
+  options: { all?: boolean; yes?: boolean },
+  action: 'push' | 'pull' | 'sync',
+  noInteractive?: boolean
+): Promise<string[] | null> {
+  const config = await loadConfig(homeDir);
+  const { skillsDir } = getSyncPaths(homeDir);
+  await autoDiagnoseConfig(config, skillsDir);
+
+  return selectTargetServers(Object.keys(config.servers), server, {
+    ...options,
+    noInteractive
+  }, action);
+}
+
 import { applyResolution, reconcileManifest } from './core/conflict.js';
 import { computeDefaultLinkTargets } from './core/private-agents.js';
 import {
@@ -2613,13 +2630,8 @@ export function createProgram(homeDir?: string): Command {
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; yes?: boolean }) => {
       try {
-        const config = await loadConfig(resolvedHomeDir);
-        const { skillsDir } = getSyncPaths(resolvedHomeDir);
-        await autoDiagnoseConfig(config, skillsDir);
-
-        const allServers = Object.keys(config.servers);
-
-        const targetServers = await selectTargetServers(allServers, server, options, 'push');
+        const noInteractive = isNoInteractive(program);
+        const targetServers = await prepareSyncTargetServers(resolvedHomeDir, server, options, 'push', noInteractive);
         if (!targetServers) return;
 
         const json = program.opts<{ json?: boolean }>().json === true;
@@ -2628,7 +2640,7 @@ export function createProgram(homeDir?: string): Command {
           noRefresh: !program.opts<{ refresh: boolean }>().refresh,
           timeout: options.timeout,
           yes: options.yes,
-          noInteractive: isNoInteractive(program),
+          noInteractive,
           yesDestructive: isYesDestructiveEnabled(program),
           json
         });
@@ -2682,15 +2694,8 @@ export function createProgram(homeDir?: string): Command {
       }
     ) => {
       try {
-        const config = await loadConfig(resolvedHomeDir);
-        const { skillsDir } = getSyncPaths(resolvedHomeDir);
-        await autoDiagnoseConfig(config, skillsDir);
-
-        const allServers = Object.keys(config.servers);
-        const targetServers = await selectTargetServers(allServers, server, {
-          ...options,
-          noInteractive: isNoInteractive(program)
-        }, 'pull');
+        const noInteractive = isNoInteractive(program);
+        const targetServers = await prepareSyncTargetServers(resolvedHomeDir, server, options, 'pull', noInteractive);
         if (!targetServers) return;
 
         const results = await pullFromServers(resolvedHomeDir, targetServers, {
@@ -2698,7 +2703,7 @@ export function createProgram(homeDir?: string): Command {
           timeout: options.timeout,
           pullBackup: options.pullBackup,
           yes: options.yes,
-          noInteractive: isNoInteractive(program),
+          noInteractive,
           crossServerPolicy: options.crossServerPolicy,
           onConflict: options.onConflict,
           onDeletion: options.onRemoteDeletion ?? options.onDeletion
@@ -2753,16 +2758,10 @@ export function createProgram(homeDir?: string): Command {
       }
     ) => {
       try {
-        const config = await loadConfig(resolvedHomeDir);
-        const { skillsDir } = getSyncPaths(resolvedHomeDir);
-        await autoDiagnoseConfig(config, skillsDir);
-
-        const allServers = Object.keys(config.servers);
+        const noInteractive = isNoInteractive(program);
         const globalOptions = program.opts<{ refresh: boolean }>();
-        const targetServers = await selectTargetServers(allServers, server, {
-          ...options,
-          noInteractive: isNoInteractive(program)
-        }, 'sync');
+        const json = program.opts<{ json?: boolean }>().json === true;
+        const targetServers = await prepareSyncTargetServers(resolvedHomeDir, server, options, 'sync', noInteractive);
         if (!targetServers) return;
 
         const results = await syncServers(resolvedHomeDir, targetServers, {
@@ -2771,15 +2770,15 @@ export function createProgram(homeDir?: string): Command {
           timeout: options.timeout,
           pullBackup: options.pullBackup,
           yes: options.yes,
-          noInteractive: isNoInteractive(program),
+          noInteractive,
           yesDestructive: isYesDestructiveEnabled(program),
-          json: program.opts<{ json?: boolean }>().json === true,
+          json,
           crossServerPolicy: options.crossServerPolicy,
           onConflict: options.onConflict,
           onDeletion: options.onRemoteDeletion ?? options.onDeletion
         });
 
-        if (!program.opts<{ json?: boolean }>().json) {
+        if (!json) {
           for (const result of results) {
             for (const line of formatSkillRows('pull', result.pull)) {
               console.log(line);
