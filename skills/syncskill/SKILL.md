@@ -23,9 +23,9 @@ Use this skill when:
 | `init [--skip-scan] [--skip-self] [-y]` | Initialize `~/.syncskill/` and create `config.json` |
 | `install` / `i` | In TTY, open an interactive install menu; in non-TTY, show install help |
 | `install self` | Install built-in syncskill skill |
-| `install <url-or-path> [--name] [--branch] [-y]` | Install skill from URL or path and register it as a managed source |
+| `install <url-or-path> [--name] [--branch] [--type <type>] [-y]` | Install skill from URL or path and register it as a managed source |
 
-Install options: `--name`, `--path` (repo-relative subdirectory containing skills), `--skill-subdir` (alias for `--path`), `--branch`, `-y`
+Install options: `--name`, `--path` (repo-relative subdirectory containing skills), `--skill-subdir` (alias for `--path`), `--type` (`git`, `http`, `local`), `--branch`, `-y`
 
 ### Link Management
 
@@ -89,6 +89,7 @@ In v2, `server probe` is removed.
 | `status` | Show sync status for all tracked servers |
 | `diff <server>` | Show pending changes for a server |
 | `resolve <skill> [--local|--remote|--diff]` | Resolve sync conflicts |
+| `restore <skill> [--server <server>|--all-servers|--dry-run]` | Restore the latest pre-pull backup, snapshot current local state, and mark manifests as conflict |
 | `refresh [server] [--local|--remote|--all]` | Refresh manifest state; no flags also print status |
 
 ### Configuration & Diagnostics

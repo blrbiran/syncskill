@@ -91,7 +91,7 @@ syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 | `syncskill source list` / `ls` | List configured sources |
 | `syncskill update [name\|--all] [--force] [--dry-run]` | Refresh source content |
 | `syncskill source remove <name>` | Remove a source (interactive) |
-| `syncskill install <url-or-path> [--path <dir>]` | Install and register a source from git, HTTP archive, local directory, or archive file; `--path` selects the repo-relative skills subdirectory inside the source checkout |
+| `syncskill install <url-or-path> [--path <dir>] [--type <type>]` | Install and register a source from git, HTTP archive, local directory, or archive file; `--path` selects the repo-relative skills subdirectory inside the source checkout and `--type` overrides source detection |
 
 In v2, `source add`, `source update`, and `source restore` were removed. Use `install` to add new sources and top-level `update` to refresh them.
 
@@ -102,6 +102,7 @@ In v2, `source add`, `source update`, and `source restore` were removed. Use `in
 | `syncskill status` | Show sync status for all tracked servers |
 | `syncskill diff <server>` | Show pending changes for one server |
 | `syncskill resolve <skill>` | Resolve a conflict |
+| `syncskill restore <skill> [--server <server>\|--all-servers\|--dry-run]` | Restore the latest pre-pull backup, write a pre-restore snapshot, and mark tracked manifests as conflict |
 | `syncskill refresh [server\|--all] [--local\|--remote]` | Refresh manifest state; no flags also print status |
 
 ### Remote Management

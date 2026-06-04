@@ -35,13 +35,18 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('--no-interactive');
     expect(readme).toContain('link set');
     expect(readme).toContain('link build');
-    expect(readme).toContain('syncskill install <url-or-path> [--path <dir>]');
+    expect(readme).toContain('syncskill install <url-or-path> [--path <dir>] [--type <type>]');
     expect(readme).toContain('repo-relative skills subdirectory inside the source checkout');
+    expect(readme).toContain('syncskill restore <skill>');
+    expect(readme).toContain('latest pre-pull backup');
+    expect(readme).toContain('pre-restore snapshot');
 
     expect(docsReadme).toContain('syncskill link build');
     expect(docsReadme).toContain('remove stale symlinks');
     expect(docsReadme).toContain('Remote Lifecycle Workflow');
     expect(docsReadme).toContain('receivers/<server>.json');
+    expect(docsReadme).toContain('restore <skill>');
+    expect(docsReadme).toContain('pre-restore');
 
     expect(configGuide).toContain('# Configuration Guide');
     expect(configGuide).toContain('version');
@@ -60,6 +65,8 @@ describe('ship-readiness docs', () => {
     expect(configGuide).toContain('config.sources[*].ignore[]');
     expect(configGuide).toContain('relative subdirectory within the local source root pointed to by `url`');
     expect(configGuide).toContain('npm link');
+    expect(configGuide).toContain('pre-restore');
+    expect(configGuide).toContain('forced_conflict');
 
     expect(usageGuide).toContain('# Usage Guide');
     expect(usageGuide).toContain('syncskill init');
@@ -79,8 +86,13 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('link set');
     expect(usageGuide).toContain('link build');
     expect(usageGuide).toContain('Repo-relative subdirectory within the source checkout containing skills');
+    expect(usageGuide).toContain('--type <type>');
+    expect(usageGuide).toContain('syncskill restore welcome');
+    expect(usageGuide).toContain('pre-restore');
 
     expect(skillDoc).toContain('repo-relative subdirectory containing skills');
+    expect(skillDoc).toContain('--type');
+    expect(skillDoc).toContain('restore <skill> [--server <server>|--all-servers|--dry-run]');
 
     expect(designGuide).toContain('# Design Guide');
     expect(designGuide).toContain('src/index.ts');
@@ -93,5 +105,7 @@ describe('ship-readiness docs', () => {
     expect(designGuide).toContain('src/source.ts');
     expect(designGuide).toContain('src/core/transport.ts');
     expect(designGuide).toContain('src/core/sync_engine.ts');
+    expect(designGuide).toContain('pre-restore');
+    expect(designGuide).toContain('forced_conflict');
   });
 });

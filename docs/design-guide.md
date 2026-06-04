@@ -19,7 +19,7 @@ The system is split so each layer has one primary concern:
 | Sync | `src/core/sync_engine.ts` | Push/pull/sync orchestration across servers |
 | Registry | `src/core/skills-registry.ts` | Unified skills registry (v2: http_baselines only) |
 | Archive | `src/utils/archive.ts` | Archive format detection and extraction |
-| Backup | `src/utils/backup.ts` | Sidecar backup for dirty skills during updates |
+| Backup | `src/utils/backup.ts` | Sidecar backup for source updates, pre-pull protection, and restore snapshots |
 | CLI Output | `src/cli/output.ts` | JSONL event system for AI agent integration |
 | CLI Env | `src/cli/env.ts` | Environment variable handling |
 | Exit Codes | `src/cli/exit-codes.ts` | Structured exit codes |
@@ -179,7 +179,7 @@ Owns archive format detection and extraction. Supports `.tar.gz`, `.tgz`, `.tar.
 
 ### `src/utils/backup.ts`
 
-Owns sidecar backup helpers for dirty source updates and pre-pull skill protection. Dirty source backups now live under the centralized sidecar root `~/.syncskill/.backups/`, including `sources/<source>/pre-update/` for forced source updates and `skills/<skill>/pre-pull/` for pull/sync overwrite protection.
+Owns sidecar backup helpers for dirty source updates, pre-pull skill protection, and restore snapshots. Dirty source backups live under the centralized sidecar root `~/.syncskill/.backups/`, including `sources/<source>/pre-update/` for forced source updates, `skills/<skill>/pre-pull/` for pull/sync overwrite protection, and `skills/<skill>/pre-restore/` for the snapshot captured immediately before `restore <skill>` replays a backup.
 
 ### `src/receiver/`
 
@@ -201,13 +201,13 @@ Local state lives under `~/.syncskill/`:
 | `receivers/<server>.json` | Per-server receiver backups (`remote_agents`, `links`, `updated_at`) |
 | `manifest_history.json` | Hash change audit trail |
 | `skills-registry.json` | HTTP dirty-detection baselines (`http_baselines`) |
-| `.backups/` | Sidecar backups for forced source updates and pre-pull protection |
+| `.backups/` | Sidecar backups for forced source updates, pre-pull protection, and pre-restore snapshots |
 
 ### `.backups/`
 
-When a dirty source is overwritten during top-level `update --force`, syncskill writes HTTP source backups to `~/.syncskill/.backups/sources/<source>/pre-update/`. Pull and sync flows also write skill backups to `~/.syncskill/.backups/skills/<skill>/pre-pull/` before overwriting local content. Recovery is path-based rather than driven by `update-history.json` or a `source restore` command.
+When a dirty source is overwritten during top-level `update --force`, syncskill writes HTTP source backups to `~/.syncskill/.backups/sources/<source>/pre-update/`. Pull and sync flows also write skill backups to `~/.syncskill/.backups/skills/<skill>/pre-pull/` before overwriting local content. `restore <skill>` then snapshots the current local skill tree into `~/.syncskill/.backups/skills/<skill>/pre-restore/`, restores the latest pre-pull snapshot into place, and relies on a sticky manifest flag to keep reconciliation in `conflict` until the user resolves it. Recovery is path-based rather than driven by `update-history.json` or a `source restore` command.
 
-Remote synchronization exchanges skill trees plus manifest state, while `receivers/<server>.json` preserves the locally cached remote receiver topology (`remote_agents`, `links`) that refresh and remote commands operate on.
+Remote synchronization exchanges skill trees plus manifest state, while `receivers/<server>.json` preserves the locally cached remote receiver topology (`remote_agents`, `links`) that refresh and remote commands operate on. Manifest entries may also persist `forced_conflict: true` when restore intentionally keeps a reconciled hash set in explicit conflict.
 
 ## Sync Protocol
 

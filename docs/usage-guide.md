@@ -259,6 +259,7 @@ Install options:
 | `--name <name>` | Source name |
 | `--path <path>` | Repo-relative subdirectory within the source checkout containing skills (use `.` for repo root) |
 | `--skill-subdir <dir>` | Alias for `--path` |
+| `--type <type>` | Force source type detection (`git`, `http`, `local`) |
 | `--branch <branch>` | Git branch or tag |
 | `-y, --yes` | Skip confirmation prompts |
 
@@ -297,14 +298,26 @@ syncskill resolve welcome --local --diff
 
 # Refresh both local and remote manifest state, then show status
 syncskill refresh alpha
+
+# Restore the latest pre-pull backup for one skill
+syncskill restore welcome
+
+# Only mark one tracked server manifest as conflict after restore
+syncskill restore welcome --server beta
+
+# Preview restore without changing files or manifests
+syncskill restore welcome --dry-run
 ```
+
+`restore <skill>` replays the latest `~/.syncskill/.backups/skills/<skill>/pre-pull/` snapshot into the local skill directory, saves the current local state first under `~/.syncskill/.backups/skills/<skill>/pre-restore/`, and marks tracked manifests as conflict so you can review and resolve the restored state explicitly.
 
 Recommended flow:
 
 1. Run `syncskill status` to see all tracked server rows
 2. Run `syncskill diff alpha` to focus on one server
 3. If a skill is in conflict, run `syncskill resolve <skill>` (interactive or with `--local`/`--remote`)
-4. Run `syncskill refresh alpha` when you want to refresh manifest state before reviewing again
+4. If you need to roll back the last pull/sync overwrite locally, run `syncskill restore <skill>` and then review the resulting conflict state
+5. Run `syncskill refresh alpha` when you want to refresh manifest state before reviewing again
 
 ## Remote Lifecycle Workflow
 

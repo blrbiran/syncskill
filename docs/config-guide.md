@@ -49,15 +49,23 @@ Default layout:
 │   └── <server>.json
 ├── manifest_history.json          # Hash change history
 ├── skills-registry.json           # Skill registry metadata
-├── .backups/                      # Sidecar backups from update/pull/sync protection
+├── .backups/                      # Sidecar backups from update/pull/sync/restore protection
 │   ├── sources/
 │   │   └── <source-name>/pre-update/
 │   └── skills/
-│       └── <skill-name>/pre-pull/
+│       └── <skill-name>/
+│           ├── pre-pull/
+│           └── pre-restore/
 └── .tmp/                          # Temporary files (auto-cleaned)
 ```
 
 If `SYNCSKILL_DIR` is set, the same structure is created under that directory instead.
+
+Backup notes:
+
+- `~/.syncskill/.backups/sources/<source-name>/pre-update/` stores the previous materialized source contents before a forced top-level `update --force` overwrite.
+- `~/.syncskill/.backups/skills/<skill-name>/pre-pull/` stores the latest local skill snapshot before `pull` or `sync` overwrites that skill locally.
+- `~/.syncskill/.backups/skills/<skill-name>/pre-restore/` stores the current local skill state immediately before `restore <skill>` replays the latest pre-pull backup.
 
 ## Configuration Shape
 
@@ -379,8 +387,9 @@ Each server manifest (`~/.syncskill/manifests/<server>.json`) tracks sync state:
       "local_hash": "abc123...",
       "remote_hash": "def456...",
       "recorded_hash": "abc123...",
-      "direction": "push",
-      "status": "in-sync"
+      "direction": "conflict",
+      "status": "conflict",
+      "forced_conflict": true
     }
   }
 }
@@ -390,6 +399,7 @@ Each server manifest (`~/.syncskill/manifests/<server>.json`) tracks sync state:
 - `local_hash`: Current local file hash (recomputed on each refresh)
 - `remote_hash`: Last known remote hash (fetched from remote manifest)
 - `recorded_hash`: Baseline hash from last sync point (set after push/pull completes)
+- `forced_conflict`: Optional sticky flag persisted only when `true`; used by `restore <skill>` so the manifest stays in `conflict` until a follow-up resolution clears it
 
 The `recorded_hash` serves as a 3-way merge base:
 - `local_hash ≠ recorded_hash` → Local changed since last sync
