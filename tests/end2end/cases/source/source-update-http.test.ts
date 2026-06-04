@@ -212,9 +212,7 @@ describe('top-level update http', () => {
     }
   });
 
-  e2eTest.skip('update reports skills removed from source', async () => {
-    // TODO: Update should report when skills are removed from upstream
-    // Currently update doesn't report skill removal
+  e2eTest('update reports skills removed from source', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')
       .withInit({ skipScan: true, skipSelf: true })
@@ -230,12 +228,10 @@ describe('top-level update http', () => {
     try {
       const gitUrl = ctx.getGitSourceUrl('shrinking-repo');
       const workDir = ctx.getGitSourceWorkDir('shrinking-repo');
-
-      // Setup git source
       const checkoutDir = join(ctx.syncskillDir, '.sources', 'shrinking-repo', 'checkout');
+
       await ctx.exec('git', ['clone', gitUrl, checkoutDir]);
 
-      // Setup config
       const config = (await ctx.readConfig()) as Record<string, unknown>;
       config.sources = {
         'shrinking-repo': { type: 'git', url: gitUrl, path: '.' },
@@ -246,24 +242,22 @@ describe('top-level update http', () => {
       };
       await ctx.writeConfig(config);
 
-      // Write state file
-      const stateFile = join(ctx.syncskillDir, '.sources', 'shrinking-repo', 'state.json');
-      await writeFile(stateFile, JSON.stringify({
-        materialized_skills: ['keep-skill', 'remove-skill'],
-        updated_at: new Date().toISOString(),
-      }), 'utf8');
+      const initialResult = await ctx.run('syncskill', 'update', 'shrinking-repo', '-y');
+      expect(initialResult.success).toBe(true);
+      await ctx.assertFileExists('.syncskill/skills/remove-skill/SKILL.md');
 
-      // Remove skill from upstream
       const { removeSkillFromGitRepo } = await import('../../framework/index.js');
       await removeSkillFromGitRepo(workDir, 'remove-skill');
 
-      // Update should notify about removed skill
       const updateResult = await ctx.run('syncskill', 'update', 'shrinking-repo', '-y');
       expect(updateResult.success).toBe(true);
 
-      // Should mention removed skill
       const output = updateResult.stdout + updateResult.stderr;
-      expect(output.toLowerCase()).toMatch(/remove|missing|gone/i);
+      expect(output).toContain('remove-skill');
+      expect(output).toContain('Kept "remove-skill" as local skill');
+      await ctx.assertFileExists('.syncskill/skills/remove-skill/SKILL.md');
+      await ctx.assertFileNotExists('.syncskill/.sources/shrinking-repo/checkout/remove-skill/SKILL.md');
+      await ctx.assertFileExists('.syncskill/.sources/shrinking-repo/checkout/keep-skill/SKILL.md');
     } finally {
       await ctx.cleanup();
     }
