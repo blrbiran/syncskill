@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createProgram } from '../../src/index.js';
 
 describe('CLI introspection', () => {
-  it('program has global flags', () => {
+  it('program has expected visible global flags', () => {
     const program = createProgram('/tmp/test');
     const optionFlags = program.options.map(o => o.flags);
 
@@ -11,6 +11,7 @@ describe('CLI introspection', () => {
     expect(optionFlags).toContain('--no-interactive');
     expect(optionFlags).toContain('--sync-dir <path>');
     expect(optionFlags).toContain('--config <path>');
+    expect(optionFlags).not.toContain('--strict');
   });
 
   it('program has expected commands', () => {

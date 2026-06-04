@@ -39,6 +39,26 @@ describe('help output', () => {
     expect(stdout).not.toContain('--strict');
   });
 
+  it('pull help exposes current deletion/backup controls only through the public surface', async () => {
+    const { stdout } = await execAsync('node', ['dist/index.js', 'pull', '--help'], {
+      cwd: '/Users/biran/code/skills/syncskill'
+    });
+
+    expect(stdout).toContain('--on-remote-deletion');
+    expect(stdout).not.toContain('--on-deletion');
+    expect(stdout).not.toContain('--no-pull-backup');
+  });
+
+  it('sync help exposes current deletion controls without deprecated aliases', async () => {
+    const { stdout } = await execAsync('node', ['dist/index.js', 'sync', '--help'], {
+      cwd: '/Users/biran/code/skills/syncskill'
+    });
+
+    expect(stdout).toContain('--on-remote-deletion');
+    expect(stdout).not.toContain('--on-deletion');
+    expect(stdout).not.toContain('--no-pull-backup');
+  });
+
   it('source list has ls alias', () => {
     const program = createProgram('/tmp');
     const sourceCmd = program.commands.find(c => c.name() === 'source');
