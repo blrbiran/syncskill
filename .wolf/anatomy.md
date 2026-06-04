@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-03T17:31:47.107Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-04T00:12:08.606Z
 > Files: 161 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/
@@ -16,7 +16,7 @@
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
 - `package.json` — Node.js package manifest (~355 tok)
-- `README.md` — Project documentation (~1943 tok)
+- `README.md` — Project documentation (~2003 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
 
@@ -30,11 +30,11 @@
 
 ## docs/
 
-- `config-guide.md` — Configuration Guide, including runtime layout, receiver backups, and relative `sources[*].path` semantics across local/git/http sources. (~3278 tok)
-- `design-guide.md` — Design Guide covering module boundaries, runtime state, and receiver-backup/registry v2 architecture. (~3685 tok)
+- `config-guide.md` — Configuration Guide (~3442 tok)
+- `design-guide.md` — Design Guide (~3832 tok)
 - `e2e-test-guide.md` — E2E Test Writing Guide (~3907 tok)
-- `README.md` — Project documentation (~466 tok)
-- `usage-guide.md` — Usage Guide (~4012 tok)
+- `README.md` — Project documentation (~531 tok)
+- `usage-guide.md` — Usage Guide (~4216 tok)
 
 ## docs/superpowers/plans/
 
@@ -47,13 +47,13 @@
 
 ## skills/syncskill/
 
-- `SKILL.md` — syncskill (~1826 tok)
+- `SKILL.md` — syncskill (~1880 tok)
 
 ## src/
 
 - `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1121 tok)
-- `index.ts` — API routes: GET (4 endpoints) (~28007 tok)
-- `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~975 tok)
+- `index.ts` — API routes: GET (4 endpoints) (~29514 tok)
+- `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~992 tok)
 - `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4849 tok)
 - `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1828 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1226 tok)
@@ -64,7 +64,7 @@
 - `env.ts` — Environment variable handling for syncskill CLI. (~558 tok)
 - `env.ts` — Environment variable loading and flag precedence merging for CLI config. (~340 tok)
 - `executor.ts` — Exports ActionHandler, ExecutionContext, Executor, createExecutor (~297 tok)
-- `exit-codes.ts` — Documented exit codes for syncskill CLI. (~573 tok)
+- `exit-codes.ts` — Documented exit codes for syncskill CLI. (~586 tok)
 - `index.ts` — src/cli/index.ts (~84 tok)
 - `index.ts` — src/cli/index.ts (~40 tok)
 - `output.ts` — Output controller that handles both JSONL and text output modes. (~1499 tok)
@@ -89,8 +89,8 @@
 
 ## src/core/
 
-- `conflict.ts` — 3-way conflict detection and resolution (~1129 tok)
-- `manifest.ts` — Hash computation and manifest management (~3316 tok)
+- `conflict.ts` — Exports SkillDeltaClassification, StatusRow, classifySkillDelta, reconcileManifest + 5 more (~1248 tok)
+- `manifest.ts` — Exports listLocalSkillNames, hashSkillDirectory, ManifestDirection, ManifestStatus + 16 more (~3346 tok)
 - `private-agents.ts` — Pure function: compute default link targets based on config. (~999 tok)
 - `registry-builder.ts` — Exports rebuildRegistryV2 (~434 tok)
 - `server.ts` — Exports ProbeLine, ReceiverBackup, formatServerListLines, formatServerShowLines + 16 more (~2432 tok)
@@ -114,7 +114,7 @@
 ## src/utils/
 
 - `archive.ts` — Exports ArchiveType, ArchiveFormat, detectArchiveFormat, parseContentDisposition + 2 more (~955 tok)
-- `backup.ts` — Sidecar backup helpers for pre-update/pre-pull flows; backs up symlinked skills by copying dereferenced contents (~820 tok)
+- `backup.ts` — Exports getSidecarBackupDir, BackupSkillToSidecarOptions, backupSkillToSidecar, BackupDirtySkillsToS (~1099 tok)
 - `utils.ts` — Exports execFileAsync, isNotFoundError, readJsonOrDefault, readFileOrDefault, pathExists (~438 tok)
 
 ## tests/end2end/
@@ -137,7 +137,7 @@
 
 ## tests/end2end/cases/source/
 
-- `source-install-stale.test.ts` — E2E tests for install when stale checkout exists. (~1678 tok)
+- `source-install-stale.test.ts` (~61 tok)
 - `source-stale-checkout.test.ts` — tests/end2end/cases/source/source-stale-checkout.test.ts (~1540 tok)
 - `source-update-dirty.test.ts` — tests/end2end/cases/source/source-update-dirty.test.ts (~2518 tok)
 - `source-update-http.test.ts` — E2E tests for top-level update behavior with HTTP/local sources. (~3134 tok)
@@ -177,15 +177,15 @@
 
 ## tests/integration/
 
-- `cli-introspection.test.ts` — Declares program (~678 tok)
+- `cli-introspection.test.ts` — Declares program (~692 tok)
 - `config-cli.test.ts` — Declares homeDir (~3758 tok)
 - `config-ui.test.ts` — Declares PromptStub (~4890 tok)
 - `discover.test.ts` — Declares tempDirs (~3940 tok)
 - `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1299 tok)
-- `help-output.test.ts` — Declares execAsync (~1519 tok)
-- `install-cli.test.ts` — execFileAsync: execWithInput (~2636 tok)
+- `help-output.test.ts` — Declares execAsync (~1685 tok)
+- `install-cli.test.ts` — execFileAsync: execWithInput (~2648 tok)
 - `README.md` — Project documentation (~37 tok)
-- `reconciliation-cli.test.ts` — Declares actual (~10276 tok)
+- `reconciliation-cli.test.ts` — Declares actual (~12010 tok)
 - `remote-refresh.test.ts` — Declares tempDirs (~894 tok)
 - `repo.test.ts` — Declares pathExists (~1991 tok)
 - `server-cli.test.ts` — Declares tempDirs (~4197 tok)
@@ -200,7 +200,7 @@
 
 ## tests/unit/
 
-- `backup.test.ts` — Unit tests for sidecar backup helpers, including existing-backup replacement and symlinked skill coverage. (~1860 tok)
+- `backup.test.ts` — Exports x (~2192 tok)
 - `cli-env.test.ts` — tests/unit/cli-env.test.ts (~1282 tok)
 - `cli-env.test.ts` — Unit tests for CLI env var parsing and flag-over-env precedence. (~910 tok)
 - `cli-executor.test.ts` — Declares calls (~490 tok)
@@ -211,9 +211,9 @@
 - `cli-types.test.ts` — tests/unit/cli-types.test.ts (~510 tok)
 - `config-doctor.test.ts` — Declares DiagnosticItem (~5530 tok)
 - `config.test.ts` — Declares paths (~2977 tok)
-- `conflict.test.ts` — Declares ServerManifest (~2429 tok)
+- `conflict.test.ts` — Declares ServerManifest (~2877 tok)
 - `dashboard.test.ts` — Declares ServerManifest (~1496 tok)
-- `docs.test.ts` — Declares rootDir (~1388 tok)
+- `docs.test.ts` — Declares rootDir (~1616 tok)
 - `e2e-cleanup.test.ts` — tests/unit/e2e-cleanup.test.ts (~495 tok)
 - `e2e-context.test.ts` — tests/unit/e2e-context.test.ts (~2371 tok)
 - `e2e-fixtures-archive.test.ts` — tests/unit/e2e-fixtures-archive.test.ts (~588 tok)
@@ -225,8 +225,8 @@
 - `e2e-guard.test.ts` — tests/unit/e2e-guard.test.ts (~376 tok)
 - `e2e-runner.test.ts` — tests/unit/e2e-runner.test.ts (~540 tok)
 - `e2e-scenario.test.ts` — tests/unit/e2e-scenario.test.ts (~931 tok)
-- `exit-codes.test.ts` — tests/unit/exit-codes.test.ts (~706 tok)
-- `install.test.ts` — Declares path (~2470 tok)
+- `exit-codes.test.ts` — tests/unit/exit-codes.test.ts (~750 tok)
+- `install.test.ts` — Declares path (~2818 tok)
 - `linker.test.ts` — Declares SyncSkillConfig (~7055 tok)
 - `manifest.test.ts` — Declares tempDirs (~2630 tok)
 - `matrix-editor.test.ts` — Declares config (~2288 tok)

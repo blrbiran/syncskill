@@ -2,7 +2,7 @@
 
 > OpenWolf's learning memory. Updated automatically as the AI learns from interactions.
 > Do not edit manually unless correcting an error.
-> Last updated: 2026-05-06
+> Last updated: 2026-06-04
 
 ## User Preferences
 
@@ -64,6 +64,7 @@
 - **[2026-06-04]** `forced_conflict` 只在值为 `true` 时持久化；`applyResolution()` 虽会先写 `forced_conflict: false`，但经过 manifest normalization / reconcile 后字段会被移除。因此测试应断言“该标记不存在”，不要把 `false` 当成稳定持久状态。
 - **[2026-06-04]** `tests/unit/install.test.ts` 这类 wrapper 层测试应优先锁真实 contract（参数透传、返回值整理），删除仅验证“function exists / signature exists”的占位测试，避免噪音用例掩盖真实缺口。
 - **[2026-06-04]** 若某个 e2e 文件只剩过时 TODO/`skip` 场景，而同一行为已经有真实 e2e 覆盖（如 `source-install-stale.test.ts` 被 `source-stale-checkout.test.ts` 的 update stale-checkout 流覆盖），应把旧文件收敛成单一 skipped placeholder，而不是继续保留多段误导性的待实现脚本。
+- **[2026-06-04]** `tests/unit/docs.test.ts` 这类 docs smoke test 若断言 markdown 表格里的完整命令行，不要把 `|` 分隔符当成稳定字面量；README/source markdown 常会把它转义成 `\|`。优先锁更稳定的子串（命令名 + 关键语义词），避免文档实际已对齐却被表格转义打成假失败。
 
 ## Do-Not-Repeat
 

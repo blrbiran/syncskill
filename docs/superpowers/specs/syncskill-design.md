@@ -1,9 +1,9 @@
 # Syncskill — TypeScript 实现设计
 
-> **当前版本**：v2.7.3（2026-06-02）
+> **当前版本**：v2.7.5（2026-06-03）
 > **版本历史**：[CHANGELOG.md](CHANGELOG.md)
 >
-> 主要里程碑：v2.7.3 round-3 spec/code/docs 收口（§3.7 status 枚举 6→7 文字同步 + `install --type` flag 注册补齐 + docs hygiene） | v2.7.2 round-2 spec/code 收口 + 单一 canonical error code 注册表（Plan P + P5 lint 不变量）+ 死 executor 与死 code 清理（E_CONFLICT / E_SOURCE_DIRTY / W_PULL_BACKUP_SKIPPED）+ 5 个共享 helper 抽取（emitNeedsInput / findActionId / emitError / finalizeSyncCommand / expandLinkAgentNames）+ `--strict` 范围收紧到 4 命令 | v2.7.1 spec/code 收口 + v2.6 兼容包袱清零（sidecar 路径 + cross-server 裸名） + 全 Tier 1 命令 plan_ref 落地 + force-hint 架构不变量 | v2.7 -y 破坏性 verb 规则 + plan_ref 可追溯 + sidecar backup 统一目录 + plan flag `-`=stdin + link audience 自省 + cross-server-policy `server:` 前缀 + unresolved resolve_phase | v2.6 source merge 重设计 + takeover 独立命令 + --on-conflict 统一 + cross-server-policy server-name + --plan-file 移除 + per-server result | v2.5 spec 清理 + UnresolvedKind 重命名 + remote refresh 合并 + link build 降 Tier 2 | v2.4 sidecar backup + restore 命令 + conflict 决议接通 | v2.4.1 receiver Node 18 | v2.3 远端备份模型 + remote 命令族 + takeover 协议 | v2.2 plan-then-execute + --strict | v2.1 install self + --apply 命名规则
+> 主要里程碑：v2.7.5 spec/code 对账（版本头补齐 v2.7.4 round-4 内容 + §3.2 函数描述简化 + `--cwd` 移除 + `restore` preAction 排除补齐 + 残留 "Tier 1" 术语清理）| v2.7.4 round-4 `--yes-destructive` BREAKING + `remote add/rm/list` + `no-baseline` guard + reconcile-engine 框架 + `server` → `remote` rename + `install` 无参数行为变更 | v2.7.3 round-3 spec/code/docs 收口（§3.7 status 枚举 6→7 文字同步 + `install --type` flag 注册补齐 + docs hygiene） | v2.7.2 round-2 spec/code 收口 + 单一 canonical error code 注册表（Plan P + P5 lint 不变量）+ 死 executor 与死 code 清理（E_CONFLICT / E_SOURCE_DIRTY / W_PULL_BACKUP_SKIPPED）+ 5 个共享 helper 抽取（emitNeedsInput / findActionId / emitError / finalizeSyncCommand / expandLinkAgentNames）+ `--strict` 范围收紧到 4 命令 | v2.7.1 spec/code 收口 + v2.6 兼容包袱清零（sidecar 路径 + cross-server 裸名） + 全 Tier 1 命令 plan_ref 落地 + force-hint 架构不变量 | v2.7 -y 破坏性 verb 规则 + plan_ref 可追溯 + sidecar backup 统一目录 + plan flag `-`=stdin + link audience 自省 + cross-server-policy `server:` 前缀 + unresolved resolve_phase | v2.6 source merge 重设计 + takeover 独立命令 + --on-conflict 统一 + cross-server-policy server-name + --plan-file 移除 + per-server result | v2.5 spec 清理 + UnresolvedKind 重命名 + remote refresh 合并 + link build 降 Tier 2 | v2.4 sidecar backup + restore 命令 + conflict 决议接通 | v2.4.1 receiver Node 18 | v2.3 远端备份模型 + remote 命令族 + takeover 协议 | v2.2 plan-then-execute + --strict | v2.1 install self + --apply 命名规则
 
 **相关文档**：
 - [E2E 测试框架设计](e2e-test-design.md) — End-to-End 测试框架规范
@@ -300,6 +300,8 @@ syncskill/
 
 **`actions[].id`（可追溯）**：每个 action 带一个**在单个 plan 内稳定唯一**的 id（如 `a1`/`a2`…，生成规则 = 顺序计数器,buildPlan 内确定性）。result 的每个变更项通过 `plan_ref` 回指该 id（§11.6.0），使 plan↔result 对账退化为机械 join，无需语义猜测。id 仅在单个 plan 作用域内有意义，不跨调用持久化。
 
+**action id 格式**：约定为 `a<N>`（正则 `/^a\d+$/`），由 `tests/spec-json-examples.test.ts` 锁定所有 §11.6.x JSON 示例的 `plan_ref` 字段必须匹配此格式（v2.7.4 round-4 议题 3.1，PR 1 Task 1.4）。让 plan_ref regex 的来源在 spec 内显式可查，避免读者反查测试源码。
+
 **`unresolved[].resolve_phase`**：取值 `"plan"`（默认）或 `"execute"`,显式标注该决议项**能在哪个阶段解决**:
 
 | `resolve_phase` | 含义 | agent 影响 |
@@ -351,7 +353,7 @@ syncskill/
 
 单阶段命令的 `--dry-run --json` 输出复用 §3.0.B.2 通用 schema（`actions[]` + `unresolved[]` + `warnings[]`），AI agent 可统一解析；但不提供 plan-then-apply 两阶段调用（轻量命令直接执行更高效）。
 
-**历史注（v2.7.4 round-4，议题 1.2）**：v2.5–v2.7.3 spec 曾以 "Tier 1 / Tier 2" 术语区分两类命令；round-4 删除该术语 — 概念与 `plan_schema` 字段冗余、术语只在 spec 内部使用、CLI 自省未暴露。代码侧同步：`TIER1_COMMANDS` Set 改名为 `PLAN_COMMANDS`，`describeCommand()` 内 `isTier1` 局部变量改名为 `isPlanCommand`。残留旧术语只出现于 CHANGELOG / decisions / round-1~3 历史文档 + `src/core/tier-one-runner.ts` 文件名（保留以避免无意义重命名连锁）。
+**历史注（v2.7.4 round-4，议题 1.2）**：v2.5–v2.7.3 spec 曾以 "Tier 1 / Tier 2" 术语区分两类命令；round-4 删除该术语 — 概念与 `plan_schema` 字段冗余、术语只在 spec 内部使用、CLI 自省未暴露。代码侧同步：`TIER1_COMMANDS` Set 改名为 `PLAN_COMMANDS`，`describeCommand()` 内 `isTier1` 局部变量改名为 `isPlanCommand`。残留旧术语只出现于 CHANGELOG / decisions / round-1~3 历史文档 + `src/core/tier-one-runner.ts` 文件名（v2.7.5 P3 #29 已 rename 为 `plan-execute-runner.ts`）。
 
 #### 3.0.B.4 硬性约束（保护人类体验）
 
@@ -413,7 +415,7 @@ cat plan.json | syncskill --json --apply -
 
 **`--apply` 与命令名规则**：
 
-- plan 文件必含 `command` 字段（§3.0.B.2 schema）。
+- plan 文件必含 `command` 字段（§3.0.B.2 schema）。**action id 格式**：约定为 `a<N>`（`/^a\d+$/`），由 `assignActionIds()` 自动分配；`tests/spec-json-examples.test.ts` 锁定此格式（v2.7.5 P3 #25）。
 - 当 CLI 行同时显式给出命令名时，**两者必须一致**，否则报 `E_PLAN_COMMAND_MISMATCH` + exit 2。
   - 例：`syncskill --apply plan.json install ...` 时，`plan.command === "install"`。
 - 当 CLI 行**不给**命令名（如 `syncskill --apply plan.json`）时，从 `plan.command` 读取并路由到对应命令。
@@ -642,9 +644,7 @@ syncskill refresh <server>
 - `--resolutions <path|->`：携带决议绕过 prompt(`-` = stdin;旧 `--resolutions-stdin` 为 alias)
 - `--config <path>`：覆盖 config 文件路径
 - `--sync-dir <path>`：覆盖 `~/.syncskill/` 目录
-- `--cwd <path>`：切换工作目录
-
-所有命令（除 `init`、`config`、`refresh`、`doctor`）执行前在同一个 `preAction` 钩子里自动调用 `autoDiagnoseConfig()` + `autoRefreshManifests()`。两个钩子排除集相同（详见 §10.5）。
+所有命令（除 `init`、`config`、`refresh`、`doctor`、`restore`）执行前在同一个 `preAction` 钩子里自动调用 `autoDiagnoseConfig()` + `autoRefreshManifests()`。两个钩子排除集相同（详见 §10.5）。`restore` 是纯本地 backup 恢复操作，不需要网络刷新。
 
 **3+ 服务器提示**：当服务器数量 ≥ 3 时，以下场景打印提示：
 
@@ -684,19 +684,12 @@ Use --no-refresh to skip, then run `syncskill refresh` manually.
 `agents` 与其它 agent 走相同检测逻辑，无特殊分支：检测 `~/.agents/` 是否存在，存在即注册，链接路径是 `~/.agents/skills`。
 
 - **链接时 mkdir**：`linker.createLink()` 创建链接前，若 `<agent_link_path>` 父目录（如 `~/.claude/skills/`）不存在，自动 `mkdirSync({ recursive: true })`。这样首次链接到任意 agent 都不会因为缺少 `skills/` 子目录失败。
-- **Default Link Targets 计算**：`install`、`init` 迁移、`scan` 等场景自动为新 skill 计算默认 link target。实现拆分为两个函数以分离关注点：
-  - **`computeDefaultLinkTargets(config)`**：纯函数，根据 config 计算默认 link target 数组。规则：
+- **Default Link Targets 计算**：`install`、`init` 迁移、`scan` 等场景自动为新 skill 计算默认 link target。
+  - **`ensureDefaultLinkTargets(config)`**：统一入口。先保证 `~/.agents/skills/` 存在（必要时创建目录、写入 `config.agents.agents` 字段并 `saveConfig()`，首次创建时打印提示），再计算默认 link target 数组。规则：
     1. 默认 target 为 `["agents"]`（即 `~/.agents/skills/`，跨客户端标准目录）
     2. 遍历已检测到的 agent，若该 agent 属于 `private_agents`（不读取共享目录），则追加到 target 列表
     3. 返回最终 target 数组，如 `["agents", "cursor", "kiro"]`
-  - **`ensureSharedSkillsDirectory(homeDir)`**：有副作用的函数，在必要时创建 `~/.agents/skills/` 目录、写入 `config.agents.agents` 字段并 `saveConfig()`。输出提示：
-     ```
-     Created ~/.agents/skills/
-       This is the standard shared skills directory for agents that support it.
-       Skills linked here are available to: claude, windsurf, codex, ...
-     ```
-     （仅首次创建时打印此提示；幂等：第二次调用不会重复打印或重复落盘）
-  - **`ensureDefaultLinkTargets(config, homeDir)`**：调用方便利包装。等价 `ensureSharedSkillsDirectory(homeDir)` + `computeDefaultLinkTargets(config)`：先保证 `~/.agents/skills/` 存在（必要时创建并落盘），再返回纯计算的目标数组。`install` / `init` 迁移 / `scan` / `update` 等需要"自动给新 skill 算默认 link 目标并立刻可用"的入口点统一调用此包装；不需要副作用的纯查询请直接用 `computeDefaultLinkTargets`。
+  - `install` / `init` 迁移 / `scan` / `update` 等需要"自动给新 skill 算默认 link 目标并立刻可用"的入口点统一调用此函数。
 - **`private_agents` 配置**：不读取 `~/.agents/skills/` 共享目录的 agent 列表，需要单独 link 到其专有目录。这些 agent 只读取自己的 `~/.<agent>/skills/` 目录。
   - **默认值**（硬编码）：`["claude", "codex", "gemini", "cursor", "kiro", "augment", "cline", "hermes"]`
   - **config.json 初始化**：`init` 命令生成 `config.json` 时，自动写入 `private_agents` 字段的默认值，方便用户查看和修改
@@ -895,8 +888,8 @@ schema（v1）：
 - 生成 `~/.syncskill/config.json`（含自动检测的 agent）
 - 复制 `config.example.yaml` 作为参考
 - **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-scan` 参数跳过此步骤。
-- **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.json` 的 `links` 字段（使用 `computeDefaultLinkTargets()` 计算默认目标，即 `["agents"]` + 已检测到的不支持 `~/.agents/skills/` 的 agent）。
-- **默认安装 syncskill skill（first-run 入口）**：v2.7.4 PR 5c（议题 1.5）起，`init` 是 first-run 安装内置 skill 的官方入口（`install` 命令的无参数 inquirer 菜单已删除）。流程末尾安装内置 syncskill skill 到 `~/.syncskill/skills/syncskill/` 并 link 到默认 agent（计算规则见 §3.2 `computeDefaultLinkTargets()`）。
+- **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.json` 的 `links` 字段（使用 `ensureDefaultLinkTargets()` 计算默认目标，即 `["agents"]` + 已检测到的不支持 `~/.agents/skills/` 的 agent）。
+- **默认安装 syncskill skill（first-run 入口）**：v2.7.4 PR 5c（议题 1.5）起，`init` 是 first-run 安装内置 skill 的官方入口（`install` 命令的无参数 inquirer 菜单已删除）。流程末尾安装内置 syncskill skill 到 `~/.syncskill/skills/syncskill/` 并 link 到默认 agent（计算规则见 §3.2 `ensureDefaultLinkTargets()`）。
   - **TTY + 未安装时**：弹出 `confirm` prompt "Install built-in syncskill skill now? [Y/n]"（默认 Y）。用户按 N → 跳过安装；按 Ctrl-C → 跳过安装但 init 仍报成功。
   - **非 TTY / `--no-interactive` / `--json` / 已安装**：跳过 prompt，按默认行为执行（未安装则直接安装 → 保持 CI / script 中 `init` 一键即用的长期期望）。
   - **`--skip-self`**：始终跳过（最高优先级，覆盖上述所有路径）。
@@ -920,6 +913,9 @@ syncskill install
 ```
 
 **v2.7.3 → v2.7.4 行为差异**：
+
+<!-- 注：此 diff table 待 v2.7.5 后第 N 个 BREAKING 落地时移到 CHANGELOG (spec only keep current behavior)。
+     v2.7.4 BREAKING 仍是 fresh，留作上一版迁移参考；P3 #27 (v2.7.5)。 -->
 
 | 调用 | v2.7.3 | v2.7.4 |
 |------|--------|--------|
@@ -946,7 +942,7 @@ syncskill install self
 ├─ Execute:
 │   ├─ 定位 dist/skills/syncskill/ 目录（通过 import.meta.url）
 │   ├─ 复制到 ~/.syncskill/skills/syncskill/
-│   └─ 调用 link reconcile（使用 computeDefaultLinkTargets() 计算目标 agent）
+│   └─ 调用 link reconcile（使用 ensureDefaultLinkTargets() 计算目标 agent）
 └─ 输出 result.summary.data（schema 见 §11.6）
 ```
 
