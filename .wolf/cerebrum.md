@@ -63,6 +63,7 @@
 - **[2026-06-04]** `pre-pull` / `pre-restore` / source sidecar 这类“删旧目录 → 建父目录 → 复制目录快照”的备份流程应集中放在 `src/utils/backup.ts`，`src/index.ts` 只保留 restore 命令编排；否则同一套备份语义会在 CLI action 里继续重复并逐步漂移。
 - **[2026-06-04]** `forced_conflict` 只在值为 `true` 时持久化；`applyResolution()` 虽会先写 `forced_conflict: false`，但经过 manifest normalization / reconcile 后字段会被移除。因此测试应断言“该标记不存在”，不要把 `false` 当成稳定持久状态。
 - **[2026-06-04]** `tests/unit/install.test.ts` 这类 wrapper 层测试应优先锁真实 contract（参数透传、返回值整理），删除仅验证“function exists / signature exists”的占位测试，避免噪音用例掩盖真实缺口。
+- **[2026-06-04]** 若某个 e2e 文件只剩过时 TODO/`skip` 场景，而同一行为已经有真实 e2e 覆盖（如 `source-install-stale.test.ts` 被 `source-stale-checkout.test.ts` 的 update stale-checkout 流覆盖），应把旧文件收敛成单一 skipped placeholder，而不是继续保留多段误导性的待实现脚本。
 
 ## Do-Not-Repeat
 
