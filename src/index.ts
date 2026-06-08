@@ -85,8 +85,6 @@ async function prepareSyncTargetServers(
   noInteractive?: boolean
 ): Promise<string[] | null> {
   const config = await loadConfig(homeDir);
-  const { skillsDir } = getSyncPaths(homeDir);
-  await autoDiagnoseConfig(config, skillsDir);
 
   return selectTargetServers(Object.keys(config.servers), server, {
     ...options,
@@ -172,8 +170,10 @@ function getCommandPath(command: Command): string {
   return commandPath.join(' ');
 }
 
-function shouldSkipAutoRefresh(command: Command): boolean {
+function shouldSkipCommandPreflight(command: Command): boolean {
+  const commandPath = getCommandPath(command);
   const skipCommands = [
+    '',
     'init',
     'config',
     'config show',
@@ -181,9 +181,130 @@ function shouldSkipAutoRefresh(command: Command): boolean {
     'config link',
     'config remote',
     'refresh',
+    'doctor',
     'restore'
   ];
-  return skipCommands.includes(getCommandPath(command));
+  return skipCommands.includes(commandPath);
+}
+
+async function runCommandPreflight(homeDir: string): Promise<void> {
+  const config = await loadConfig(homeDir);
+  const { skillsDir } = getSyncPaths(homeDir);
+  await autoDiagnoseConfig(config, skillsDir);
+}
+
+function failForNeedsInput(message: string, hint: string): never {
+  return failWithOutputError('E_NEEDS_INPUT', message, hint);
+}
+
+function failForAgentNotConfigured(agent: string): never {
+  return failWithOutputError('E_AGENT_NOT_CONFIGURED', `Agent '${agent}' not configured`);
+}
+
+function formatNoReceiverBackupNoOp(server: string): string {
+  return `Receiver backup does not exist for ${server}; no-op.`;
+}
+
+function normalizeReceiverLinkTargets(remoteAgents: Record<string, string>, targets: string[]): string[] {
+  if (targets.includes('*')) {
+    return Object.keys(remoteAgents).sort();
+  }
+
+  return [...new Set(targets)].sort();
+}
+
+async function removeAllSkillLinks(homeDir: string, skill: string, config: SyncSkillConfig): Promise<void> {
+  await unlinkSkill(homeDir, skill);
+  delete config.links[skill];
+  await saveConfig(config, homeDir);
+}
+
+async function removeReceiverAgentLinks(homeDir: string, serverName: string, agentName: string): Promise<{
+  backup: Awaited<ReturnType<typeof mutateReceiverBackup>>;
+  before: Record<string, unknown> | null;
+  changed: boolean;
+}> {
+  let before: Record<string, unknown> | null = null;
+  let changed = true;
+  const backup = await mutateReceiverBackup(
+    homeDir,
+    serverName,
+    (currentBackup) => {
+      const hadAgent = agentName in currentBackup.remote_agents;
+      const previousAgents = Object.keys(currentBackup.remote_agents).sort();
+      before = snapshotReceiverBackupState(currentBackup, 'remote_agents') as Record<string, unknown>;
+
+      delete currentBackup.remote_agents[agentName];
+      for (const [skillName, targets] of Object.entries(currentBackup.links)) {
+        currentBackup.links[skillName] = targets.includes('*')
+          ? previousAgents.filter((target) => target !== agentName)
+          : targets.filter((target) => target !== agentName);
+      }
+
+      if (!hadAgent && previousAgents.every((target) => !Object.values(currentBackup.links).some((targets) => targets.includes(target)))) {
+        changed = false;
+        return false;
+      }
+    },
+    { createIfMissing: false }
+  );
+
+  return { backup, before, changed };
+}
+
+async function removeReceiverSkillLink(homeDir: string, serverName: string, skill: string, agentName?: string): Promise<{
+  backup: Awaited<ReturnType<typeof mutateReceiverBackup>>;
+  before: Record<string, unknown> | null;
+  changed: boolean;
+}> {
+  let before: Record<string, unknown> | null = null;
+  let changed = true;
+  const backup = await mutateReceiverBackup(
+    homeDir,
+    serverName,
+    (currentBackup) => {
+      const currentTargets = currentBackup.links[skill] ?? [];
+      if (currentTargets.length === 0 && agentName !== undefined) {
+        changed = false;
+        return false;
+      }
+
+      before = snapshotReceiverBackupState(currentBackup, 'links') as Record<string, unknown>;
+      currentBackup.links[skill] = agentName === undefined
+        ? []
+        : normalizeReceiverLinkTargets(
+            currentBackup.remote_agents,
+            currentTargets.includes('*')
+              ? Object.keys(currentBackup.remote_agents).filter((target) => target !== agentName)
+              : currentTargets.filter((target) => target !== agentName)
+          );
+    },
+    { createIfMissing: false }
+  );
+
+  return { backup, before, changed };
+}
+
+function emitReceiverBackupNoOp(serverName: string): void {
+  const output = getGlobalOutput();
+  output.info(formatNoReceiverBackupNoOp(serverName));
+}
+
+function logLinkRemovalSummary(skill: string, agents: string[]): void {
+  console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
+  console.log(`✓ Removed "${skill}" from config links.`);
+}
+
+function hasJsonOutputEnabled(program: Command): boolean {
+  return program.opts<{ json?: boolean }>().json === true;
+}
+
+function shouldSkipLinkRemovalPrompt(program: Command, options: { yes?: boolean }): boolean {
+  return options.yes === true || isNoInteractive(program) === true || hasJsonOutputEnabled(program);
+}
+
+function isInstallWithoutTarget(command: Command): boolean {
+  return getCommandPath(command) === 'install' && command.args.length === 0;
 }
 
 function normalizeConfiguredTargets(targets: string[]): string[] {
@@ -640,20 +761,24 @@ function hasSuccessfulSyncTarget(result: { pull: PullResult; push: PushResult })
 }
 
 function failForNoInteractive(hint?: string): never {
+  const fallbackHint = hint ?? 'Use non-interactive flags or remove --no-interactive';
+  let exitCode: number = ExitCode.NEEDS_INPUT;
+
   try {
     const output = getGlobalOutput();
-    const exitCode = output.error(
+    exitCode = output.error(
       'E_NEEDS_INPUT',
       'This command requires interactive input',
-      { hint: hint ?? 'Use non-interactive flags or remove --no-interactive' }
+      { hint: fallbackHint }
     );
     output.result(false, { error: 'E_NEEDS_INPUT' });
-    process.exit(exitCode);
   } catch {
     console.error('Error: This command requires interactive input');
-    if (hint) console.error(`Hint: ${hint}`);
-    process.exit(ExitCode.NEEDS_INPUT);
+    console.error(`Hint: ${fallbackHint}`);
   }
+
+  process.exit(exitCode);
+  return undefined as never;
 }
 
 function parseInteger(value: string): number {
@@ -681,18 +806,21 @@ function parseOnDeletion(value: string): 'keep-local' | 'delete' | 'prompt' {
 }
 
 function failWithOutputError(code: string, message: string, hint?: string): never {
+  let exitCode = errorCodeToExitCode(code);
+
   try {
     const output = getGlobalOutput();
-    const exitCode = output.error(code, message, hint ? { hint } : undefined);
+    exitCode = output.error(code, message, hint ? { hint } : undefined);
     output.result(false, { error: code });
-    process.exit(exitCode);
   } catch {
     console.error(message);
     if (hint) {
       console.error(`Hint: ${hint}`);
     }
-    process.exit(errorCodeToExitCode(code));
   }
+
+  process.exit(exitCode);
+  return undefined as never;
 }
 
 function parseStructuredError(error: unknown): { code: string; message: string } | null {
@@ -1005,10 +1133,11 @@ export function createProgram(homeDir?: string): Command {
       output.setCommand(getCommandPath(actionCommand) || actionCommand.name());
       setGlobalOutput(output);
 
-      if (shouldSkipAutoRefresh(actionCommand)) {
+      if (shouldSkipCommandPreflight(actionCommand) || isInstallWithoutTarget(actionCommand)) {
         return;
       }
 
+      await runCommandPreflight(resolvedHomeDir);
       await autoRefreshManifests(resolvedHomeDir, opts.refresh !== false);
     });
 
@@ -1075,7 +1204,7 @@ export function createProgram(homeDir?: string): Command {
       if (!urlOrPath) {
         if (process.stdout.isTTY) {
           if (isNoInteractive(program)) {
-            failForNoInteractive();
+            return failForNoInteractive();
           }
 
           const choice = await select({
@@ -1187,7 +1316,7 @@ export function createProgram(homeDir?: string): Command {
           console.log(`\nFound ${skills.length} skill(s):\n`);
 
           if (isNoInteractive(program)) {
-            failForNoInteractive();
+            return failForNoInteractive();
           }
 
           const selected = await checkbox({
@@ -1218,7 +1347,7 @@ export function createProgram(homeDir?: string): Command {
 
   configCommand.action(async () => {
     if (isNoInteractive(program)) {
-      failForNoInteractive();
+      return failForNoInteractive();
     }
 
     await runConfigUi(resolvedHomeDir);
@@ -1260,7 +1389,7 @@ export function createProgram(homeDir?: string): Command {
     .description('Edit skill → agent links (matrix editor) [deprecated: use "link" instead]')
     .action(async () => {
       if (isNoInteractive(program)) {
-        failForNoInteractive();
+        return failForNoInteractive();
       }
 
       console.log('Note: "config link" is deprecated. Use "syncskill link" instead.');
@@ -1272,7 +1401,7 @@ export function createProgram(homeDir?: string): Command {
     .description('Edit skill → remote sync mapping (matrix editor)')
     .action(async () => {
       if (isNoInteractive(program)) {
-        failForNoInteractive();
+        return failForNoInteractive();
       }
 
       await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'remote' });
@@ -1285,8 +1414,6 @@ export function createProgram(homeDir?: string): Command {
     .option('--dry-run', 'Preview scan results without making changes')
     .action(async (options: { migrateUnmanaged?: boolean; dryRun?: boolean }) => {
       const config = await loadConfig(resolvedHomeDir);
-      const { skillsDir } = getSyncPaths(resolvedHomeDir);
-      await autoDiagnoseConfig(config, skillsDir);
 
       const isDryRun = Boolean(options.dryRun);
 
@@ -1332,7 +1459,7 @@ export function createProgram(homeDir?: string): Command {
           }
         } else if (options.migrateUnmanaged) {
           if (isNoInteractive(program)) {
-            failForNoInteractive();
+            return failForNoInteractive();
           }
 
           const confirmed = await confirm({
@@ -1377,10 +1504,7 @@ export function createProgram(homeDir?: string): Command {
     });
 
   async function ensureLinkCommandReady(): Promise<SyncSkillConfig> {
-    const config = await loadConfig(resolvedHomeDir);
-    const { skillsDir } = getSyncPaths(resolvedHomeDir);
-    await autoDiagnoseConfig(config, skillsDir);
-    return config;
+    return loadConfig(resolvedHomeDir);
   }
 
   function validateTargetAgents(config: SyncSkillConfig, targets: string[]): void {
@@ -1390,9 +1514,7 @@ export function createProgram(homeDir?: string): Command {
       }
 
       if (!config.agents[agent]) {
-        console.error(`Error: Agent '${agent}' not configured`);
-        process.exit(1);
-        return;
+        return failForAgentNotConfigured(agent);
       }
     }
   }
@@ -1436,7 +1558,7 @@ export function createProgram(homeDir?: string): Command {
       await ensureLinkCommandReady();
 
       if (isNoInteractive(program)) {
-        failForNoInteractive();
+        return failForNoInteractive();
       }
 
       if (!process.stdout.isTTY) {
@@ -1465,14 +1587,14 @@ export function createProgram(homeDir?: string): Command {
       const config = await ensureLinkCommandReady();
 
       if (!process.stdout.isTTY) {
-        console.error('Error: link edit requires an interactive terminal.');
-        console.error('Use `syncskill link set <skill> <agents...>` or `syncskill link add <skill> <agent>` instead.');
-        process.exit(1);
-        return;
+        return failForNeedsInput(
+          '`link edit` requires an interactive terminal',
+          'Use `syncskill link set <skill> <agent>...`, `syncskill link add <skill> <agent>`, or `syncskill link clear <skill>` instead.'
+        );
       }
 
       if (isNoInteractive(program)) {
-        failForNoInteractive();
+        return failForNoInteractive();
       }
 
       if (!skill) {
@@ -1593,7 +1715,7 @@ export function createProgram(homeDir?: string): Command {
 
       ensureDestructiveVerbAllowed(program, 'link clear', options);
 
-      const skipPrompt = options.yes === true || isNoInteractive(program) === true || program.opts<{ json?: boolean }>().json === true;
+      const skipPrompt = shouldSkipLinkRemovalPrompt(program, options);
       if (!skipPrompt) {
         const confirmed = await confirm({
           message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
@@ -1605,10 +1727,8 @@ export function createProgram(homeDir?: string): Command {
         }
       }
 
-      await unlinkSkill(resolvedHomeDir, skill);
-      config.links[skill] = [];
-      await saveConfig(config, resolvedHomeDir);
-      console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
+      await removeAllSkillLinks(resolvedHomeDir, skill, config);
+      logLinkRemovalSummary(skill, agents);
     });
 
   linkCommand
@@ -1659,7 +1779,7 @@ export function createProgram(homeDir?: string): Command {
 
       ensureDestructiveVerbAllowed(program, 'unlink', options);
 
-      const skipPrompt = options.yes === true || isNoInteractive(program) === true || program.opts<{ json?: boolean }>().json === true;
+      const skipPrompt = shouldSkipLinkRemovalPrompt(program, options);
       if (!skipPrompt) {
         const confirmed = await confirm({
           message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
@@ -1671,11 +1791,8 @@ export function createProgram(homeDir?: string): Command {
         }
       }
 
-      await unlinkSkill(resolvedHomeDir, skill);
-      delete config.links[skill];
-      await saveConfig(config, resolvedHomeDir);
-      console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
-      console.log(`✓ Removed "${skill}" from config links.`);
+      await removeAllSkillLinks(resolvedHomeDir, skill, config);
+      logLinkRemovalSummary(skill, agents);
     });
 
   /**
@@ -1728,7 +1845,7 @@ export function createProgram(homeDir?: string): Command {
       let shouldRemove = options.yes;
       if (!shouldRemove) {
         if (isNoInteractive(program)) {
-          failForNoInteractive();
+          return failForNoInteractive();
         }
 
         shouldRemove = await confirm({
@@ -1770,7 +1887,7 @@ export function createProgram(homeDir?: string): Command {
     let shouldRemove = options.yes;
     if (!shouldRemove) {
       if (isNoInteractive(program)) {
-        failForNoInteractive();
+        return failForNoInteractive();
       }
 
       shouldRemove = await confirm({
@@ -1956,7 +2073,7 @@ export function createProgram(homeDir?: string): Command {
 
   remoteCommand.action(async () => {
     if (isNoInteractive(program)) {
-      failForNoInteractive();
+      return failForNoInteractive();
     }
 
     await runConfigUi(resolvedHomeDir, createPromptApi(), { directEntry: 'remote' });
@@ -1969,7 +2086,8 @@ export function createProgram(homeDir?: string): Command {
     .option('--user <user>', 'SSH user')
     .option('--port <port>', 'SSH port', parseInteger)
     .option('--identity-file <path>', 'SSH identity file')
-    .action(async (name: string, options: { host: string; user?: string; port?: number; identityFile?: string }) => {
+    .option('--remote-repo <path>', 'Remote syncskill repository path')
+    .action(async (name: string, options: { host: string; user?: string; port?: number; identityFile?: string; remoteRepo?: string }) => {
       const config = await loadConfig(resolvedHomeDir);
       const existing = config.servers[name];
       const existingRecord = typeof existing === 'object' && existing !== null && !Array.isArray(existing)
@@ -1985,6 +2103,7 @@ export function createProgram(homeDir?: string): Command {
         ...(typeof options.user === 'string' ? { user: options.user } : {}),
         ...(typeof options.port === 'number' ? { port: options.port } : {}),
         ...(typeof options.identityFile === 'string' ? { identity_file: options.identityFile } : {}),
+        ...(typeof options.remoteRepo === 'string' ? { remote_repo: options.remoteRepo } : {}),
         remote_agents: remoteAgents
       };
       await saveConfig(config, resolvedHomeDir);
@@ -2092,32 +2211,22 @@ export function createProgram(homeDir?: string): Command {
     .command('rm <server> <name>')
     .description('Remove one remote agent from local receiver backup')
     .action(async (serverName: string, agentName: string) => {
-      let before: Record<string, unknown> | null = null;
-      let changed = true;
-      const backup = await mutateReceiverBackup(
-        resolvedHomeDir,
-        serverName,
-        (currentBackup) => {
-          const hadAgent = agentName in currentBackup.remote_agents;
-          const previousAgents = Object.keys(currentBackup.remote_agents).sort();
-          before = snapshotReceiverBackupState(currentBackup, 'remote_agents') as Record<string, unknown>;
+      const { backup, before, changed } = await removeReceiverAgentLinks(resolvedHomeDir, serverName, agentName);
 
-          delete currentBackup.remote_agents[agentName];
-          for (const [skillName, targets] of Object.entries(currentBackup.links)) {
-            currentBackup.links[skillName] = targets.includes('*')
-              ? previousAgents.filter((target) => target !== agentName)
-              : targets.filter((target) => target !== agentName);
-          }
+      if (backup === null) {
+        emitReceiverBackupNoOp(serverName);
+        if (hasJsonOutputEnabled(program)) {
+          getGlobalOutput().result(true, {
+            server: serverName,
+            op: 'agent.rm',
+            noop: true,
+            reason: 'receiver-backup-missing'
+          });
+        }
+        return;
+      }
 
-          if (!hadAgent && previousAgents.every((target) => !Object.values(currentBackup.links).some((targets) => targets.includes(target)))) {
-            changed = false;
-            return false;
-          }
-        },
-        { createIfMissing: false }
-      );
-
-      if (backup === null || before === null || !changed) {
+      if (before === null || !changed) {
         return;
       }
 
@@ -2205,29 +2314,22 @@ export function createProgram(homeDir?: string): Command {
     .command('rm <server> <skill> [agent]')
     .description('Remove one remote skill link from local receiver backup')
     .action(async (serverName: string, skill: string, agentName: string | undefined) => {
-      let before: Record<string, unknown> | null = null;
-      let changed = true;
-      const backup = await mutateReceiverBackup(
-        resolvedHomeDir,
-        serverName,
-        (currentBackup) => {
-          const currentTargets = currentBackup.links[skill] ?? [];
-          if (currentTargets.length === 0 && agentName !== undefined) {
-            changed = false;
-            return false;
-          }
+      const { backup, before, changed } = await removeReceiverSkillLink(resolvedHomeDir, serverName, skill, agentName);
 
-          before = snapshotReceiverBackupState(currentBackup, 'links') as Record<string, unknown>;
-          currentBackup.links[skill] = agentName === undefined
-            ? []
-            : currentTargets.includes('*')
-              ? Object.keys(currentBackup.remote_agents).filter((target) => target !== agentName).sort()
-              : currentTargets.filter((target) => target !== agentName);
-        },
-        { createIfMissing: false }
-      );
+      if (backup === null) {
+        emitReceiverBackupNoOp(serverName);
+        if (hasJsonOutputEnabled(program)) {
+          getGlobalOutput().result(true, {
+            server: serverName,
+            op: 'link.rm',
+            noop: true,
+            reason: 'receiver-backup-missing'
+          });
+        }
+        return;
+      }
 
-      if (backup === null || before === null || !changed) {
+      if (before === null || !changed) {
         return;
       }
 
@@ -2356,16 +2458,6 @@ export function createProgram(homeDir?: string): Command {
     .command('status')
     .description('Show reconciliation status for all tracked manifests')
     .action(async () => {
-      // Auto-check config health (if config exists)
-      const { skillsDir } = getSyncPaths(resolvedHomeDir);
-      let config: SyncSkillConfig | null = null;
-      try {
-        config = await loadConfig(resolvedHomeDir);
-      } catch {
-        // Config may not exist yet
-      }
-      await autoDiagnoseConfig(config, skillsDir);
-
       const manifests = await loadTrackedManifests(resolvedHomeDir);
 
       if (program.opts<{ json?: boolean }>().json) {
@@ -2384,16 +2476,6 @@ export function createProgram(homeDir?: string): Command {
     .command('diff <server>')
     .description('Show pending reconciliation rows for one server')
     .action(async (server: string) => {
-      // Auto-check config health (if config exists)
-      const { skillsDir } = getSyncPaths(resolvedHomeDir);
-      let config: SyncSkillConfig | null = null;
-      try {
-        config = await loadConfig(resolvedHomeDir);
-      } catch {
-        // Config may not exist yet
-      }
-      await autoDiagnoseConfig(config, skillsDir);
-
       const [manifest] = await loadTrackedManifests(resolvedHomeDir, server);
 
       if (!manifest) {
@@ -2435,7 +2517,7 @@ export function createProgram(homeDir?: string): Command {
         // If no options at all, enter interactive mode
         if (!side && !options.diff) {
           if (isNoInteractive(program)) {
-            failForNoInteractive();
+            return failForNoInteractive();
           }
 
           const answer = await select({
@@ -2503,7 +2585,7 @@ export function createProgram(homeDir?: string): Command {
         // If user chose "Show diff first" in interactive mode, ask again after showing diff
         if (showDiffThenAsk && resolved && !side) {
           if (isNoInteractive(program)) {
-            failForNoInteractive();
+            return failForNoInteractive();
           }
 
           const answer = await select({
@@ -2866,7 +2948,7 @@ export function createProgram(homeDir?: string): Command {
       for (const item of allItems) {
         const shouldFix = options.yes || (await (async () => {
           if (isNoInteractive(program)) {
-            failForNoInteractive();
+            return failForNoInteractive();
           }
 
           return confirm({

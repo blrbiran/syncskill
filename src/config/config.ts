@@ -238,6 +238,7 @@ export function getConfiguredServer(config: SyncSkillConfig, name: string): Conf
     ...(typeof raw.user === 'string' ? { user: raw.user } : {}),
     ...(typeof raw.port === 'number' ? { port: raw.port } : {}),
     ...(typeof raw.identity_file === 'string' ? { identity_file: raw.identity_file } : {}),
+    ...(typeof raw.remote_repo === 'string' ? { remote_repo: raw.remote_repo } : {}),
     remote_agents: isRecord(raw.remote_agents)
       ? Object.fromEntries(
           Object.entries(raw.remote_agents).filter((entry): entry is [string, string] => typeof entry[1] === 'string')

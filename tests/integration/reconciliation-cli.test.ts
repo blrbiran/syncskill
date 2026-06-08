@@ -25,6 +25,7 @@ import { loadServerManifest, saveServerManifest } from '../../src/core/manifest.
 import { loadReceiverBackupIfExists } from '../../src/core/server.js';
 import * as refreshModule from '../../src/refresh.js';
 import * as transportModule from '../../src/core/transport.js';
+import { ExitCode } from '../../src/cli/exit-codes.js';
 import { createProgram } from '../../src/index.js';
 import { getPullBackupDir } from '../../src/utils/backup.js';
 
@@ -1290,10 +1291,10 @@ describe('reconciliation CLI', () => {
 
     await expect(
       createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'add', 'my-skill', 'cursor'], { from: 'node' })
-    ).rejects.toThrow('process.exit:1');
+    ).rejects.toThrow(`process.exit:${ExitCode.USAGE_ERROR}`);
 
-    expect(consoleError).toHaveBeenCalledWith("Error: Agent 'cursor' not configured");
-    expect(exitMock).toHaveBeenCalledWith(1);
+    expect(consoleError).toHaveBeenCalledWith("✗ Agent 'cursor' not configured");
+    expect(exitMock).toHaveBeenCalledWith(ExitCode.USAGE_ERROR);
     await expect(loadConfig(homeDir)).resolves.toMatchObject({
       links: {
         'my-skill': ['claude']

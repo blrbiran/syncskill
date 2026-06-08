@@ -309,6 +309,7 @@ describe('getConfiguredServer', () => {
           user: 'deploy',
           port: 2222,
           identity_file: '/Users/demo/.ssh/id_syncskill',
+          remote_repo: '/srv/syncskill',
           remote_agents: {
             claude: '~/.claude/skills',
             qoder: '~/.qoder/skills',
@@ -328,6 +329,7 @@ describe('getConfiguredServer', () => {
       user: 'deploy',
       port: 2222,
       identity_file: '/Users/demo/.ssh/id_syncskill',
+      remote_repo: '/srv/syncskill',
       remote_agents: {
         claude: '~/.claude/skills',
         qoder: '~/.qoder/skills'

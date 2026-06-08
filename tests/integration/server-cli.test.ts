@@ -301,7 +301,9 @@ describe('remote CLI', () => {
       '--port',
       '2222',
       '--identity-file',
-      '/Users/demo/.ssh/id_syncskill'
+      '/Users/demo/.ssh/id_syncskill',
+      '--remote-repo',
+      '/srv/syncskill'
     ], { from: 'node' });
 
     await expect(loadConfig(homeDir)).resolves.toMatchObject({
@@ -311,6 +313,7 @@ describe('remote CLI', () => {
           user: 'deploy',
           port: 2222,
           identity_file: '/Users/demo/.ssh/id_syncskill',
+          remote_repo: '/srv/syncskill',
           remote_agents: {}
         }
       }
@@ -475,6 +478,63 @@ describe('remote CLI', () => {
 
     expect(consoleLog.mock.calls).toEqual([
       ['link\twelcome\tcodex']
+    ]);
+  });
+
+  it('remote agent rm reports no-op when receiver backup is missing', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'remote', 'agent', 'rm', 'alpha', 'claude'], {
+      from: 'node'
+    });
+
+    expect(consoleLog).toHaveBeenCalledWith('Receiver backup does not exist for alpha; no-op.');
+  });
+
+  it('remote link rm emits JSON no-op result when receiver backup is missing', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', '--no-refresh', 'remote', 'link', 'rm', 'alpha', 'welcome', 'claude'], {
+      from: 'node'
+    });
+
+    expect(consoleLog.mock.calls).toEqual([
+      ['{"type":"info","message":"Receiver backup does not exist for alpha; no-op."}'],
+      ['{"type":"result","command":"remote link rm","ok":true,"data_schema_version":1,"summary":{"server":"alpha","op":"link.rm","noop":true,"reason":"receiver-backup-missing"}}']
     ]);
   });
 

@@ -31,6 +31,7 @@ export interface ConfiguredServer {
   user?: string;
   port?: number;
   identity_file?: string;
+  remote_repo?: string;
   remote_agents: Record<string, string>;
 }
 

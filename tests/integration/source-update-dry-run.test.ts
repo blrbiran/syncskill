@@ -95,6 +95,10 @@ describe('update skip exit semantics', () => {
   it('update single source exits 6 when the source is skipped', async () => {
     homeDir = await mkdtemp(join(tmpdir(), 'syncskill-update-exit-'));
 
+    const config = createDefaultConfig(homeDir, {});
+    config.sources.team = { type: 'git', url: '/tmp/team.git', path: 'skills', branch: 'main' };
+    await saveConfig(config, homeDir);
+
     const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
     vi.spyOn(await import('../../src/source.js'), 'updateSource').mockResolvedValue({
       materialized_skills: ['skill-a'],
@@ -108,6 +112,11 @@ describe('update skip exit semantics', () => {
 
   it('update --all keeps exit 0 on partial skip by default', async () => {
     homeDir = await mkdtemp(join(tmpdir(), 'syncskill-update-exit-'));
+
+    const config = createDefaultConfig(homeDir, {});
+    config.sources.alpha = { type: 'git', url: '/tmp/alpha.git', path: 'skills', branch: 'main' };
+    config.sources.beta = { type: 'git', url: '/tmp/beta.git', path: 'skills', branch: 'main' };
+    await saveConfig(config, homeDir);
 
     const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
     vi.spyOn(await import('../../src/source.js'), 'updateAllSources').mockResolvedValue({
@@ -142,6 +151,11 @@ describe('update skip exit semantics', () => {
   it('update --all exits 6 on partial skip with SYNCSKILL_STRICT=1', async () => {
     homeDir = await mkdtemp(join(tmpdir(), 'syncskill-update-exit-'));
     process.env.SYNCSKILL_STRICT = '1';
+
+    const config = createDefaultConfig(homeDir, {});
+    config.sources.alpha = { type: 'git', url: '/tmp/alpha.git', path: 'skills', branch: 'main' };
+    config.sources.beta = { type: 'git', url: '/tmp/beta.git', path: 'skills', branch: 'main' };
+    await saveConfig(config, homeDir);
 
     const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
     vi.spyOn(await import('../../src/source.js'), 'updateAllSources').mockResolvedValue({
