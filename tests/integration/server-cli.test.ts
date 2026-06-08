@@ -508,6 +508,36 @@ describe('remote CLI', () => {
     expect(consoleLog).toHaveBeenCalledWith('Receiver backup does not exist for alpha; no-op.');
   });
 
+  it('remote agent rm emits JSON no-op result when receiver backup is missing', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', '--no-refresh', 'remote', 'agent', 'rm', 'alpha', 'claude'], {
+      from: 'node'
+    });
+
+    expect(consoleLog.mock.calls).toEqual([
+      ['{"type":"info","message":"Receiver backup does not exist for alpha; no-op."}'],
+      ['{"type":"result","command":"remote agent rm","ok":true,"data_schema_version":1,"summary":{"server":"alpha","op":"agent.rm","noop":true,"reason":"receiver-backup-missing"}}']
+    ]);
+  });
+
   it('remote link rm emits JSON no-op result when receiver backup is missing', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
     tempDirs.push(homeDir);
@@ -536,6 +566,102 @@ describe('remote CLI', () => {
       ['{"type":"info","message":"Receiver backup does not exist for alpha; no-op."}'],
       ['{"type":"result","command":"remote link rm","ok":true,"data_schema_version":1,"summary":{"server":"alpha","op":"link.rm","noop":true,"reason":"receiver-backup-missing"}}']
     ]);
+  });
+
+  it('remote link add rejects unknown remote agents', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: { host: 'alpha.example.com', remote_agents: {} }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    await saveReceiverBackup(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-06-03T09:01:00.000Z',
+      remote_agents: {
+        claude: '~/.claude/skills'
+      },
+      links: {}
+    });
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const exitMock = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit:${code}`);
+    }) as never);
+
+    await expect(
+      createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'remote', 'link', 'add', 'alpha', 'welcome', 'cursor'], {
+        from: 'node'
+      })
+    ).rejects.toThrow(`process.exit:${ExitCode.USAGE_ERROR}`);
+
+    expect(consoleError).toHaveBeenCalledWith('✗ Remote agent not configured: cursor');
+    expect(exitMock).toHaveBeenCalledWith(ExitCode.USAGE_ERROR);
+  });
+
+  it('remote takeover rejects an unlinked --agent', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {
+              claude: '~/.claude/skills',
+              codex: '~/.codex/skills'
+            }
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    await saveReceiverBackup(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-06-03T09:01:00.000Z',
+      remote_agents: {
+        claude: '~/.claude/skills',
+        codex: '~/.codex/skills'
+      },
+      links: { welcome: ['claude'] }
+    });
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const takeoverSpy = vi.spyOn(await import('../../src/core/transport.js'), 'takeOverRemoteSkill').mockResolvedValue({
+      server: 'alpha',
+      skill: 'welcome',
+      takeovers: [],
+      skipped: []
+    });
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'remote', 'takeover', 'alpha', 'welcome', '--agent', 'codex'], {
+      from: 'node'
+    });
+
+    expect(processExit).toHaveBeenCalledWith(ExitCode.USAGE_ERROR);
+    expect(consoleError).toHaveBeenCalledWith('✗ Remote agent not configured for welcome: codex');
+    expect(takeoverSpy).not.toHaveBeenCalled();
   });
 
   it('remote takeover requires receiver backup initialization', async () => {

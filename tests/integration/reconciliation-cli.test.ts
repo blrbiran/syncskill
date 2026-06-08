@@ -1149,6 +1149,49 @@ describe('reconciliation CLI', () => {
     });
   });
 
+  it('link edit <skill> requires an interactive terminal', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-editor-'));
+    tempDirs.push(homeDir);
+
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'my-skill');
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# my-skill\n', 'utf8');
+
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, {
+          claude: claudeDir
+        }),
+        private_agents: [],
+        links: {
+          'my-skill': ['claude']
+        }
+      },
+      homeDir
+    );
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const exitMock = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit:${code}`);
+    }) as never);
+    const originalIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, writable: true });
+
+    try {
+      await expect(
+        createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'edit', 'my-skill'], { from: 'node' })
+      ).rejects.toThrow(`process.exit:${ExitCode.NEEDS_INPUT}`);
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+    }
+
+    expect(consoleError).toHaveBeenCalledWith('✗ `link edit` requires an interactive terminal');
+    expect(consoleError).toHaveBeenCalledWith('  Use `syncskill link set <skill> <agent>...`, `syncskill link add <skill> <agent>`, or `syncskill link clear <skill>` instead.');
+    expect(exitMock).toHaveBeenCalledWith(ExitCode.NEEDS_INPUT);
+  });
+
   it('link edit <skill> opens single-skill editor and reconciles selected agents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-editor-'));
     tempDirs.push(homeDir);
