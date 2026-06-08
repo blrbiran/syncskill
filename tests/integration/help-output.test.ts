@@ -39,6 +39,24 @@ describe('help output', () => {
     expect(stdout).not.toContain('--strict');
   });
 
+  it('install help keeps the public self flow and hides removed self flag wording', async () => {
+    const { stdout } = await execAsync('node', ['dist/index.js', 'install', '--help'], {
+      cwd: '/Users/biran/code/skills/syncskill'
+    });
+
+    expect(stdout).toContain('Use "self" for built-in skill; URL/path for external source');
+    expect(stdout).not.toContain('--self');
+  });
+
+  it('remote add help exposes remote repo transport option', async () => {
+    const { stdout } = await execAsync('node', ['dist/index.js', 'remote', 'add', '--help'], {
+      cwd: '/Users/biran/code/skills/syncskill'
+    });
+
+    expect(stdout).toContain('--remote-repo <path>');
+    expect(stdout).toContain('Remote syncskill repository path');
+  });
+
   it('pull help exposes current deletion/backup controls only through the public surface', async () => {
     const { stdout } = await execAsync('node', ['dist/index.js', 'pull', '--help'], {
       cwd: '/Users/biran/code/skills/syncskill'

@@ -21,7 +21,7 @@ Use this skill when:
 | Command | Description |
 |---------|-------------|
 | `init [--skip-scan] [--skip-self] [-y]` | Initialize `~/.syncskill/` and create `config.json` |
-| `install` / `i` | In TTY, open an interactive install menu; in non-TTY, show install help |
+| `install` / `i` | Show install help with no target; use `install self` or `install <url-or-path>` for actual installs |
 | `install self` | Install built-in syncskill skill |
 | `install <url-or-path> [--name] [--branch] [--type <type>] [-y]` | Install skill from URL or path and register it as a managed source |
 
@@ -69,7 +69,7 @@ In v2, `source add`, `source update`, and `source restore` are removed. Use `ins
 | Command | Description |
 |---------|-------------|
 | `remote` | Open the skill → remote sync matrix editor |
-| `remote add <name> --host <host>` | Add a configured remote endpoint |
+| `remote add <name> --host <host> [--user <user> --port <port> --identity-file <path> --remote-repo <path>]` | Add a configured remote endpoint |
 | `remote rm <name>` | Remove a configured remote endpoint |
 | `remote list` / `remote ls` | List configured remotes |
 | `remote show <name>` | Show the local receiver backup for one remote |
@@ -117,6 +117,7 @@ In v2, `server probe` is removed.
 | `--no-interactive` | Disable interactive prompts; commands that require TTY input fail fast instead of prompting |
 | `--no-refresh` | Skip automatic manifest refresh |
 | `-y, --yes` | Skip confirmation prompts |
+| `--yes-destructive` | Allow destructive actions in non-interactive mode |
 | `--dry-run` | Preview changes without executing |
 | `--force` | Force operation (for example, updating dirty sources) |
 

@@ -127,7 +127,7 @@ Link command options:
 
 | Option | Applies to | Description |
 |--------|------------|-------------|
-| `-y, --yes` | `link set`, `link add`, `link clear`, `link build`, `unlink` | Auto-confirm stale link removal or clear confirmation |
+| `-y, --yes` | `link set`, `link add`, `link clear`, `link build`, `unlink` | Auto-confirm prompts when the command is otherwise allowed; `link clear` / `unlink` still require `--yes-destructive` in non-interactive mode |
 | `--dry-run` | `link set`, `link add`, `link remove`, `link clear`, `link build`, `unlink` | Preview what would change |
 | `-v, --verbose` | `link list` | Show text status instead of symbols |
 | `--no-interactive` | global | Disable prompts for automation |
@@ -263,6 +263,8 @@ Install options:
 | `--branch <branch>` | Git branch or tag |
 | `-y, --yes` | Skip confirmation prompts |
 
+`syncskill install` with no target shows help. Use `install self` for the built-in skill or `install <url-or-path>` for external sources.
+
 For v2 plan-then-execute workflows, `install self` also supports the global `--plan`, `--apply`, and `--resolutions` flags. Save the generated plan with shell redirection when needed. This is the supported way to preview or hand off built-in skill installation before making changes.
 
 ### Typical Loop
@@ -337,7 +339,7 @@ syncskill remote show alpha
 Recommended flow:
 
 1. Run `syncskill remote list` to see configured remote targets
-2. Run `syncskill config show` or inspect `~/.syncskill/config.json` to review transport fields such as `host`, `user`, `port`, and `identity_file`
+2. Run `syncskill config show` or inspect `~/.syncskill/config.json` to review transport fields such as `host`, `user`, `port`, `identity_file`, and optional `remote_repo`
 3. Run `syncskill refresh --remote alpha` when you want reconciliation to rescan the remote skill tree and update `~/.syncskill/receivers/alpha.json`
 4. Run `syncskill remote show alpha` to inspect the resulting local receiver backup (`updated_at`, `remote_agents`, `links`)
 5. Run `syncskill pull alpha` when you want to materialize remote skill contents locally.
@@ -450,7 +452,7 @@ syncskill remote
 syncskill config remote
 
 # Add or inspect configured remotes
-syncskill remote add alpha --host alpha.example.com --user alice
+syncskill remote add alpha --host alpha.example.com --user alice --remote-repo /srv/syncskill
 syncskill remote list
 syncskill remote show alpha
 ```
@@ -489,6 +491,7 @@ The doctor command checks for:
 | `--resolutions <path>` | Provide a resolutions file for unresolved plan items |
 | `--no-refresh` | Skip automatic manifest refresh before commands |
 | `-y, --yes` | Skip confirmation prompts |
+| `--yes-destructive` | Allow destructive actions in non-interactive mode |
 | `--dry-run` | Preview changes without executing |
 
 Global environment variable equivalents:

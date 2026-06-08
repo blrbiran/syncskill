@@ -44,7 +44,7 @@ syncskill install self
 # Preview the built-in install plan first
 syncskill --plan install self
 
-# Install from a source interactively when running in a TTY
+# Show install help when no target is provided
 syncskill install
 
 # Link skills to agent directories
@@ -62,7 +62,7 @@ syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 | Command | Description |
 |---------|-------------|
 | `syncskill init` | Initialize `~/.syncskill/` directory structure |
-| `syncskill install` / `i` | Open interactive install menu in TTY, otherwise show help; also install from URL/path |
+| `syncskill install` / `i` | Show install help with no target; use `install self` for the built-in skill or `install <url-or-path>` for external sources |
 | `syncskill install self` | Install built-in syncskill skill |
 | `syncskill config` | Open interactive configuration menu |
 | `syncskill config show` | Print current JSON configuration |
@@ -110,7 +110,7 @@ In v2, `source add`, `source update`, and `source restore` were removed. Use `in
 | Command | Description |
 |---------|-------------|
 | `syncskill remote` | Open skill → remote sync matrix editor |
-| `syncskill remote add <name> --host <host>` | Add a configured remote endpoint |
+| `syncskill remote add <name> --host <host> [--user <user> --port <port> --identity-file <path> --remote-repo <path>]` | Add a configured remote endpoint |
 | `syncskill remote rm <name>` | Remove a configured remote endpoint |
 | `syncskill remote list` / `ls` | List configured remotes |
 | `syncskill remote show <name>` | Show the local receiver backup for one remote |
@@ -140,6 +140,7 @@ In v2, `source add`, `source update`, and `source restore` were removed. Use `in
 - `--no-interactive` - Disable interactive prompts and TUI flows
 - `--no-refresh` - Skip automatic manifest refresh
 - `-y, --yes` - Skip confirmation prompts
+- `--yes-destructive` - Allow destructive actions in non-interactive mode
 - `--dry-run` - Preview changes without executing
 - `SYNCSKILL_STRICT=1` - Treat partial skip results as exit code 6
 - `SYNCSKILL_PULL_BACKUP=0|1` - Disable or force local pre-pull backups for `pull` / `sync`
@@ -149,7 +150,7 @@ Use `pull` when you want to copy remote skill contents into the local repository
 Use `--on-remote-deletion` on `pull` / `sync` when you need to choose how remote deletions affect local skills.
 Use `config.pull_backup` or `SYNCSKILL_PULL_BACKUP` to control local pre-pull backups; `--no-pull-backup` is no longer a public CLI flag.
 Use `remote show <name>` to inspect the local receiver backup (`updated_at`, `remote_agents`, `links`) for one remote.
-Use `config show` or inspect `~/.syncskill/config.json` when you need the configured transport fields such as `host`, `user`, `port`, and `identity_file`.
+Use `config show` or inspect `~/.syncskill/config.json` when you need the configured transport fields such as `host`, `user`, `port`, `identity_file`, and optional `remote_repo`.
 For v2 migrations: `server probe` was removed; use `remote list`, `config show`, and sync/refresh commands to validate remote configuration.
 
 ## Configuration Notes

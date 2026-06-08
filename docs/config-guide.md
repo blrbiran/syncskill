@@ -271,6 +271,7 @@ Each server entry supports:
 | `user` | No | SSH username (defaults to current user) |
 | `port` | No | SSH port (defaults to 22) |
 | `identity_file` | No | Path to SSH private key |
+| `remote_repo` | No | Remote syncskill repository path |
 | `remote_agents` | No | Agent directory mappings on the remote server |
 
 Example:
@@ -283,6 +284,7 @@ Example:
       "user": "alice",
       "port": 22,
       "identity_file": "~/.ssh/id_ed25519",
+      "remote_repo": "/srv/syncskill",
       "remote_agents": {
         "claude": "/home/alice/.claude/skills",
         "qoder": "/home/alice/.qoder/skills"
@@ -294,7 +296,7 @@ Example:
 
 Remote lifecycle notes:
 
-- `config show` or direct inspection of `~/.syncskill/config.json` is the source of truth for configured transport fields such as `host`, optional `user`, optional `port`, optional `identity_file`, and configured `remote_agents`
+- `config show` or direct inspection of `~/.syncskill/config.json` is the source of truth for configured transport fields such as `host`, optional `user`, optional `port`, optional `identity_file`, optional `remote_repo`, and configured `remote_agents`
 - `refresh --remote <server>` scans the configured `remote_agents` roots and updates `~/.syncskill/receivers/<server>.json` from the real remote skill directories
 - `remote show <name>` prints the local receiver backup for one remote (`version`, `server`, `updated_at`, `remote_agents`, `links`)
 - If a configured remote agent root path does not exist, `refresh --remote` fails instead of treating the remote skill tree as empty

@@ -33,6 +33,10 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('refresh --remote <server>');
     expect(readme).toContain('--json');
     expect(readme).toContain('--no-interactive');
+    expect(readme).toContain('--yes-destructive');
+    expect(readme).toContain('Show install help with no target');
+    expect(readme).toContain('--remote-repo');
+    expect(readme).toContain('optional `remote_repo`');
     expect(readme).toContain('SYNCSKILL_STRICT=1');
     expect(readme).toContain('SYNCSKILL_PULL_BACKUP');
     expect(readme).toContain('--on-remote-deletion');
@@ -48,6 +52,7 @@ describe('ship-readiness docs', () => {
     expect(docsReadme).toContain('remove stale symlinks');
     expect(docsReadme).toContain('Remote Lifecycle Workflow');
     expect(docsReadme).toContain('receivers/<server>.json');
+    expect(docsReadme).toContain('syncskill install` with no target shows help');
     expect(docsReadme).toContain('--on-remote-deletion');
     expect(docsReadme).toContain('SYNCSKILL_PULL_BACKUP');
     expect(docsReadme).toContain('restore <skill>');
@@ -65,6 +70,7 @@ describe('ship-readiness docs', () => {
     expect(configGuide).toContain('remote show <name>');
     expect(configGuide).toContain('refresh --remote <server>');
     expect(configGuide).toContain('remote_agents');
+    expect(configGuide).toContain('remote_repo');
     expect(configGuide).toContain('http_baselines');
     expect(configGuide).not.toContain('"ignored": {');
     expect(configGuide).toContain('config.sources[*].ignore[]');
@@ -90,6 +96,9 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('node dist/index.js --help');
     expect(usageGuide).toContain('--json');
     expect(usageGuide).toContain('--no-interactive');
+    expect(usageGuide).toContain('--yes-destructive');
+    expect(usageGuide).toContain('optional `remote_repo`');
+    expect(usageGuide).toContain('syncskill install` with no target shows help');
     expect(usageGuide).toContain('SYNCSKILL_STRICT');
     expect(usageGuide).toContain('SYNCSKILL_PULL_BACKUP');
     expect(usageGuide).toContain('--on-remote-deletion');
@@ -101,7 +110,10 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('pre-restore');
 
     expect(skillDoc).toContain('repo-relative subdirectory containing skills');
+    expect(skillDoc).toContain('Show install help with no target');
     expect(skillDoc).toContain('--type');
+    expect(skillDoc).toContain('--remote-repo');
+    expect(skillDoc).toContain('--yes-destructive');
     expect(skillDoc).toContain('--on-remote-deletion');
     expect(skillDoc).toContain('SYNCSKILL_STRICT=1');
     expect(skillDoc).toContain('SYNCSKILL_PULL_BACKUP');
