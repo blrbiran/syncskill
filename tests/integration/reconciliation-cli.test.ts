@@ -643,7 +643,7 @@ describe('reconciliation CLI', () => {
     await expect(loadServerManifest(homeDir, 'alpha')).resolves.toEqual(staleManifest);
   });
 
-  it('preAction skips auto-refresh for init, config, config show, config set, and refresh', async () => {
+  it('preAction skips auto-refresh for init, config, config show, config set, refresh, and install', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
     tempDirs.push(homeDir);
 

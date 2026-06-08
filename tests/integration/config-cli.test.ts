@@ -119,6 +119,49 @@ describe('config CLI', () => {
     });
   });
 
+  it('link clear <skill> --yes --yes-destructive removes all links and clears configured agents', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
+    tempDirs.push(homeDir);
+
+    await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
+    await mkdir(join(homeDir, '.cursor', 'skills'), { recursive: true });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
+
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'to-clear'), { recursive: true });
+    await writeFile(join(homeDir, '.syncskill', 'skills', 'to-clear', 'SKILL.md'), '# test', 'utf8');
+
+    await saveConfig({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {
+        claude: join(homeDir, '.claude', 'skills'),
+        cursor: join(homeDir, '.cursor', 'skills')
+      },
+      links: {
+        'to-clear': ['claude', 'cursor']
+      },
+      servers: {},
+      sources: {}
+    }, homeDir);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'build'], { from: 'node' });
+
+    await expect(readlink(join(homeDir, '.claude', 'skills', 'to-clear'))).resolves.toBeDefined();
+    await expect(readlink(join(homeDir, '.cursor', 'skills', 'to-clear'))).resolves.toBeDefined();
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'clear', 'to-clear', '--yes', '--yes-destructive'], { from: 'node' });
+
+    const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
+    expect(loggedOutput).toContain('✓ Unlinked to-clear from all agents (claude, cursor)');
+    expect(loggedOutput).toContain('✓ Removed "to-clear" from config links.');
+    await expect(readlink(join(homeDir, '.claude', 'skills', 'to-clear'))).rejects.toThrow();
+    await expect(readlink(join(homeDir, '.cursor', 'skills', 'to-clear'))).rejects.toThrow();
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({
+      links: {}
+    });
+  });
+
   it('unlink <skill> --yes --yes-destructive removes all links and clears configured agents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);

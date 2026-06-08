@@ -219,8 +219,58 @@ async function removeAllSkillLinks(homeDir: string, skill: string, config: SyncS
   await saveConfig(config, homeDir);
 }
 
+type ReceiverBackupMutation = Awaited<ReturnType<typeof mutateReceiverBackup>>;
+type ReceiverBackupSnapshot = NonNullable<ReceiverBackupMutation>;
+
+function getLinkedAgentsForSkill(config: SyncSkillConfig, skill: string): string[] {
+  return [...new Set(expandTargetAgents(config, config.links[skill] ?? []))].sort();
+}
+
+async function executeRemoveAllSkillLinks(
+  homeDir: string,
+  program: Command,
+  skill: string,
+  config: SyncSkillConfig,
+  options: { yes?: boolean; dryRun?: boolean },
+  behavior: {
+    verb: string;
+    showNoLinksMessage?: boolean;
+    getDryRunLines: (skill: string, agents: string[]) => string[];
+  }
+): Promise<void> {
+  const agents = getLinkedAgentsForSkill(config, skill);
+
+  if (agents.length === 0 && behavior.showNoLinksMessage) {
+    console.log(`No links found for "${skill}".`);
+    return;
+  }
+
+  if (options.dryRun) {
+    for (const line of behavior.getDryRunLines(skill, agents)) {
+      console.log(line);
+    }
+    return;
+  }
+
+  ensureDestructiveVerbAllowed(program, behavior.verb, options);
+
+  if (!shouldSkipLinkRemovalPrompt(program, options)) {
+    const confirmed = await confirm({
+      message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
+      default: false,
+    });
+    if (!confirmed) {
+      console.log('Cancelled.');
+      return;
+    }
+  }
+
+  await removeAllSkillLinks(homeDir, skill, config);
+  logLinkRemovalSummary(skill, agents);
+}
+
 async function removeReceiverAgentLinks(homeDir: string, serverName: string, agentName: string): Promise<{
-  backup: Awaited<ReturnType<typeof mutateReceiverBackup>>;
+  backup: ReceiverBackupMutation;
   before: Record<string, unknown> | null;
   changed: boolean;
 }> {
@@ -253,7 +303,7 @@ async function removeReceiverAgentLinks(homeDir: string, serverName: string, age
 }
 
 async function removeReceiverSkillLink(homeDir: string, serverName: string, skill: string, agentName?: string): Promise<{
-  backup: Awaited<ReturnType<typeof mutateReceiverBackup>>;
+  backup: ReceiverBackupMutation;
   before: Record<string, unknown> | null;
   changed: boolean;
 }> {
@@ -290,6 +340,36 @@ function emitReceiverBackupNoOp(serverName: string): void {
   output.info(formatNoReceiverBackupNoOp(serverName));
 }
 
+function emitReceiverBackupNoOpResult(program: Command, serverName: string, op: string): void {
+  emitReceiverBackupNoOp(serverName);
+  if (hasJsonOutputEnabled(program)) {
+    getGlobalOutput().result(true, {
+      server: serverName,
+      op,
+      noop: true,
+      reason: 'receiver-backup-missing'
+    });
+  }
+}
+
+function emitReceiverBackupMutationResult(
+  program: Command,
+  backup: ReceiverBackupSnapshot,
+  payload: { server: string; op: string; before: Record<string, unknown>; after: Record<string, unknown> },
+  formatLines: (backup: ReceiverBackupSnapshot) => string[]
+): void {
+  if (hasJsonOutputEnabled(program)) {
+    getGlobalOutput().result(true, {
+      data: JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
+    });
+    return;
+  }
+
+  for (const line of formatLines(backup)) {
+    console.log(line);
+  }
+}
+
 function logLinkRemovalSummary(skill: string, agents: string[]): void {
   console.log(`✓ Unlinked ${skill} from all agents (${agents.join(', ')})`);
   console.log(`✓ Removed "${skill}" from config links.`);
@@ -303,8 +383,8 @@ function shouldSkipLinkRemovalPrompt(program: Command, options: { yes?: boolean 
   return options.yes === true || isNoInteractive(program) === true || hasJsonOutputEnabled(program);
 }
 
-function isInstallWithoutTarget(command: Command): boolean {
-  return getCommandPath(command) === 'install' && command.args.length === 0;
+function shouldSkipInstallPreflight(command: Command): boolean {
+  return getCommandPath(command) === 'install';
 }
 
 function normalizeConfiguredTargets(targets: string[]): string[] {
@@ -1133,7 +1213,7 @@ export function createProgram(homeDir?: string): Command {
       output.setCommand(getCommandPath(actionCommand) || actionCommand.name());
       setGlobalOutput(output);
 
-      if (shouldSkipCommandPreflight(actionCommand) || isInstallWithoutTarget(actionCommand)) {
+      if (shouldSkipCommandPreflight(actionCommand) || shouldSkipInstallPreflight(actionCommand)) {
         return;
       }
 
@@ -1706,29 +1786,27 @@ export function createProgram(homeDir?: string): Command {
     .option('--dry-run', 'Preview changes without applying')
     .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean }) => {
       const config = await ensureLinkCommandReady();
-      const agents = [...new Set(expandTargetAgents(config, config.links[skill] ?? []))].sort();
+      await executeRemoveAllSkillLinks(resolvedHomeDir, program, skill, config, options, {
+        verb: 'link clear',
+        getDryRunLines: (name, agents) => [`[dry-run] Would unlink ${name} from all agents (${agents.join(', ')})`]
+      });
+    });
 
-      if (options.dryRun) {
-        console.log(`[dry-run] Would unlink ${skill} from all agents (${agents.join(', ')})`);
-        return;
-      }
-
-      ensureDestructiveVerbAllowed(program, 'link clear', options);
-
-      const skipPrompt = shouldSkipLinkRemovalPrompt(program, options);
-      if (!skipPrompt) {
-        const confirmed = await confirm({
-          message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
-          default: false,
-        });
-        if (!confirmed) {
-          console.log('Cancelled.');
-          return;
-        }
-      }
-
-      await removeAllSkillLinks(resolvedHomeDir, skill, config);
-      logLinkRemovalSummary(skill, agents);
+  program
+    .command('unlink <skill>')
+    .description('Remove all skill links (alias for "link clear")')
+    .option('-y, --yes', 'Skip confirmation')
+    .option('--dry-run', 'Preview changes without applying')
+    .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean }) => {
+      const config = await ensureLinkCommandReady();
+      await executeRemoveAllSkillLinks(resolvedHomeDir, program, skill, config, options, {
+        verb: 'unlink',
+        showNoLinksMessage: true,
+        getDryRunLines: (name, agents) => [
+          `[dry-run] Would unlink ${name} from all agents (${agents.join(', ')})`,
+          `[dry-run] Would remove "${name}" from config links.`
+        ]
+      });
     });
 
   linkCommand
@@ -1757,47 +1835,6 @@ export function createProgram(homeDir?: string): Command {
       output.result(true, summarizeLinkBuild(resolvedHomeDir, config, results, cleanupSummary.removed, plan));
     });
 
-  program
-    .command('unlink <skill>')
-    .description('Remove all skill links (alias for "link clear")')
-    .option('-y, --yes', 'Skip confirmation')
-    .option('--dry-run', 'Preview changes without applying')
-    .action(async (skill: string, options: { yes?: boolean; dryRun?: boolean }) => {
-      const config = await ensureLinkCommandReady();
-      const agents = [...new Set(expandTargetAgents(config, config.links[skill] ?? []))].sort();
-
-      if (agents.length === 0) {
-        console.log(`No links found for "${skill}".`);
-        return;
-      }
-
-      if (options.dryRun) {
-        console.log(`[dry-run] Would unlink ${skill} from all agents (${agents.join(', ')})`);
-        console.log(`[dry-run] Would remove "${skill}" from config links.`);
-        return;
-      }
-
-      ensureDestructiveVerbAllowed(program, 'unlink', options);
-
-      const skipPrompt = shouldSkipLinkRemovalPrompt(program, options);
-      if (!skipPrompt) {
-        const confirmed = await confirm({
-          message: `Unlink ${skill} from all agents (${agents.join(', ')})?`,
-          default: false,
-        });
-        if (!confirmed) {
-          console.log('Cancelled.');
-          return;
-        }
-      }
-
-      await removeAllSkillLinks(resolvedHomeDir, skill, config);
-      logLinkRemovalSummary(skill, agents);
-    });
-
-  /**
-   * Display preview of stale links that would be removed (for --dry-run)
-   */
   async function displayStaleLinksPreview(staleBySkill: StaleLinksBySkill): Promise<void> {
     const allStale = Object.values(staleBySkill).flat();
     if (allStale.length === 0) return;
@@ -2190,21 +2227,12 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      if (program.opts<{ json?: boolean }>().json) {
-        getGlobalOutput().result(true, {
-          data: JSON.parse(JSON.stringify({
-            server: serverName,
-            op: 'agent.add',
-            before,
-            after: { remote_agents: backup.remote_agents }
-          })) as Record<string, unknown>
-        });
-        return;
-      }
-
-      for (const line of formatRemoteAgentLines(backup)) {
-        console.log(line);
-      }
+      emitReceiverBackupMutationResult(program, backup, {
+        server: serverName,
+        op: 'agent.add',
+        before,
+        after: { remote_agents: backup.remote_agents }
+      }, formatRemoteAgentLines);
     });
 
   remoteAgentCommand
@@ -2214,15 +2242,7 @@ export function createProgram(homeDir?: string): Command {
       const { backup, before, changed } = await removeReceiverAgentLinks(resolvedHomeDir, serverName, agentName);
 
       if (backup === null) {
-        emitReceiverBackupNoOp(serverName);
-        if (hasJsonOutputEnabled(program)) {
-          getGlobalOutput().result(true, {
-            server: serverName,
-            op: 'agent.rm',
-            noop: true,
-            reason: 'receiver-backup-missing'
-          });
-        }
+        emitReceiverBackupNoOpResult(program, serverName, 'agent.rm');
         return;
       }
 
@@ -2230,21 +2250,12 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      if (program.opts<{ json?: boolean }>().json) {
-        getGlobalOutput().result(true, {
-          data: JSON.parse(JSON.stringify({
-            server: serverName,
-            op: 'agent.rm',
-            before,
-            after: { remote_agents: backup.remote_agents }
-          })) as Record<string, unknown>
-        });
-        return;
-      }
-
-      for (const line of formatRemoteAgentLines(backup)) {
-        console.log(line);
-      }
+      emitReceiverBackupMutationResult(program, backup, {
+        server: serverName,
+        op: 'agent.rm',
+        before,
+        after: { remote_agents: backup.remote_agents }
+      }, formatRemoteAgentLines);
     });
 
   const remoteLinkCommand = remoteCommand.command('link').description('Manage local remote-link backup entries');
@@ -2293,21 +2304,12 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      if (program.opts<{ json?: boolean }>().json) {
-        getGlobalOutput().result(true, {
-          data: JSON.parse(JSON.stringify({
-            server: serverName,
-            op: 'link.add',
-            before,
-            after: { links: backup.links }
-          })) as Record<string, unknown>
-        });
-        return;
-      }
-
-      for (const line of formatRemoteLinkLines(backup)) {
-        console.log(line);
-      }
+      emitReceiverBackupMutationResult(program, backup, {
+        server: serverName,
+        op: 'link.add',
+        before,
+        after: { links: backup.links }
+      }, formatRemoteLinkLines);
     });
 
   remoteLinkCommand
@@ -2317,15 +2319,7 @@ export function createProgram(homeDir?: string): Command {
       const { backup, before, changed } = await removeReceiverSkillLink(resolvedHomeDir, serverName, skill, agentName);
 
       if (backup === null) {
-        emitReceiverBackupNoOp(serverName);
-        if (hasJsonOutputEnabled(program)) {
-          getGlobalOutput().result(true, {
-            server: serverName,
-            op: 'link.rm',
-            noop: true,
-            reason: 'receiver-backup-missing'
-          });
-        }
+        emitReceiverBackupNoOpResult(program, serverName, 'link.rm');
         return;
       }
 
@@ -2333,21 +2327,12 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      if (program.opts<{ json?: boolean }>().json) {
-        getGlobalOutput().result(true, {
-          data: JSON.parse(JSON.stringify({
-            server: serverName,
-            op: 'link.rm',
-            before,
-            after: { links: backup.links }
-          })) as Record<string, unknown>
-        });
-        return;
-      }
-
-      for (const line of formatRemoteLinkLines(backup)) {
-        console.log(line);
-      }
+      emitReceiverBackupMutationResult(program, backup, {
+        server: serverName,
+        op: 'link.rm',
+        before,
+        after: { links: backup.links }
+      }, formatRemoteLinkLines);
     });
 
   remoteCommand
