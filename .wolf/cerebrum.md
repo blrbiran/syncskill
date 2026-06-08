@@ -34,6 +34,40 @@
 - **[2026-06-04]** CLI help 回归测试要同时锁“该出现的公开 flag”和“不该暴露的隐藏兼容 alias / 已废弃 flag”；只测正向出现容易让旧参数悄悄回流到帮助面。
 - **[2026-06-04]** source update 的 removed-skill e2e 应优先锁稳定契约：保留为本地技能的提示、`.syncskill/skills` 仍存在、source checkout 中该技能已消失；不要依赖单源 update 是否打印汇总行。
 - **[2026-06-04]** 文档与技能说明在 sync CLI 收口后要明确区分“公开 flag”和“env/config 开关”：`--on-remote-deletion` 是公开参数，而 strict / pull-backup 控制走 `SYNCSKILL_STRICT`、`SYNCSKILL_PULL_BACKUP` 与 `config.pull_backup`。
+- **[2026-06-08]** 共享 root preAction 之后，`update` / `link` / `sync` 这类命令的集成测试即使 mock 了 action helper，也必须先准备真实 config 和必要的 source/server fixture；否则会先在 preflight 阶段失败，根本到不了 mock。
+- **[2026-06-08]** `install`（尤其 `install self` / `--plan install self` / apply flow）必须跳过共享 command preflight；内置 skill 安装不应依赖当前 config doctor 结果，否则会把自举安装链路错误拦截。
+- **[2026-06-08]** `link clear` 与 `unlink` 应共用一条 remove-all 执行路径；receiver backup 的 add/rm JSON/text 输出也应走薄包装 helper，避免 CLI 层同样的 before/after/no-op 分支散落四处。
+- **[2026-06-08]** 共享 root preAction 下，`link edit` 这类负向 integration test 也要先准备最小可通过 doctor 的 fixture：至少存在的 agent 目录和 `.syncskill/skills/<skill>`；否则测试会先卡在 preflight，而不是命中命令分支。
+- **[2026-06-08]** end2end 测试只有在真实执行 `syncskill` 命令并验证用户可见 contract 时才算有效覆盖；只手工写 registry/baseline 再做静态断言的 case 属于 false coverage，应删掉或改成显式 skipped stub。
+- **[2026-06-08]** Commander help 回归测试要锁真实输出的 description/option 文案，不要把示例命令当成帮助面必现字符串；像 install help 应断言 `Use "self" for built-in skill...`，而不是字面量 `install self`。
+
+## Do-Not-Repeat
+
+<!-- Mistakes made and corrected. Each entry prevents the same mistake recurring. -->
+<!-- Format: [YYYY-MM-DD] Description of what went wrong and what to do instead. -->
+
+- [2026-05-06] **严重事故：删除用户 home 目录数据** — 绝对不能执行 `rm -rf ~/` 或任何针对 home 目录的递归删除。任何破坏性操作必须先停下来询问用户，列出影响范围，等待明确同意。
+- [2026-05-07] `.wolf/memory.md` and `.wolf/buglog.json` are in `.gitignore` — never include them in git commits. They are local-only tracking files.
+- [2026-05-18] **CRITICAL: Tilde (~) in paths must be expanded** — Node.js treats `~` as a literal directory name, NOT as home directory shortcut. Always use `resolveAgentPath(...)` before filesystem operations involving configured agent paths.
+- [2026-06-03] `failWithOutputError()` / destructive gates inside commander actions cannot rely on `process.exit()` alone to stop execution in tests, because integration tests mock `process.exit()`. After a blocked destructive path, return explicitly.
+- [2026-06-08] 不要把 `process.exit()` 放在与 structured output 同一个 `try/catch` 里；测试里 mocked `process.exit()` 会抛错并被误当成输出层异常，导致 fallback 输出和错误退出语义串线。先发 output，再在 `try/catch` 外退出。
+- [2026-06-08] 共享 preAction 白名单变更后，要立刻跑 `install-cli` 回归；`install self` 是自举路径，误进 doctor/preflight 会直接打断多个 CLI 合同测试。
+- [2026-06-08] 不要在 Commander help 回归里断言示例式命令短语（如 `install self`）必然出现在 `--help` 输出；先看真实帮助文本，再锁 description/option contract 与已移除 flag 的负向断言。
+
+## Decision Log
+
+## Do-Not-Repeat
+
+<!-- Mistakes made and corrected. Each entry prevents the same mistake recurring. -->
+<!-- Format: [YYYY-MM-DD] Description of what went wrong and what to do instead. -->
+
+- [2026-05-06] **严重事故：删除用户 home 目录数据** — 绝对不能执行 `rm -rf ~/` 或任何针对 home 目录的递归删除。任何破坏性操作必须先停下来询问用户，列出影响范围，等待明确同意。
+- [2026-05-07] `.wolf/memory.md` and `.wolf/buglog.json` are in `.gitignore` — never include them in git commits. They are local-only tracking files.
+- [2026-05-18] **CRITICAL: Tilde (~) in paths must be expanded** — Node.js treats `~` as a literal directory name, NOT as home directory shortcut. Always use `resolveAgentPath(...)` before filesystem operations involving configured agent paths.
+- [2026-06-03] `failWithOutputError()` / destructive gates inside commander actions cannot rely on `process.exit()` alone to stop execution in tests, because integration tests mock `process.exit()`. After a blocked destructive path, return explicitly.
+- [2026-06-08] 不要把 `process.exit()` 放在与 structured output 同一个 `try/catch` 里；测试里 mocked `process.exit()` 会抛错并被误当成输出层异常，导致 fallback 输出和错误退出语义串线。先发 output，再在 `try/catch` 外退出。
+
+## Decision Log
 
 ## Do-Not-Repeat
 

@@ -1,9 +1,9 @@
 # Syncskill — TypeScript 实现设计
 
-> **当前版本**：v2.8（2026-06-04）
+> **当前版本**：v2.9（2026-06-06）
 > **版本历史**：[CHANGELOG.md](CHANGELOG.md)
 >
-> 主要里程碑：v2.8 CLI 表面积优化（`--on-deletion` → `--on-remote-deletion` + `--strict`/`--no-pull-backup` 降级为 env-var-only + 5 个 extended error code 合并 + `--plan`/`--dry-run` 关系明确化）| v2.7.5 spec/code 对账（版本头补齐 v2.7.4 round-4 内容 + §3.2 函数描述简化 + `--cwd` 移除 + `restore` preAction 排除补齐 + 残留 "Tier 1" 术语清理）| v2.7.4 round-4 `--yes-destructive` BREAKING + `remote add/rm/list` + `no-baseline` guard + reconcile-engine 框架 + `server` → `remote` rename + `install` 无参数行为变更 | v2.7.3 round-3 spec/code/docs 收口（§3.7 status 枚举 6→7 文字同步 + `install --type` flag 注册补齐 + docs hygiene） | v2.7.2 round-2 spec/code 收口 + 单一 canonical error code 注册表（Plan P + P5 lint 不变量）+ 死 executor 与死 code 清理（E_CONFLICT / E_SOURCE_DIRTY / W_PULL_BACKUP_SKIPPED）+ 5 个共享 helper 抽取（emitNeedsInput / findActionId / emitError / finalizeSyncCommand / expandLinkAgentNames）+ `--strict` 范围收紧到 4 命令 | v2.7.1 spec/code 收口 + v2.6 兼容包袱清零（sidecar 路径 + cross-server 裸名） + 全 Tier 1 命令 plan_ref 落地 + force-hint 架构不变量 | v2.7 -y 破坏性 verb 规则 + plan_ref 可追溯 + sidecar backup 统一目录 + plan flag `-`=stdin + link audience 自省 + cross-server-policy `server:` 前缀 + unresolved resolve_phase | v2.6 source merge 重设计 + takeover 独立命令 + --on-conflict 统一 + cross-server-policy server-name + --plan-file 移除 + per-server result | v2.5 spec 清理 + UnresolvedKind 重命名 + remote refresh 合并 + link build 降 Tier 2 | v2.4 sidecar backup + restore 命令 + conflict 决议接通 | v2.4.1 receiver Node 18 | v2.3 远端备份模型 + remote 命令族 + takeover 协议 | v2.2 plan-then-execute + --strict | v2.1 install self + --apply 命名规则
+> 主要里程碑：v2.9 健壮性强化（L1 config 保护 + L2 saveConfig 退化检测 + L3 宽容加载 + Fix-A 远端 hash 回写 + Fix-B conflict 可见性 + scp SFTP 兼容 + config-sandbox lint + W_CONFLICT_SKIPPED/W_CONFIG_RESET 注册）| v2.8 CLI 表面积优化（`--on-deletion` → `--on-remote-deletion` + `--strict`/`--no-pull-backup` 降级为 env-var-only + 5 个 extended error code 合并 + `--plan`/`--dry-run` 关系明确化）| v2.7.5 spec/code 对账（版本头补齐 v2.7.4 round-4 内容 + §3.2 函数描述简化 + `--cwd` 移除 + `restore` preAction 排除补齐 + 残留 "Tier 1" 术语清理）| v2.7.4 round-4 `--yes-destructive` BREAKING + `remote add/rm/list` + `no-baseline` guard + reconcile-engine 框架 + `server` → `remote` rename + `install` 无参数行为变更 | v2.7.3 round-3 spec/code/docs 收口（§3.7 status 枚举 6→7 文字同步 + `install --type` flag 注册补齐 + docs hygiene） | v2.7.2 round-2 spec/code 收口 + 单一 canonical error code 注册表（Plan P + P5 lint 不变量）+ 死 executor 与死 code 清理（E_CONFLICT / E_SOURCE_DIRTY / W_PULL_BACKUP_SKIPPED）+ 5 个共享 helper 抽取（emitNeedsInput / findActionId / emitError / finalizeSyncCommand / expandLinkAgentNames）+ `--strict` 范围收紧到 4 命令 | v2.7.1 spec/code 收口 + v2.6 兼容包袱清零（sidecar 路径 + cross-server 裸名） + 全 Tier 1 命令 plan_ref 落地 + force-hint 架构不变量 | v2.7 -y 破坏性 verb 规则 + plan_ref 可追溯 + sidecar backup 统一目录 + plan flag `-`=stdin + link audience 自省 + cross-server-policy `server:` 前缀 + unresolved resolve_phase | v2.6 source merge 重设计 + takeover 独立命令 + --on-conflict 统一 + cross-server-policy server-name + --plan-file 移除 + per-server result | v2.5 spec 清理 + UnresolvedKind 重命名 + remote refresh 合并 + link build 降 Tier 2 | v2.4 sidecar backup + restore 命令 + conflict 决议接通 | v2.4.1 receiver Node 18 | v2.3 远端备份模型 + remote 命令族 + takeover 协议 | v2.2 plan-then-execute + --strict | v2.1 install self + --apply 命名规则
 
 **相关文档**：
 - [E2E 测试框架设计](e2e-test-design.md) — End-to-End 测试框架规范
@@ -709,6 +709,9 @@ Use --no-refresh to skip, then run `syncskill refresh` manually.
     ```
   - **合并逻辑**：`finalList = config.private_agents ?? DEFAULT_PRIVATE_AGENTS`（硬编码作为 fallback，防止用户误删 config 中的字段）
 - 验证必填字段：`version`, `agents`, `links`
+- **宽容加载（v2.9 L3）**：`loadConfig()` 对 optional 字段缺失不 throw，改为填充默认值：`sources` → `{}`，`servers` → `{}`，`private_agents` → `DEFAULT_PRIVATE_AGENTS`，`conflict_resolution` → `"manual"`。仅 `version`/`agents`/`links` 三个字段保持 strict throw。这减少代码升级后因旧 config 缺少新字段而触发 L1 backup 的概率
+- **`saveConfig` 退化检测（v2.9 L2）**：`saveConfig()` 写入前读取磁盘上的旧 config。如果旧 config 的 `servers` **和** `links` **同时**有非空条目、但新 config 两者**同时**变为空对象 → 视为"意外重置"签名，拒绝写入 + throw `E_CONFIG_REGRESSION`。单独一个字段归零是合法操作（`unlink` 清空所有 links / `remote rm` 删除最后一个 server），只有两者同时归零才是代码 bug 的信号。`initRepo` 的显式重建路径用内部 `saveConfigForce()` 绕过此检查
+- **测试沙箱 lint（v2.9）**：`tests/config-sandbox-lint.test.ts` 静态扫描所有 `.test.ts` 文件，对进程内调用 `saveConfig` / `saveConfigForce` / `ensureDefaultLinkTargets` / `buildInstallPlan` / `installBuiltinSkill` / `initRepo` 的测试文件，验证存在 `process.env.SYNCSKILL_DIR = ...` 的沙箱化设置。违反 → CI 立刻失败。防止测试通过进程内调用覆盖真实的 `~/.syncskill/config.json`。与 `force-callsite-lint.test.ts`（round-2 Plan P）同一哲学：用 lint 替代脆弱的人类约定
 - 解析通配符 `*` → 展开为所有 agent
 - `getSyncDir()` 返回 `~/.syncskill/` 路径，所有其他路径（config、skills、manifests、history）均基于此计算
 
@@ -891,6 +894,7 @@ schema（v1）：
 - 创建 `~/.syncskill/` 目录（含 `skills/`, `manifests/` 子目录）
 - 生成 `~/.syncskill/config.json`（含自动检测的 agent）
 - 复制 `config.example.yaml` 作为参考
+- **Config 保护（v2.9 L1）**：当 `config.json` 文件存在但 `loadConfig()` 抛异常时（验证失败、JSON 损坏等），`initRepo` **先备份**再创建新默认 config。备份路径：`config.json.pre-init-<ISO-date>.bak`。同时在 stderr 打印 `W_CONFIG_RESET` 警告（含备份路径 + 恢复命令）。`--json` 模式同时 emit warning 事件。这防止代码升级引入新验证规则时静默丢失用户的 servers/links/sources 数据
 - **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-scan` 参数跳过此步骤。
 - **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.json` 的 `links` 字段（使用 `ensureDefaultLinkTargets()` 计算默认目标，即 `["agents"]` + 已检测到的不支持 `~/.agents/skills/` 的 agent）。
 - **默认安装 syncskill skill（first-run 入口）**：v2.7.4 PR 5c（议题 1.5）起，`init` 是 first-run 安装内置 skill 的官方入口（`install` 命令的无参数 inquirer 菜单已删除）。流程末尾安装内置 syncskill skill 到 `~/.syncskill/skills/syncskill/` 并 link 到默认 agent（计算规则见 §3.2 `ensureDefaultLinkTargets()`）。
@@ -1693,6 +1697,7 @@ Select servers to push:
    - 适用范围：`action: "pull"`、`action: "init"` with remote_hash、`action: "conflict"` choose `keep-remote`、`action: "delete"` choose `delete`
 5. 更新本地 manifest + skills-registry.json
 6. **Conflict 决议消费（v2.4 C3）**：`pullFromServer.options.conflictResolutions` 决定 `action: "conflict"` 的 skill 是否入选 `toPull`——仅 `keep-remote` 拉取；`skip`/`keep-local` 不动；未提供决议默认 `skip`。决议由 `sync.ts` / `pull.ts` 从 `SyncDecisionSink.conflicts` 切片后传入
+7. **Conflict 可见性（v2.9 Fix-B）**：`pullFromServer` 在 `toPull` 和 `toDelete` 均为空时，检测 delta 中是否有 `action: "conflict"` 的 skill。若有，输出 `N skill(s) skipped (conflict — no recorded baseline). Use --on-conflict=keep-remote to force pull.` 而非误导性的 "No changes to pull"。`--json` 模式下 emit `W_CONFLICT_SKIPPED` warning 事件
 
 **Pull 目标路径解析**：
 
@@ -1933,6 +1938,8 @@ scp -P <port> -i <identity_file> ...
 
 降级：rsync 不可用时，Node 原生逐文件传输（对比 hash 只传变更文件）。
 
+**scp SFTP 兼容（v2.9）**：OpenSSH 9.0+ 将 scp 默认协议从 legacy 改为 SFTP。SFTP 模式不经过远端 shell，`$HOME` 环境变量不被展开。所有 scp 调用使用 `buildScpRemotePath()` 将 `\$HOME/` 转为 `~/`——`~` 由 scp 协议层原生展开，所有模式通用。`ssh` / `rsync` 路径不受影响（它们通过远端 shell 展开 `$HOME`）。
+
 **Symlink 传输规则**：
 - **rsync 路径**：`rsync -avz` 中 `-a` 包含 `-l`（保持 symlink 原样传输），skill 目录内部的 symlink 会被保持为 symlink
 - **scp fallback push**：使用 `readlink` 读取 symlink target，通过 JSON 格式 `{files: {...}, symlinks: {...}}` 传递给 receiver，receiver 使用 `symlink()` 重建
@@ -1981,8 +1988,13 @@ syncskill resolve <skill> --remote --diff   # 先显示差异，再用远程覆�
   遍历所有服务器
     refreshLocalManifest() → 重算本地 hash
     refreshRemoteManifest() → SSH 重算远程 hash
+    syncRemoteHashesIntoLocal() → 下载远端 manifest，回写 remote_hash 到本地 manifest
   try-catch：刷新失败只打印 WARNING，不阻断主流程
 ```
+
+**远端 hash 回写（v2.9 Fix-A）**：`refreshRemoteManifest()` 在远端重新计算 hash 并写入远端 `manifest.json`，但此前本地 manifest 的 `remote_hash` 字段从不更新——只有成功的 push/pull 才会写入。这导致 manifest 重置后（config 保护 L1 触发、手动删除等），所有 skill 的 `remote_hash` 永远是 null，`classifySkillDelta` 对 local≠remote 的 skill 归类为 `conflict`（规则 6），pull 默认不处理 conflict → 静默跳过 → "No changes to pull"。
+
+修复：`autoRefreshManifests()` 在 `refreshRemoteManifest()` 成功后，用 `fetchRemoteManifest()` 下载远端 manifest，将其中的 hash 值回写到本地 manifest 的 `remote_hash` 字段。这使 `classifySkillDelta` 能得到准确的远端状态，dashboard/status 显示正确，plan 阶段也能产出正确的 pull/push action。
 
 **3-field 模型与外部操作**：
 
@@ -2808,6 +2820,8 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 | `W_TAKEOVER_NEEDED` | warning | push 检测到远端 agent 目录中存在非 symlink 真目录，已 skip；hint 指向 `remote takeover <server> <skill>`（§3.18） | — |
 | `E_BACKUP_NOT_FOUND` | error | `restore <skill>` 找不到 backup(路径 `~/.syncskill/.backups/skills/<skill>/pre-pull/`) | 3 |
 | `E_RESTORE_FAILED` | error | `restore <skill>` 执行步骤失败（cp/rm/manifest 写入异常）；hint 提示 `~/.syncskill/.backups/skills/<skill>/pre-restore/` 仍可手工恢复 | 1 |
+| `W_CONFIG_RESET` | warning | `init` 时 config.json 验证失败，已备份并重建（v2.9 L1）；`--json` 模式 emit 结构化 warning | — |
+| `W_CONFLICT_SKIPPED` | warning | pull 跳过 conflict skills（无 recorded baseline）；提示 `--on-conflict=keep-remote`（v2.9 Fix-B）；`--json` 模式 emit | — |
 | `W_MANIFEST_CORRUPT` | warning | `loadManifest` 检测到 JSON 损坏，已 rename 到 `.bak` 并返回 null；建议跑 `refresh <server>` 重建 | — |
 | `W_MANIFEST_MISSING` | warning | `doctor` 检测到 `config.servers` 中有 server X 但 `manifests/X.json` 缺失；建议跑 `refresh <server>` 重建 baseline，避免下次 sync 走 first-time + 远端差异的 conflict-overwrite 路径 | — |
 | `E_INSTALL` | error | **v2.7.2 (Plan P)** 起注册的 install / link / update 兜底码（以下至 `W_TAKEOVER_PREFLIGHT_FAILED` 同源）：install 命令通用失败兜底（具体子错误由 classifySyncError 或更细 code 优先路由） | 1 |
@@ -2870,9 +2884,9 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 - 当前值在 v2.8 前不变（plan=1 / manifest=2 / data=1）
 - 破坏性 schema 变更必 bump version + CHANGELOG 公告
 
-#### 11.5.3 Extended（36 条 ERROR_CODES entry）
+#### 11.5.3 Extended（37 条 ERROR_CODES entry）
 
-剩余所有错误码（= 44 − 8 = 36 条），包括 generic 兜底（`E_INSTALL` / `E_LINK_FAILED` / `E_ABORT` / `E_RESTORE_FAILED`）、特化 W 码（`W_UPDATE_SKIPPED` / `W_SOURCE_UNREACHABLE` / `W_REFRESH` / `W_NO_BASELINE_RISK` 等）、特化 E 码（`E_TIMEOUT` / `E_CONFIG_NOT_FOUND` / `E_AGENT_NOT_CONFIGURED` / `E_SKILL_NOT_FOUND` / `E_SOURCE_NOT_FOUND` / `E_REMOTE_NOT_FOUND` / `E_REMOTE_NOT_INITIALIZED` 等）。
+剩余所有错误码（= 45 − 8 = 37 条），包括 generic 兜底（`E_INSTALL` / `E_LINK_FAILED` / `E_ABORT` / `E_RESTORE_FAILED`）、特化 W 码（`W_UPDATE_SKIPPED` / `W_SOURCE_UNREACHABLE` / `W_REFRESH` / `W_NO_BASELINE_RISK` / `W_CONFIG_RESET` / `W_CONFLICT_SKIPPED` 等）、特化 E 码（`E_TIMEOUT` / `E_CONFIG_NOT_FOUND` / `E_AGENT_NOT_CONFIGURED` / `E_SKILL_NOT_FOUND` / `E_SOURCE_NOT_FOUND` / `E_REMOTE_NOT_FOUND` / `E_REMOTE_NOT_INITIALIZED` 等）。
 
 **Extended 承诺**：
 
@@ -2968,7 +2982,7 @@ plain-text 输出（无 `--json`）**不含**这些字段（人类优先 C1：te
 }
 ```
 
-**`baseline_hash` 字段（extended）**：本 `diff --json` 与 `status --json` (§11.6.2) 对齐：每个 delta 同时含 `baseline_hash`（公共名，A5 §11.5.3 extended）与 `recorded_hash`（历史名，与 `baseline_hash` 同值）。两字段在 v2.7.x 期间并存，**v2.8 manifest schema bump 时移除 `recorded_hash`**。Agent 新代码应优先用 `baseline_hash`。
+**`baseline_hash` 字段（extended）**：本 `diff --json` 与 `status --json` (§11.6.2) 对齐：每个 delta 同时含 `baseline_hash`（公共名，A5 §11.5.3 extended）与 `recorded_hash`（历史名，与 `baseline_hash` 同值）。两字段并存；**下一次 manifest schema bump 时移除 `recorded_hash`**。Agent 新代码应优先用 `baseline_hash`。
 
 #### 11.6.4 `source list`
 

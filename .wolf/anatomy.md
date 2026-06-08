@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-04T15:53:44.811Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-08T15:01:31.207Z
 > Files: 161 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/
@@ -16,7 +16,7 @@
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
 - `package.json` — Node.js package manifest (~355 tok)
-- `README.md` — Project documentation (~2150 tok)
+- `README.md` — Project documentation (~2200 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
 
@@ -30,11 +30,11 @@
 
 ## docs/
 
-- `config-guide.md` — Configuration Guide (~3526 tok)
+- `config-guide.md` — Configuration Guide (~3556 tok)
 - `design-guide.md` — Design Guide (~3878 tok)
 - `e2e-test-guide.md` — E2E Test Writing Guide (~3907 tok)
-- `README.md` — Project documentation (~583 tok)
-- `usage-guide.md` — Usage Guide (~4453 tok)
+- `README.md` — Project documentation (~600 tok)
+- `usage-guide.md` — Usage Guide with install/help, remote transport, and destructive-flag workflow notes (~4542 tok)
 
 ## docs/superpowers/plans/
 
@@ -47,12 +47,12 @@
 
 ## skills/syncskill/
 
-- `SKILL.md` — syncskill (~1970 tok)
+- `SKILL.md` — syncskill (~2014 tok)
 
 ## src/
 
 - `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1121 tok)
-- `index.ts` — API routes: GET (4 endpoints) (~29328 tok)
+- `index.ts` — Plan: selectTargetServers, prepareSyncTargetServers, getCommandPath + 18 more (~29874 tok)
 - `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~992 tok)
 - `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4849 tok)
 - `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1828 tok)
@@ -83,9 +83,9 @@
 
 - `config-doctor.ts` — Exports DiagnosticCode, DiagnosticCodeType, DiagnosticItem, DiagnosticReport + 12 more (~3808 tok)
 - `config-ui.ts` — Threshold for showing auto-refresh warning (~5957 tok)
-- `config.ts` — Sync config loading/saving, sync path resolution, config normalization, and agent path expansion (~2566 tok)
+- `config.ts` — Resolve an agent path, expanding ~ to the actual home directory. (~2591 tok)
 - `matrix-editor.ts` — 2D matrix editor component (~2264 tok)
-- `types.ts` — TypeScript type definitions for syncskill configuration and derived sync paths (~281 tok)
+- `types.ts` — TypeScript type definitions for syncskill configuration (~288 tok)
 
 ## src/core/
 
@@ -139,7 +139,7 @@
 
 - `source-install-stale.test.ts` (~61 tok)
 - `source-stale-checkout.test.ts` — tests/end2end/cases/source/source-stale-checkout.test.ts (~1540 tok)
-- `source-update-dirty.test.ts` — tests/end2end/cases/source/source-update-dirty.test.ts (~2518 tok)
+- `source-update-dirty.test.ts` — tests/end2end/cases/source/source-update-dirty.test.ts (~1806 tok)
 - `source-update-http.test.ts` — E2E tests for top-level update behavior with HTTP/local sources. (~3121 tok)
 - `source-update.test.ts` — tests/end2end/cases/source/source-update.test.ts (~1161 tok)
 
@@ -178,20 +178,20 @@
 ## tests/integration/
 
 - `cli-introspection.test.ts` — Declares program (~711 tok)
-- `config-cli.test.ts` — Declares homeDir (~3758 tok)
+- `config-cli.test.ts` — Declares homeDir (~4345 tok)
 - `config-ui.test.ts` — Declares PromptStub (~4890 tok)
 - `discover.test.ts` — Declares tempDirs (~3940 tok)
 - `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1299 tok)
-- `help-output.test.ts` — Declares execAsync (~1936 tok)
+- `help-output.test.ts` — Help-surface regression tests for public flags, install wording, and remote add options (~2148 tok)
 - `install-cli.test.ts` — execFileAsync: execWithInput (~2648 tok)
 - `README.md` — Project documentation (~37 tok)
-- `reconciliation-cli.test.ts` — Declares actual (~12010 tok)
+- `reconciliation-cli.test.ts` — Declares actual (~12546 tok)
 - `remote-refresh.test.ts` — Declares tempDirs (~894 tok)
 - `repo.test.ts` — Declares pathExists (~1991 tok)
-- `server-cli.test.ts` — Declares tempDirs (~4197 tok)
+- `server-cli.test.ts` — Declares tempDirs (~5910 tok)
 - `source-cli.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~3160 tok)
 - `source-remove.test.ts` — Declares SourceConfig (~3129 tok)
-- `source-update-dry-run.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~1838 tok)
+- `source-update-dry-run.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~2058 tok)
 - `source-update-force.test.ts` — execFileAsync: git, commitAll, createGitSourceFixture (~6444 tok)
 - `sync-cli.test.ts` — Declares tempDirs (~9541 tok)
 - `sync-engine.test.ts` — TransportRuntime: createRuntime (~10631 tok)
@@ -210,10 +210,10 @@
 - `cli-resolution.test.ts` — Declares dir (~505 tok)
 - `cli-types.test.ts` — tests/unit/cli-types.test.ts (~510 tok)
 - `config-doctor.test.ts` — Declares DiagnosticItem (~5530 tok)
-- `config.test.ts` — Declares paths (~2977 tok)
+- `config.test.ts` — Declares paths (~2999 tok)
 - `conflict.test.ts` — Declares ServerManifest (~2877 tok)
 - `dashboard.test.ts` — Declares ServerManifest (~1496 tok)
-- `docs.test.ts` — Declares rootDir (~1857 tok)
+- `docs.test.ts` — Docs smoke assertions for README/guides/SKILL public CLI wording and transport fields (~2063 tok)
 - `e2e-cleanup.test.ts` — tests/unit/e2e-cleanup.test.ts (~495 tok)
 - `e2e-context.test.ts` — tests/unit/e2e-context.test.ts (~2371 tok)
 - `e2e-fixtures-archive.test.ts` — tests/unit/e2e-fixtures-archive.test.ts (~588 tok)
