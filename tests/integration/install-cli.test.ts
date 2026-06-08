@@ -101,7 +101,7 @@ describe('install CLI command', () => {
       env: { ...process.env, HOME: homeDir }
     });
 
-    expect(stdout).toContain('Usage: syncskill install|i [options] [urlOrPath]');
+    expect(stdout).toContain('Usage: syncskill install|i [options] [url-or-path]');
     expect(stdout).toContain('Use "self" for built-in skill');
     expect(stdout).not.toContain('--self');
   });
@@ -257,16 +257,34 @@ describe('install CLI command', () => {
     expect(installedSkills).toContain('syncskill');
   });
 
-  it('prefers a real ./self directory over built-in self shorthand', async () => {
+  it('emits a result hint when install is called without args in json mode', async () => {
+    const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', '--json', 'install'], {
+      env: { ...process.env, HOME: homeDir }
+    });
+
+    const event = JSON.parse(stdout.trim());
+    expect(event.type).toBe('result');
+    expect(event.command).toBe('install');
+    expect(event.ok).toBe(true);
+    expect(event.summary.message).toBe('no target provided; use `install self` or `install <url>`');
+    expect(event.summary.data).toEqual({
+      hint: 'first-run users: run `syncskill init` for guided setup'
+    });
+  });
+
+  it('treats self as the built-in reserved keyword even when ./self exists', async () => {
     await mkdir(join(import.meta.dirname, '../../self'), { recursive: true });
 
     try {
-      await expect(
-        execFileAsync('npx', ['tsx', 'src/index.ts', 'install', 'self'], {
-          cwd: join(import.meta.dirname, '../..'),
-          env: { ...process.env, HOME: homeDir }
-        })
-      ).rejects.toThrow('Could not parse URL');
+      const { stdout, stderr } = await execFileAsync('npx', ['tsx', 'dist/index.js', 'install', 'self'], {
+        cwd: join(import.meta.dirname, '../..'),
+        env: { ...process.env, HOME: homeDir }
+      });
+
+      expect(stdout).toContain('syncskill');
+      expect(stdout).toContain(join(homeDir, '.syncskill', 'skills', 'syncskill'));
+      expect(stderr).toContain('A directory named "./self" exists');
+      expect(stderr).toContain('syncskill install ./self');
     } finally {
       await rm(join(import.meta.dirname, '../../self'), { recursive: true, force: true });
     }

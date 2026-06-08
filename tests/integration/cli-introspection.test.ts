@@ -42,20 +42,51 @@ describe('CLI introspection', () => {
     const helpInfo = program.helpInformation();
     const data = JSON.parse(helpInfo);
 
-    expect(data.name).toBe('syncskill');
-    expect(data.globalOptions.map((option: { flags: string }) => option.flags)).toContain('--json');
-    expect(data.globalOptions.map((option: { flags: string }) => option.flags)).toContain('--apply <path|->');
-    expect(data.commands.map((command: { name: string }) => command.name)).toContain('install');
+    expect(data.version).toBeDefined();
+    expect(data.global_flags.map((option: { name: string }) => option.name)).toContain('--json');
+    expect(data.global_flags.map((option: { name: string }) => option.name)).toContain('--apply');
 
-    const linkCommand = data.commands.find((command: { name: string }) => command.name === 'link');
-    expect(linkCommand.audience).toBe('both');
+    const installCommand = data.commands.find((command: { name: string }) => command.name === 'install');
+    expect(installCommand).toMatchObject({
+      aliases: ['i'],
+      audience: 'both',
+      prefer: null,
+      plan_schema: expect.any(Object),
+      resolutions_schema: expect.any(Object),
+      result_schema: expect.any(Object)
+    });
+    expect(installCommand.args).toEqual([{ name: 'url-or-path', required: false }]);
+    expect(installCommand.flags.map((flag: { name: string }) => flag.name)).toContain('--name');
 
-    const linkBuild = linkCommand.commands.find((command: { name: string }) => command.name === 'build');
-    expect(linkBuild.audience).toBe('agent');
-    expect(linkBuild.prefer).toBeNull();
+    const linkBuild = data.commands.find((command: { name: string }) => command.name === 'link build');
+    expect(linkBuild).toMatchObject({
+      audience: 'agent',
+      prefer: null,
+      plan_schema: null,
+      resolutions_schema: null,
+      result_schema: expect.any(Object)
+    });
 
-    const linkEdit = linkCommand.commands.find((command: { name: string }) => command.name === 'edit');
-    expect(linkEdit.audience).toBe('human');
-    expect(linkEdit.prefer).toBe('link set');
+    const linkEdit = data.commands.find((command: { name: string }) => command.name === 'link edit');
+    expect(linkEdit).toMatchObject({
+      audience: 'human',
+      prefer: 'link set'
+    });
+  });
+
+  it('returns a single command entry for command-scoped json help', () => {
+    const program = createProgram('/tmp/test');
+    const installCommand = program.commands.find((command) => command.name() === 'install');
+    expect(installCommand).toBeDefined();
+
+    installCommand!.parent!.opts = () => ({ json: true });
+    const helpInfo = installCommand!.helpInformation();
+    const data = JSON.parse(helpInfo);
+
+    expect(data.name).toBe('install');
+    expect(data.args).toEqual([{ name: 'url-or-path', required: false }]);
+    expect(data.flags.map((flag: { name: string }) => flag.name)).toContain('--name');
+    expect(data.plan_schema).toEqual(expect.any(Object));
+    expect(data.resolutions_schema).toEqual(expect.any(Object));
   });
 });

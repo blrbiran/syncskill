@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, readlink, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -1188,7 +1188,7 @@ describe('reconciliation CLI', () => {
     }
 
     expect(consoleError).toHaveBeenCalledWith('✗ `link edit` requires an interactive terminal');
-    expect(consoleError).toHaveBeenCalledWith('  Use `syncskill link set <skill> <agent>...`, `syncskill link add <skill> <agent>`, or `syncskill link clear <skill>` instead.');
+    expect(consoleError).toHaveBeenCalledWith('  Use `syncskill link set <skill> <agent>...`, `syncskill link add <skill> <agent>...`, or `syncskill link clear <skill>` instead.');
     expect(exitMock).toHaveBeenCalledWith(ExitCode.NEEDS_INPUT);
   });
 
@@ -1257,12 +1257,13 @@ describe('reconciliation CLI', () => {
     expect(consoleLog).toHaveBeenCalledWith('✓ Updated my-skill: linked to cursor, unlinked from hermes');
   });
 
-  it('link add <skill> <agent> appends one agent and creates the symlink', async () => {
+  it('link add <skill> <agent>... appends multiple agents and creates symlinks', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-append-'));
     tempDirs.push(homeDir);
 
     const claudeDir = join(homeDir, '.claude', 'skills');
     const cursorDir = join(homeDir, '.cursor', 'skills');
+    const hermesDir = join(homeDir, '.hermes', 'skills');
     const skillDir = join(homeDir, '.syncskill', 'skills', 'my-skill');
 
     await mkdir(skillDir, { recursive: true });
@@ -1273,7 +1274,7 @@ describe('reconciliation CLI', () => {
         ...createDefaultConfig(homeDir, {
           claude: claudeDir,
           cursor: cursorDir,
-          hermes: join(homeDir, '.hermes', 'skills')
+          hermes: hermesDir
         }),
         private_agents: [],
         links: {
@@ -1285,22 +1286,23 @@ describe('reconciliation CLI', () => {
 
     await mkdir(claudeDir, { recursive: true });
     await mkdir(cursorDir, { recursive: true });
-    await mkdir(join(homeDir, '.hermes', 'skills'), { recursive: true });
+    await mkdir(hermesDir, { recursive: true });
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'add', 'my-skill', 'cursor'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'add', 'my-skill', 'cursor', 'hermes'], { from: 'node' });
 
     await expect(loadConfig(homeDir)).resolves.toMatchObject({
       links: {
-        'my-skill': ['claude', 'cursor']
+        'my-skill': ['claude', 'cursor', 'hermes']
       }
     });
     await expect(readlink(join(cursorDir, 'my-skill'))).resolves.toBe(skillDir);
-    expect(consoleLog).toHaveBeenCalledWith('✓ Linked my-skill to: claude, cursor');
+    await expect(readlink(join(hermesDir, 'my-skill'))).resolves.toBe(skillDir);
+    expect(consoleLog).toHaveBeenCalledWith('✓ Linked my-skill to: claude, cursor, hermes');
   });
 
-  it('link add <skill> <agent> rejects unknown agents', async () => {
+  it('link add <skill> <agent>... rejects unknown agents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-append-'));
     tempDirs.push(homeDir);
 
@@ -1333,7 +1335,7 @@ describe('reconciliation CLI', () => {
     }) as never);
 
     await expect(
-      createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'add', 'my-skill', 'cursor'], { from: 'node' })
+      createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'add', 'my-skill', 'cursor', 'unknown'], { from: 'node' })
     ).rejects.toThrow(`process.exit:${ExitCode.USAGE_ERROR}`);
 
     expect(consoleError).toHaveBeenCalledWith("✗ Agent 'cursor' not configured");
@@ -1343,6 +1345,54 @@ describe('reconciliation CLI', () => {
         'my-skill': ['claude']
       }
     });
+  });
+
+  it('link remove <skill> <agent>... removes multiple agents', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-remove-'));
+    tempDirs.push(homeDir);
+
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const cursorDir = join(homeDir, '.cursor', 'skills');
+    const hermesDir = join(homeDir, '.hermes', 'skills');
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'my-skill');
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# my-skill\n', 'utf8');
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(cursorDir, { recursive: true });
+    await mkdir(hermesDir, { recursive: true });
+    await symlink(skillDir, join(claudeDir, 'my-skill'));
+    await symlink(skillDir, join(cursorDir, 'my-skill'));
+    await symlink(skillDir, join(hermesDir, 'my-skill'));
+
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, {
+          claude: claudeDir,
+          cursor: cursorDir,
+          hermes: hermesDir
+        }),
+        private_agents: [],
+        links: {
+          'my-skill': ['claude', 'cursor', 'hermes']
+        }
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'remove', 'my-skill', 'cursor', 'hermes'], { from: 'node' });
+
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({
+      links: {
+        'my-skill': ['claude']
+      }
+    });
+    await expect(readlink(join(claudeDir, 'my-skill'))).resolves.toBe(skillDir);
+    await expect(access(join(cursorDir, 'my-skill'))).rejects.toThrow();
+    await expect(access(join(hermesDir, 'my-skill'))).rejects.toThrow();
+    expect(consoleLog).toHaveBeenCalledWith('✓ Removed cursor, hermes from my-skill');
   });
 
   it('link set <skill> * sets wildcard links and links all configured agents', async () => {

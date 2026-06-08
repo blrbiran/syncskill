@@ -142,9 +142,10 @@ describe('install module', () => {
   });
 
   describe('installFromSource', () => {
-    it('reports actual linked agents instead of raw config targets', async () => {
+    it('reports actual linked agents for newly installed skills', async () => {
       const tempDir = join(import.meta.dirname, `../../.test-tmp-install-source-${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const homeDir = join(tempDir, 'home');
+      const source = { type: 'git', url: 'https://example.com/demo.git', path: '.' };
 
       await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
       await writeFile(
@@ -157,9 +158,11 @@ describe('install module', () => {
               claude: '~/.claude/skills',
               cursor: '~/.cursor/skills'
             },
-            links: { demo: ['*'] },
+            links: {},
             servers: {},
-            sources: {},
+            sources: {
+              'demo-source': source,
+            },
           },
           null,
           2
@@ -170,14 +173,21 @@ describe('install module', () => {
         vi.resetModules();
         const addSourceFromUrl = vi.fn().mockResolvedValue({
           name: 'demo-source',
-          source: { type: 'git', url: 'https://example.com/demo.git', path: '.' }
+          source
         });
+        const materializeSource = vi.fn().mockResolvedValue({
+          materialized_skills: ['demo'],
+          updated_at: '2026-06-09T00:00:00.000Z'
+        });
+        const scanSkillsInSource = vi.fn().mockResolvedValue([
+          { name: 'demo', relativePath: 'demo', absolutePath: '/tmp/demo' }
+        ]);
         const linkConfiguredSkills = vi.fn().mockResolvedValue([
           { skill: 'demo', agent: 'cursor', state: 'linked' },
           { skill: 'demo', agent: 'claude', state: 'linked' }
         ]);
 
-        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl }));
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, scanSkillsInSource }));
         vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
 
         const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
@@ -192,6 +202,8 @@ describe('install module', () => {
           skipPrompt: undefined,
           onSelectSkills: undefined
         });
+        expect(materializeSource).toHaveBeenCalledWith(homeDir, 'demo-source', source);
+        expect(scanSkillsInSource).toHaveBeenCalledWith(join(homeDir, '.syncskill', '.sources', 'demo-source', 'checkout'));
         expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo' });
         expect(result.installedSkills).toEqual(['demo']);
         expect(result.linkedAgents).toEqual(['claude', 'cursor']);
@@ -206,6 +218,7 @@ describe('install module', () => {
     it('passes explicit source type through to addSourceFromUrl', async () => {
       const tempDir = join(import.meta.dirname, `../../.test-tmp-install-source-${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const homeDir = join(tempDir, 'home');
+      const source = { type: 'http', url: 'https://example.com/archive.zip', path: 'skills' };
 
       await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
       await writeFile(
@@ -217,7 +230,9 @@ describe('install module', () => {
             agents: {},
             links: {},
             servers: {},
-            sources: {},
+            sources: {
+              'demo-source': source,
+            },
           },
           null,
           2
@@ -228,15 +243,20 @@ describe('install module', () => {
         vi.resetModules();
         const addSourceFromUrl = vi.fn().mockResolvedValue({
           name: 'demo-source',
-          source: { type: 'http', url: 'https://example.com/archive.zip', path: 'skills' }
+          source
         });
+        const materializeSource = vi.fn().mockResolvedValue({
+          materialized_skills: [],
+          updated_at: '2026-06-09T00:00:00.000Z'
+        });
+        const scanSkillsInSource = vi.fn().mockResolvedValue([]);
         const linkConfiguredSkills = vi.fn().mockResolvedValue([]);
 
-        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl }));
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, scanSkillsInSource }));
         vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
 
         const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
-        await mockedInstallFromSource(homeDir, 'https://example.com/archive.zip', {
+        const result = await mockedInstallFromSource(homeDir, 'https://example.com/archive.zip', {
           type: 'http',
           path: 'skills'
         });
@@ -250,6 +270,246 @@ describe('install module', () => {
           skipPrompt: undefined,
           onSelectSkills: undefined
         });
+        expect(materializeSource).toHaveBeenCalledWith(homeDir, 'demo-source', source);
+        expect(result.installedSkills).toEqual([]);
+        expect(result.linkedAgents).toEqual([]);
+      } finally {
+        vi.doUnmock('../../src/source.js');
+        vi.doUnmock('../../src/linker.js');
+        vi.resetModules();
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('returns restored ignored skills without rematerializing the source', async () => {
+      const tempDir = join(import.meta.dirname, `../../.test-tmp-install-source-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const homeDir = join(tempDir, 'home');
+      const source = { type: 'git', url: 'https://example.com/demo.git', path: '.' };
+
+      await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
+      await writeFile(
+        join(homeDir, '.syncskill', 'config.json'),
+        JSON.stringify(
+          {
+            version: 1,
+            conflict_resolution: 'manual',
+            agents: {
+              claude: '~/.claude/skills',
+              cursor: '~/.cursor/skills'
+            },
+            links: { demo: ['*'] },
+            servers: {},
+            sources: {
+              'demo-source': source,
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      try {
+        vi.resetModules();
+        const addSourceFromUrl = vi.fn().mockResolvedValue({
+          name: 'demo-source',
+          source,
+          restoredFromIgnore: true,
+          restoredSkill: 'demo'
+        });
+        const materializeSource = vi.fn().mockResolvedValue({
+          materialized_skills: ['demo'],
+          updated_at: '2026-06-09T00:00:00.000Z'
+        });
+        const scanSkillsInSource = vi.fn().mockResolvedValue([]);
+        const linkConfiguredSkills = vi.fn().mockResolvedValue([
+          { skill: 'demo', agent: 'cursor', state: 'linked' },
+          { skill: 'demo', agent: 'claude', state: 'linked' }
+        ]);
+
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, scanSkillsInSource }));
+        vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
+
+        const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
+        const result = await mockedInstallFromSource(homeDir, 'https://example.com/demo.git');
+
+        expect(materializeSource).not.toHaveBeenCalled();
+        expect(scanSkillsInSource).not.toHaveBeenCalled();
+        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo' });
+        expect(result.installedSkills).toEqual(['demo']);
+        expect(result.linkedAgents).toEqual(['claude', 'cursor']);
+      } finally {
+        vi.doUnmock('../../src/source.js');
+        vi.doUnmock('../../src/linker.js');
+        vi.resetModules();
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('expands same-repo scope and activates newly covered skills', async () => {
+      const tempDir = join(import.meta.dirname, `../../.test-tmp-install-source-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const homeDir = join(tempDir, 'home');
+      const source = { type: 'git', url: 'https://github.com/org/repo.git', path: 'skills/skill1' };
+
+      await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
+      await writeFile(
+        join(homeDir, '.syncskill', 'config.json'),
+        JSON.stringify(
+          {
+            version: 1,
+            conflict_resolution: 'manual',
+            agents: {
+              claude: '~/.claude/skills',
+              cursor: '~/.cursor/skills'
+            },
+            links: { skill1: ['*'] },
+            servers: {},
+            sources: {
+              'demo-source': {
+                ...source,
+                ignore: ['skill2']
+              },
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      try {
+        vi.resetModules();
+        const addSourceFromUrl = vi.fn().mockResolvedValue({
+          name: 'demo-source',
+          source,
+          sameRepoMatch: { name: 'demo-source', source }
+        });
+        const materializeSource = vi.fn().mockResolvedValue({
+          materialized_skills: ['skill1', 'skill2'],
+          updated_at: '2026-06-09T00:00:00.000Z'
+        });
+        const parseGitHubUrl = vi.fn().mockReturnValue({
+          org: 'org',
+          repo: 'repo',
+          branch: 'main',
+          path: 'skills',
+          cloneUrl: 'https://github.com/org/repo.git',
+          skillName: 'skills'
+        });
+        const scanSkillsInSource = vi.fn().mockResolvedValue([
+          { name: 'skill1', relativePath: 'skills/skill1', absolutePath: '/tmp/skill1' },
+          { name: 'skill2', relativePath: 'skills/skill2', absolutePath: '/tmp/skill2' }
+        ]);
+        const linkConfiguredSkills = vi.fn().mockImplementation(async (_homeDir, request) => {
+          if (request.skillName === 'skill2') {
+            return [
+              { skill: 'skill2', agent: 'cursor', state: 'linked' },
+              { skill: 'skill2', agent: 'claude', state: 'linked' }
+            ];
+          }
+          return [];
+        });
+
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, parseGitHubUrl, scanSkillsInSource }));
+        vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
+
+        const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
+        const result = await mockedInstallFromSource(homeDir, 'https://github.com/org/repo/tree/main/skills');
+
+        expect(materializeSource).toHaveBeenCalledWith(homeDir, 'demo-source', source);
+        expect(scanSkillsInSource).toHaveBeenCalledWith(join(homeDir, '.syncskill', '.sources', 'demo-source', 'checkout'));
+        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'skill2' });
+        expect(result.installedSkills).toEqual(['skill2']);
+        expect(result.linkedAgents).toEqual(['claude', 'cursor']);
+
+        const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
+        expect(config.sources['demo-source'].path).toBe('skills');
+        expect(config.sources['demo-source'].ignore).toBeUndefined();
+        expect(config.links['skill2']).toBeDefined();
+      } finally {
+        vi.doUnmock('../../src/source.js');
+        vi.doUnmock('../../src/linker.js');
+        vi.resetModules();
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it('expands same-repo scope to common parent and auto-ignores cross-area skills', async () => {
+      const tempDir = join(import.meta.dirname, `../../.test-tmp-install-source-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const homeDir = join(tempDir, 'home');
+      const source = { type: 'git', url: 'https://github.com/org/repo.git', path: 'tools' };
+
+      await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
+      await writeFile(
+        join(homeDir, '.syncskill', 'config.json'),
+        JSON.stringify(
+          {
+            version: 1,
+            conflict_resolution: 'manual',
+            agents: {
+              claude: '~/.claude/skills',
+              cursor: '~/.cursor/skills'
+            },
+            links: { 'tool-a': ['*'] },
+            servers: {},
+            sources: {
+              'demo-source': source,
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      try {
+        vi.resetModules();
+        const addSourceFromUrl = vi.fn().mockResolvedValue({
+          name: 'demo-source',
+          source,
+          sameRepoMatch: { name: 'demo-source', source }
+        });
+        const materializeSource = vi.fn().mockResolvedValue({
+          materialized_skills: ['tool-a', 'demo', 'extra'],
+          updated_at: '2026-06-09T00:00:00.000Z'
+        });
+        const parseGitHubUrl = vi.fn().mockReturnValue({
+          org: 'org',
+          repo: 'repo',
+          branch: 'main',
+          path: 'examples/demo',
+          cloneUrl: 'https://github.com/org/repo.git',
+          skillName: 'demo'
+        });
+        const scanSkillsInSource = vi.fn().mockResolvedValue([
+          { name: 'demo', relativePath: 'examples/demo', absolutePath: '/tmp/demo' },
+          { name: 'extra', relativePath: 'other/extra', absolutePath: '/tmp/extra' },
+          { name: 'tool-a', relativePath: 'tools/tool-a', absolutePath: '/tmp/tool-a' }
+        ]);
+        const linkConfiguredSkills = vi.fn().mockImplementation(async (_homeDir, request) => {
+          if (request.skillName === 'demo') {
+            return [
+              { skill: 'demo', agent: 'cursor', state: 'linked' },
+              { skill: 'demo', agent: 'claude', state: 'linked' }
+            ];
+          }
+          return [];
+        });
+
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, parseGitHubUrl, scanSkillsInSource }));
+        vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
+
+        const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
+        const result = await mockedInstallFromSource(homeDir, 'https://github.com/org/repo/tree/main/examples/demo');
+
+        expect(materializeSource).toHaveBeenCalledWith(homeDir, 'demo-source', source);
+        expect(scanSkillsInSource).toHaveBeenCalledWith(join(homeDir, '.syncskill', '.sources', 'demo-source', 'checkout'));
+        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo' });
+        expect(result.installedSkills).toEqual(['demo']);
+        expect(result.linkedAgents).toEqual(['claude', 'cursor']);
+
+        const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
+        expect(config.sources['demo-source'].path).toBe('.');
+        expect(config.sources['demo-source'].ignore).toEqual(['extra']);
+        expect(config.links['tool-a']).toEqual(['*']);
+        expect(config.links['demo']).toBeDefined();
       } finally {
         vi.doUnmock('../../src/source.js');
         vi.doUnmock('../../src/linker.js');

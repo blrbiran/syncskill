@@ -3,7 +3,7 @@
 import { cp, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-import { checkbox, select, confirm, input } from '@inquirer/prompts';
+import { checkbox, select, confirm } from '@inquirer/prompts';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { createOutput, setGlobalOutput, getGlobalOutput } from './cli/index.js';
 import { loadEnvConfig, mergeWithFlags } from './cli/env.js';
@@ -1102,7 +1102,70 @@ async function markRestoreConflicts(
  * Build CLI introspection data for --help --json.
  * See spec §11.10 for schema.
  */
-function getCommandMetadata(commandPath: string): { audience: 'human' | 'agent' | 'both'; prefer: string | null } {
+type CommandAudience = 'human' | 'agent' | 'both';
+
+type JsonSchema = Record<string, unknown>;
+
+interface CommandMetadata {
+  audience: CommandAudience;
+  prefer: string | null;
+}
+
+interface CommandSchemas {
+  plan_schema: JsonSchema | null;
+  result_schema: JsonSchema;
+  resolutions_schema: JsonSchema | null;
+}
+
+interface IntrospectionArg {
+  name: string;
+  required: boolean;
+}
+
+interface IntrospectionFlag {
+  name: string;
+  type: 'boolean' | 'string';
+  description: string;
+}
+
+interface CommandIntrospectionEntry {
+  name: string;
+  aliases: string[];
+  description: string;
+  args: IntrospectionArg[];
+  flags: IntrospectionFlag[];
+  audience: CommandAudience;
+  prefer: string | null;
+  plan_schema: JsonSchema | null;
+  result_schema: JsonSchema;
+  resolutions_schema: JsonSchema | null;
+}
+
+const GENERIC_RESULT_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: true,
+};
+
+const INSTALL_PLAN_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: true,
+  required: ['version', 'command', 'generated_at', 'actions', 'unresolved', 'warnings'],
+  properties: {
+    version: { type: 'number' },
+    command: { const: 'install' },
+    generated_at: { type: 'string' },
+    actions: { type: 'array' },
+    unresolved: { type: 'array' },
+    warnings: { type: 'array' },
+  },
+};
+
+const INSTALL_RESOLUTIONS_SCHEMA: JsonSchema = {
+  type: 'object',
+  additionalProperties: true,
+};
+
+function getCommandMetadata(commandPath: string): CommandMetadata {
   switch (commandPath) {
     case 'link edit':
     case 'link add':
@@ -1119,48 +1182,81 @@ function getCommandMetadata(commandPath: string): { audience: 'human' | 'agent' 
   }
 }
 
+function getCommandSchemas(commandPath: string): CommandSchemas {
+  if (commandPath === 'install') {
+    return {
+      plan_schema: INSTALL_PLAN_SCHEMA,
+      result_schema: GENERIC_RESULT_SCHEMA,
+      resolutions_schema: INSTALL_RESOLUTIONS_SCHEMA,
+    };
+  }
+
+  return {
+    plan_schema: null,
+    result_schema: GENERIC_RESULT_SCHEMA,
+    resolutions_schema: null,
+  };
+}
+
 function isVisibleOption(option: Option): boolean {
   return (option as Option & { hidden?: boolean }).hidden !== true;
 }
 
-function buildCommandIntrospection(command: Command, parentPath?: string): object {
-  const commandPath = parentPath ? `${parentPath} ${command.name()}` : command.name();
+function normalizeCliName(name: string): string {
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+}
+
+function getOptionType(option: Option): 'boolean' | 'string' {
+  return option.flags.includes('<') || option.flags.includes('[') ? 'string' : 'boolean';
+}
+
+function buildFlagIntrospection(option: Option): IntrospectionFlag {
+  return {
+    name: option.long ?? option.flags,
+    type: getOptionType(option),
+    description: option.description,
+  };
+}
+
+function buildCommandIntrospection(command: Command): CommandIntrospectionEntry {
+  const commandPath = getCommandPath(command);
   const metadata = getCommandMetadata(commandPath);
+  const schemas = getCommandSchemas(commandPath);
 
   return {
-    name: command.name(),
+    name: commandPath,
     aliases: command.aliases(),
     description: command.description(),
-    arguments: command.registeredArguments.map(arg => ({
-      name: arg.name(),
+    args: command.registeredArguments.map(arg => ({
+      name: normalizeCliName(arg.name()),
       required: arg.required,
-      description: arg.description,
     })),
-    options: command.options.filter(isVisibleOption).map(opt => ({
-      flags: opt.flags,
-      description: opt.description,
-      required: opt.required,
-      defaultValue: opt.defaultValue ?? null,
-    })),
+    flags: command.options.filter(isVisibleOption).map(buildFlagIntrospection),
     audience: metadata.audience,
     prefer: metadata.prefer,
-    ...(command.commands.length > 0 ? { commands: command.commands.map(child => buildCommandIntrospection(child, commandPath)) } : {})
+    plan_schema: schemas.plan_schema,
+    result_schema: schemas.result_schema,
+    resolutions_schema: schemas.resolutions_schema,
   };
+}
+
+function flattenCommandIntrospection(command: Command): CommandIntrospectionEntry[] {
+  return [
+    buildCommandIntrospection(command),
+    ...command.commands.flatMap(child => flattenCommandIntrospection(child)),
+  ];
 }
 
 function buildCliIntrospection(program: Command): object {
   return {
-    name: program.name(),
-    version: program.version(),
-    description: program.description(),
-    commands: program.commands.map(cmd => buildCommandIntrospection(cmd)),
-    globalOptions: program.options.filter(isVisibleOption).map(opt => ({
-      flags: opt.flags,
-      description: opt.description,
-      required: opt.required,
-      defaultValue: opt.defaultValue ?? null,
-    })),
+    version: program.version() ?? '0.1.0',
+    commands: program.commands.flatMap(cmd => flattenCommandIntrospection(cmd)),
+    global_flags: program.options.filter(isVisibleOption).map(buildFlagIntrospection),
   };
+}
+
+function buildHelpIntrospection(command: Command): object {
+  return command.parent ? buildCommandIntrospection(command) : buildCliIntrospection(command);
 }
 
 export function createProgram(homeDir?: string): Command {
@@ -1183,7 +1279,7 @@ export function createProgram(homeDir?: string): Command {
       formatHelp: (cmd, helper) => {
         const rootOpts = cmd.parent?.opts() ?? cmd.opts();
         if (rootOpts.json) {
-          const introspection = buildCliIntrospection(cmd.parent ?? cmd);
+          const introspection = buildHelpIntrospection(cmd);
           return JSON.stringify(introspection, null, 2);
         }
 
@@ -1236,7 +1332,7 @@ export function createProgram(homeDir?: string): Command {
     });
 
   program
-    .command('install [urlOrPath]')
+    .command('install [url-or-path]')
     .alias('i')
     .description('Install skill(s). Use "self" for built-in skill; URL/path for external source')
     .option('--name <name>', 'Source name (for URL/path)')
@@ -1259,6 +1355,7 @@ export function createProgram(homeDir?: string): Command {
       const output = getGlobalOutput();
 
       const rootOptions = program.opts<{
+        json?: boolean;
         noInteractive?: boolean;
         plan?: boolean;
         apply?: string;
@@ -1279,39 +1376,37 @@ export function createProgram(homeDir?: string): Command {
         output.info('Deprecated alias: use --resolutions -', { deprecated: '--resolutions-stdin', replacement: '--resolutions -' });
       }
 
-      let builtInRequested = false;
-
       if (!urlOrPath) {
-        if (process.stdout.isTTY) {
-          if (isNoInteractive(program)) {
-            return failForNoInteractive();
-          }
-
-          const choice = await select({
-            message: 'What would you like to install?',
-            choices: [
-              { name: 'Built-in syncskill skill', value: 'self' },
-              { name: 'From a URL or local path', value: 'url' },
-              { name: 'Cancel', value: 'cancel' }
-            ]
-          });
-
-          if (choice === 'self') {
-            builtInRequested = true;
-            urlOrPath = 'self';
-          } else if (choice === 'url') {
-            urlOrPath = await input({ message: 'Enter URL or path:' });
-          } else {
-            return;
-          }
-        } else {
-          program.commands.find(c => c.name() === 'install')?.help();
+        const installCommand = program.commands.find(c => c.name() === 'install');
+        if (rootOptions.noInteractive && !rootOptions.json) {
+          installCommand?.outputHelp();
           return;
         }
+
+        if (rootOptions.json) {
+          output.result(true, {
+            message: 'no target provided; use `install self` or `install <url>`',
+            data: {
+              hint: 'first-run users: run `syncskill init` for guided setup'
+            }
+          });
+          return;
+        }
+
+        installCommand?.outputHelp();
+        return;
       }
 
       const selfPathExists = urlOrPath === 'self' ? await pathExists(resolve('./self')) : false;
-      const isSelfInstall = builtInRequested || (urlOrPath === 'self' && !selfPathExists);
+      const isSelfInstall = urlOrPath === 'self';
+
+      if (isSelfInstall && selfPathExists) {
+        output.warning(
+          'W_INSTALL_SELF_AMBIGUOUS',
+          'A directory named "./self" exists in the current working directory. "install self" installs the built-in syncskill skill (not your local directory).',
+          { hint: 'To install ./self, run `syncskill install ./self` instead.' }
+        );
+      }
       const isPlanOperation = Boolean(planMode || applyPath);
       const isSimpleCase = Boolean(isSelfInstall);
 
@@ -1669,7 +1764,7 @@ export function createProgram(homeDir?: string): Command {
       if (!process.stdout.isTTY) {
         return failForNeedsInput(
           '`link edit` requires an interactive terminal',
-          'Use `syncskill link set <skill> <agent>...`, `syncskill link add <skill> <agent>`, or `syncskill link clear <skill>` instead.'
+          'Use `syncskill link set <skill> <agent>...`, `syncskill link add <skill> <agent>...`, or `syncskill link clear <skill>` instead.'
         );
       }
 
@@ -1732,21 +1827,21 @@ export function createProgram(homeDir?: string): Command {
     });
 
   linkCommand
-    .command('add <skill> <agent>')
-    .description('Add agent to skill targets')
+    .command('add <skill> <agents...>')
+    .description('Add agents to skill targets')
     .option('--dry-run', 'Preview changes without applying')
     .option('-y, --yes', 'Auto-confirm stale link removal')
-    .action(async (skill: string, agent: string, options: { dryRun?: boolean; yes?: boolean }) => {
+    .action(async (skill: string, agents: string[], options: { dryRun?: boolean; yes?: boolean }) => {
       const config = await ensureLinkCommandReady();
-      validateTargetAgents(config, [agent]);
+      validateTargetAgents(config, agents);
 
       const currentTargets = config.links[skill] ?? [];
-      const nextTargets = currentTargets.includes('*') || currentTargets.includes(agent)
+      const nextTargets = currentTargets.includes('*')
         ? currentTargets
-        : [...currentTargets, agent].sort();
+        : [...new Set([...currentTargets, ...agents])].sort();
 
       if (options.dryRun) {
-        console.log(`[dry-run] Would link ${skill} to ${agent}`);
+        console.log(`[dry-run] Would link ${skill} to ${agents.join(', ')}`);
         const staleBySkill = await findStaleLinks(resolvedHomeDir, [skill]);
         await displayStaleLinksPreview(staleBySkill);
         return;
@@ -1758,25 +1853,27 @@ export function createProgram(homeDir?: string): Command {
     });
 
   linkCommand
-    .command('remove <skill> <agent>')
-    .description('Remove agent from skill targets')
+    .command('remove <skill> <agents...>')
+    .description('Remove agents from skill targets')
     .option('--dry-run', 'Preview changes without applying')
-    .action(async (skill: string, agent: string, options: { dryRun?: boolean }) => {
+    .action(async (skill: string, agents: string[], options: { dryRun?: boolean }) => {
       const config = await ensureLinkCommandReady();
-      validateTargetAgents(config, [agent]);
+      validateTargetAgents(config, agents);
 
       const currentTargets = expandTargetAgents(config, config.links[skill] ?? []);
-      const nextTargets = currentTargets.filter((target) => target !== agent);
+      const nextTargets = currentTargets.filter((target) => !agents.includes(target));
 
       if (options.dryRun) {
-        console.log(`[dry-run] Would remove ${agent} from ${skill}`);
+        console.log(`[dry-run] Would remove ${agents.join(', ')} from ${skill}`);
         return;
       }
 
       config.links[skill] = nextTargets;
       await saveConfig(config, resolvedHomeDir);
-      await unlinkSkillFromAgent(resolvedHomeDir, skill, agent);
-      console.log(`✓ Removed ${agent} from ${skill}`);
+      for (const agent of agents) {
+        await unlinkSkillFromAgent(resolvedHomeDir, skill, agent);
+      }
+      console.log(`✓ Removed ${agents.join(', ')} from ${skill}`);
     });
 
   linkCommand
