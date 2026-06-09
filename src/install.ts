@@ -354,10 +354,10 @@ async function resolveInstalledSkills(
   return installNewSourceSkills(homeDir, result.name, result.source, existingSkills, options);
 }
 
-async function collectLinkedAgents(homeDir: string, installedSkills: string[]): Promise<string[]> {
+async function linkInstalledSkills(homeDir: string, skillNames: Iterable<string>): Promise<string[]> {
   const linkedAgentSet = new Set<string>();
 
-  for (const skillName of installedSkills) {
+  for (const skillName of skillNames) {
     const linkResults = await linkConfiguredSkills(homeDir, { all: false, skillName });
     for (const linkResult of linkResults) {
       linkedAgentSet.add(linkResult.agent);
@@ -388,7 +388,7 @@ export async function installFromSource(
   });
 
   const installedSkills = await resolveInstalledSkills(homeDir, result, urlOrPath, existingSkills, options);
-  const linkedAgents = await collectLinkedAgents(homeDir, installedSkills);
+  const linkedAgents = await linkInstalledSkills(homeDir, installedSkills);
 
   return {
     sourceName: result.name,

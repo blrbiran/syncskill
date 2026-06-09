@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-09T13:03:00.952Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-09T13:25:47.767Z
 > Files: 161 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/
@@ -53,7 +53,7 @@
 
 - `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1121 tok)
 - `index.ts` — Plan: selectTargetServers, prepareSyncTargetServers, getCommandPath + 18 more (~30551 tok)
-- `install.ts` — Install embedded/external skills with shared link and ignore reconciliation helpers for fresh and same-repo flows (~3629 tok)
+- `install.ts` — Install embedded/external skills with shared link and ignore reconciliation helpers for fresh and same-repo flows (~3628 tok)
 - `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4849 tok)
 - `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1828 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1226 tok)
