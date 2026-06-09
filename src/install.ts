@@ -75,6 +75,8 @@ export interface InstallFromSourceResult {
   linkedAgents: string[];
 }
 
+type LoadedConfig = Awaited<ReturnType<typeof loadConfig>>;
+
 function normalizeSubdir(subdir: string | undefined): string {
   const normalized = (subdir ?? '.')
     .replace(/\\/g, '/')
@@ -169,6 +171,35 @@ function getIgnoredSkills(sourceRecord: Record<string, unknown> | undefined): Se
   return new Set(ignored);
 }
 
+function setIgnoredSkills(sourceRecord: Record<string, unknown>, ignoredSkills: Iterable<string>): void {
+  const ignoredNames = [...new Set(ignoredSkills)].sort();
+
+  if (ignoredNames.length > 0) {
+    sourceRecord.ignore = ignoredNames;
+  } else {
+    delete sourceRecord.ignore;
+  }
+}
+
+async function ensureSkillLinks(
+  homeDir: string,
+  config: LoadedConfig,
+  skillNames: Iterable<string>
+): Promise<string[]> {
+  const installedSkills: string[] = [];
+
+  for (const skillName of skillNames) {
+    if (config.links[skillName]) {
+      continue;
+    }
+
+    config.links[skillName] = await ensureDefaultLinkTargets(homeDir, config);
+    installedSkills.push(skillName);
+  }
+
+  return installedSkills.sort();
+}
+
 function isSkillWithinScope(skill: DiscoveredSkill, scope: string): boolean {
   return subdirContains(scope, skill.relativePath);
 }
@@ -213,37 +244,25 @@ async function installNewSourceSkills(
 
   const selectedSet = new Set(selectedNames);
   const config = await loadConfig(homeDir);
+  const installableSkillNames = discoveredSkills
+    .filter((skill) => selectedSet.has(skill.name) && !existingSkills.has(skill.name))
+    .map((skill) => skill.name);
 
-  for (const skill of discoveredSkills) {
-    if (!selectedSet.has(skill.name) || existingSkills.has(skill.name)) {
-      continue;
-    }
-
-    if (!config.links[skill.name]) {
-      config.links[skill.name] = await ensureDefaultLinkTargets(homeDir, config);
-    }
-  }
+  const installedSkills = await ensureSkillLinks(homeDir, config, installableSkillNames);
 
   const sourceRecord = config.sources[sourceName] as Record<string, unknown> | undefined;
   if (sourceRecord) {
-    const ignoredNames = discoveredSkills
-      .filter((skill) => !selectedSet.has(skill.name) && !existingSkills.has(skill.name))
-      .map((skill) => skill.name)
-      .sort();
-
-    if (ignoredNames.length > 0) {
-      sourceRecord.ignore = ignoredNames;
-    } else {
-      delete sourceRecord.ignore;
-    }
+    setIgnoredSkills(
+      sourceRecord,
+      discoveredSkills
+        .filter((skill) => !selectedSet.has(skill.name) && !existingSkills.has(skill.name))
+        .map((skill) => skill.name)
+    );
   }
 
   await saveConfig(config, homeDir);
 
-  return discoveredSkills
-    .filter((skill) => selectedSet.has(skill.name) && !existingSkills.has(skill.name))
-    .map((skill) => skill.name)
-    .sort();
+  return installedSkills;
 }
 
 async function resolveSameRepoInstalledSkills(
@@ -276,43 +295,30 @@ async function resolveSameRepoInstalledSkills(
   }
 
   const ignoredSkills = getIgnoredSkills(sourceRecord);
-  const activatedSkills = new Set<string>();
   const requestedSkills = discoveredSkills.filter((skill) => isSkillWithinScope(skill, requestedSubdir));
   const existingScopeSkills = discoveredSkills.filter((skill) => isSkillWithinScope(skill, existingSubdir));
+  const requestedSkillNames = requestedSkills.map((skill) => skill.name);
 
-  const activateSkill = async (skillName: string): Promise<void> => {
+  for (const skillName of requestedSkillNames) {
     ignoredSkills.delete(skillName);
+  }
 
-    if (!config.links[skillName]) {
-      config.links[skillName] = await ensureDefaultLinkTargets(homeDir, config);
-    }
+  const installedSkills = await ensureSkillLinks(
+    homeDir,
+    config,
+    requestedSkillNames.filter((skillName) => !existingSkills.has(skillName))
+  );
 
-    if (!existingSkills.has(skillName)) {
-      activatedSkills.add(skillName);
-    }
-  };
+  const requestedScopeNames = new Set(requestedSkillNames);
+  const existingScopeNames = new Set(existingScopeSkills.map((skill) => skill.name));
 
   if (subdirContains(existingSubdir, requestedSubdir) && existingSubdir !== requestedSubdir) {
-    for (const skill of requestedSkills) {
-      await activateSkill(skill.name);
-    }
+    // Keep existing scope; requested skills are already activated above.
   } else if (subdirContains(requestedSubdir, existingSubdir)) {
     sourceRecord.path = requestedSubdir;
-
-    for (const skill of requestedSkills) {
-      await activateSkill(skill.name);
-    }
-
     ignoredSkills.clear();
   } else {
     sourceRecord.path = getCommonParentSubdir(existingSubdir, requestedSubdir);
-
-    for (const skill of requestedSkills) {
-      await activateSkill(skill.name);
-    }
-
-    const existingScopeNames = new Set(existingScopeSkills.map((skill) => skill.name));
-    const requestedScopeNames = new Set(requestedSkills.map((skill) => skill.name));
 
     for (const skill of discoveredSkills) {
       if (existingScopeNames.has(skill.name) || requestedScopeNames.has(skill.name) || config.links[skill.name]) {
@@ -323,15 +329,11 @@ async function resolveSameRepoInstalledSkills(
     }
   }
 
-  if (ignoredSkills.size > 0) {
-    sourceRecord.ignore = [...ignoredSkills].sort();
-  } else {
-    delete sourceRecord.ignore;
-  }
+  setIgnoredSkills(sourceRecord, ignoredSkills);
 
   await saveConfig(config, homeDir);
 
-  return [...activatedSkills].sort();
+  return installedSkills;
 }
 
 async function resolveInstalledSkills(
