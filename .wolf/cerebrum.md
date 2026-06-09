@@ -2,7 +2,7 @@
 
 > OpenWolf's learning memory. Updated automatically as the AI learns from interactions.
 > Do not edit manually unless correcting an error.
-> Last updated: 2026-06-04
+> Last updated: 2026-06-09
 
 ## User Preferences
 
@@ -40,6 +40,7 @@
 - **[2026-06-08]** 共享 root preAction 下，`link edit` 这类负向 integration test 也要先准备最小可通过 doctor 的 fixture：至少存在的 agent 目录和 `.syncskill/skills/<skill>`；否则测试会先卡在 preflight，而不是命中命令分支。
 - **[2026-06-08]** end2end 测试只有在真实执行 `syncskill` 命令并验证用户可见 contract 时才算有效覆盖；只手工写 registry/baseline 再做静态断言的 case 属于 false coverage，应删掉或改成显式 skipped stub。
 - **[2026-06-08]** Commander help 回归测试要锁真实输出的 description/option 文案，不要把示例命令当成帮助面必现字符串；像 install help 应断言 `Use "self" for built-in skill...`，而不是字面量 `install self`。
+- **[2026-06-09]** external `install <url>` 的 same-repo 路径不能停在 `addSourceFromUrl().sameRepoMatch`；install 层还要 materialize checkout、按 GitHub path/`--path` 推导 requested scope，并据此收敛 `config.sources[*].path`、`ignore` 与 `links`。
 
 ## Do-Not-Repeat
 
@@ -52,6 +53,7 @@
 - [2026-06-03] `failWithOutputError()` / destructive gates inside commander actions cannot rely on `process.exit()` alone to stop execution in tests, because integration tests mock `process.exit()`. After a blocked destructive path, return explicitly.
 - [2026-06-08] 不要把 `process.exit()` 放在与 structured output 同一个 `try/catch` 里；测试里 mocked `process.exit()` 会抛错并被误当成输出层异常，导致 fallback 输出和错误退出语义串线。先发 output，再在 `try/catch` 外退出。
 - [2026-06-08] 共享 preAction 白名单变更后，要立刻跑 `install-cli` 回归；`install self` 是自举路径，误进 doctor/preflight 会直接打断多个 CLI 合同测试。
+- [2026-06-09] 不要把 external install 的 `sameRepoMatch` 当成 no-op；除了 `restoredFromIgnore` 外，install 层还要根据 requested scope 扩大 `source.path`、un-ignore 目标技能，并对跨区域技能做 auto-ignore。
 - [2026-06-08] 不要在 Commander help 回归里断言示例式命令短语（如 `install self`）必然出现在 `--help` 输出；先看真实帮助文本，再锁 description/option contract 与已移除 flag 的负向断言。
 
 ## Decision Log

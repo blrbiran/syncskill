@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-08T15:01:31.207Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-09T01:13:05+08:00
 > Files: 161 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/
@@ -52,8 +52,8 @@
 ## src/
 
 - `dashboard.ts` — Exports DashboardSummary, loadDashboardSummary, formatDashboardSummary (~1121 tok)
-- `index.ts` — Plan: selectTargetServers, prepareSyncTargetServers, getCommandPath + 18 more (~29874 tok)
-- `install.ts` — Get the path to the embedded syncskill skill in dist/skills/syncskill/ (~992 tok)
+- `index.ts` — Plan: selectTargetServers, prepareSyncTargetServers, getCommandPath + 18 more (~30551 tok)
+- `install.ts` — Install the embedded syncskill skill and external sources, including fresh materialization and same-repo scope merge handling (~3582 tok)
 - `linker.ts` — Find stale links - symlinks in agent directories that point to syncskill-managed skills (~4849 tok)
 - `refresh.ts` — Exports RefreshStoredManifestOptions, listTrackedServers, loadTrackedManifests, shouldRefreshLocal + (~1828 tok)
 - `repo.ts` — Exports InitializeRepoOptions, initializeRepo (~1226 tok)
@@ -177,15 +177,15 @@
 
 ## tests/integration/
 
-- `cli-introspection.test.ts` — Declares program (~711 tok)
+- `cli-introspection.test.ts` — Declares program (~1030 tok)
 - `config-cli.test.ts` — Declares homeDir (~4345 tok)
 - `config-ui.test.ts` — Declares PromptStub (~4890 tok)
 - `discover.test.ts` — Declares tempDirs (~3940 tok)
 - `doctor-cli.test.ts` — tests/integration/doctor-cli.test.ts (~1299 tok)
 - `help-output.test.ts` — Help-surface regression tests for public flags, install wording, and remote add options (~2148 tok)
-- `install-cli.test.ts` — execFileAsync: execWithInput (~2648 tok)
+- `install-cli.test.ts` — execFileAsync: execWithInput (~2892 tok)
 - `README.md` — Project documentation (~37 tok)
-- `reconciliation-cli.test.ts` — Declares actual (~12546 tok)
+- `reconciliation-cli.test.ts` — Declares actual (~13118 tok)
 - `remote-refresh.test.ts` — Declares tempDirs (~894 tok)
 - `repo.test.ts` — Declares pathExists (~1991 tok)
 - `server-cli.test.ts` — Declares tempDirs (~5910 tok)
@@ -226,7 +226,7 @@
 - `e2e-runner.test.ts` — tests/unit/e2e-runner.test.ts (~540 tok)
 - `e2e-scenario.test.ts` — tests/unit/e2e-scenario.test.ts (~931 tok)
 - `exit-codes.test.ts` — tests/unit/exit-codes.test.ts (~750 tok)
-- `install.test.ts` — Declares path (~2818 tok)
+- `install.test.ts` — Unit tests for embedded install, fresh source install, restored ignore flow, and same-repo scope expansion (~5979 tok)
 - `linker.test.ts` — Declares SyncSkillConfig (~7055 tok)
 - `manifest.test.ts` — Declares tempDirs (~2630 tok)
 - `matrix-editor.test.ts` — Declares config (~2288 tok)
