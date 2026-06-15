@@ -41,6 +41,7 @@
 - **[2026-06-08]** end2end 测试只有在真实执行 `syncskill` 命令并验证用户可见 contract 时才算有效覆盖；只手工写 registry/baseline 再做静态断言的 case 属于 false coverage，应删掉或改成显式 skipped stub。
 - **[2026-06-08]** Commander help 回归测试要锁真实输出的 description/option 文案，不要把示例命令当成帮助面必现字符串；像 install help 应断言 `Use "self" for built-in skill...`，而不是字面量 `install self`。
 - **[2026-06-09]** external `install <url>` 的 same-repo 路径不能停在 `addSourceFromUrl().sameRepoMatch`；install 层还要 materialize checkout、按 GitHub path/`--path` 推导 requested scope，并据此收敛 `config.sources[*].path`、`ignore` 与 `links`。
+- **[2026-06-09]** same-repo install 若扩大了 `config.sources[*].path`，必须先按新 scope 重新 materialize，再调用 `linkConfiguredSkills()`；否则新激活 skill 不会落到 `.syncskill/skills/<name>`，会在 link 阶段报 `Skill source directory not found`。集成测试若检查默认 `config.links[*]`，也应匹配 `ensureDefaultLinkTargets()` 的真实 contract（至少含 `agents`）。
 
 ## Do-Not-Repeat
 

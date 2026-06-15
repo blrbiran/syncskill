@@ -56,7 +56,10 @@ describe('CLI introspection', () => {
       result_schema: expect.any(Object)
     });
     expect(installCommand.args).toEqual([{ name: 'url-or-path', required: false }]);
-    expect(installCommand.flags.map((flag: { name: string }) => flag.name)).toContain('--name');
+    expect(installCommand.flags.map((flag: { name: string }) => flag.name)).toEqual(
+      expect.arrayContaining(['--name', '--path', '--skill-subdir', '--type', '--branch', '--yes'])
+    );
+    expect(installCommand.flags.map((flag: { name: string }) => flag.name)).not.toContain('--self');
 
     const linkBuild = data.commands.find((command: { name: string }) => command.name === 'link build');
     expect(linkBuild).toMatchObject({
@@ -85,7 +88,10 @@ describe('CLI introspection', () => {
 
     expect(data.name).toBe('install');
     expect(data.args).toEqual([{ name: 'url-or-path', required: false }]);
-    expect(data.flags.map((flag: { name: string }) => flag.name)).toContain('--name');
+    expect(data.flags.map((flag: { name: string }) => flag.name)).toEqual(
+      expect.arrayContaining(['--name', '--path', '--skill-subdir', '--type', '--branch', '--yes'])
+    );
+    expect(data.flags.map((flag: { name: string }) => flag.name)).not.toContain('--self');
     expect(data.plan_schema).toEqual(expect.any(Object));
     expect(data.resolutions_schema).toEqual(expect.any(Object));
   });

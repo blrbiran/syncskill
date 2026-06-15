@@ -311,14 +311,17 @@ async function resolveSameRepoInstalledSkills(
 
   const requestedScopeNames = new Set(requestedSkillNames);
   const existingScopeNames = new Set(existingScopeSkills.map((skill) => skill.name));
+  let nextSourcePath = existingSubdir;
 
   if (subdirContains(existingSubdir, requestedSubdir) && existingSubdir !== requestedSubdir) {
     // Keep existing scope; requested skills are already activated above.
   } else if (subdirContains(requestedSubdir, existingSubdir)) {
-    sourceRecord.path = requestedSubdir;
+    nextSourcePath = requestedSubdir;
+    sourceRecord.path = nextSourcePath;
     ignoredSkills.clear();
   } else {
-    sourceRecord.path = getCommonParentSubdir(existingSubdir, requestedSubdir);
+    nextSourcePath = getCommonParentSubdir(existingSubdir, requestedSubdir);
+    sourceRecord.path = nextSourcePath;
 
     for (const skill of discoveredSkills) {
       if (existingScopeNames.has(skill.name) || requestedScopeNames.has(skill.name) || config.links[skill.name]) {
@@ -330,6 +333,10 @@ async function resolveSameRepoInstalledSkills(
   }
 
   setIgnoredSkills(sourceRecord, ignoredSkills);
+
+  if (nextSourcePath !== existingSubdir) {
+    await materializeSource(homeDir, sourceName, { ...source, path: nextSourcePath });
+  }
 
   await saveConfig(config, homeDir);
 

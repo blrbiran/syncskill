@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -41,6 +41,26 @@ async function execWithInput(
   });
 }
 
+async function git(args: string[], cwd?: string): Promise<void> {
+  await execFileAsync('git', cwd === undefined ? args : ['-C', cwd, ...args]);
+}
+
+async function commitAll(repoDir: string, message: string): Promise<void> {
+  await git(['add', '.'], repoDir);
+  await git(['-c', 'user.name=Test User', '-c', 'user.email=test@example.com', 'commit', '-m', message], repoDir);
+}
+
+async function createGitSourceFixture(homeDir: string): Promise<{ bareRepoDir: string; workRepoDir: string }> {
+  const bareRepoDir = join(homeDir, 'remote.git');
+  const workRepoDir = join(homeDir, 'work');
+
+  await git(['init', '--bare', bareRepoDir]);
+  await git(['clone', bareRepoDir, workRepoDir]);
+  await git(['branch', '-M', 'main'], workRepoDir);
+
+  return { bareRepoDir, workRepoDir };
+}
+
 describe('install CLI command', () => {
   let tempDir: string;
   let homeDir: string;
@@ -49,6 +69,7 @@ describe('install CLI command', () => {
     tempDir = join(import.meta.dirname, `../../.test-tmp-install-cli-${Date.now()}`);
     homeDir = join(tempDir, 'home');
     await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
+    await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
 
     const configPath = join(homeDir, '.syncskill', 'config.json');
     await writeFile(
@@ -56,7 +77,7 @@ describe('install CLI command', () => {
       JSON.stringify(
         {
           version: 1,
-          agents: { claude: '~/.claude/skills' },
+          agents: { claude: join(homeDir, '.claude', 'skills') },
           links: {},
           servers: {},
           sources: {},
@@ -147,10 +168,12 @@ describe('install CLI command', () => {
     const plan = JSON.parse(stdout);
     expect(plan.version).toBe(1);
     expect(plan.command).toBe('install');
-    expect(plan.actions).toHaveLength(1);
-    expect(plan.actions[0].id).toBe('a1');
-    expect(plan.actions[0].op).toBe('install-self');
-    expect(plan.actions[0].to).toContain('.syncskill/skills/syncskill');
+    expect(Array.isArray(plan.actions)).toBe(true);
+
+    const installSelfAction = plan.actions.find((action: { op: string }) => action.op === 'install-self');
+    expect(installSelfAction).toBeDefined();
+    expect(installSelfAction.id).toBe('a1');
+    expect(installSelfAction.to).toContain('.syncskill/skills/syncskill');
   });
 
   it('supports deprecated stdin aliases for install self apply flow', async () => {
@@ -289,5 +312,43 @@ describe('install CLI command', () => {
       await rm(join(import.meta.dirname, '../../self'), { recursive: true, force: true });
     }
   });
+
+  it('merges same-repo installs into one source and activates the newly requested skill', async () => {
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+
+    await mkdir(join(workRepoDir, 'skills', 'alpha', 'alpha'), { recursive: true });
+    await mkdir(join(workRepoDir, 'skills', 'beta', 'beta'), { recursive: true });
+    await writeFile(join(workRepoDir, 'skills', 'alpha', 'alpha', 'SKILL.md'), '# alpha');
+    await writeFile(join(workRepoDir, 'skills', 'beta', 'beta', 'SKILL.md'), '# beta');
+    await commitAll(workRepoDir, 'Add alpha and beta skills');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    const commonOptions = {
+      cwd: join(import.meta.dirname, '../..'),
+      env: { ...process.env, HOME: homeDir }
+    };
+
+    const first = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/alpha', '--yes'],
+      commonOptions
+    );
+    expect(first.stdout).toContain('Installed 1 skill(s)');
+
+    const second = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/beta', '--yes'],
+      commonOptions
+    );
+    expect(second.stdout).toContain('Installed 1 skill(s)');
+    expect(second.stdout).toContain('Linked to: claude');
+
+    const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
+    expect(Object.keys(config.sources)).toHaveLength(1);
+    expect(config.sources['demo-source'].path).toBe('skills');
+    expect(config.sources['demo-source'].ignore).toBeUndefined();
+    expect(config.links.alpha).toEqual(['agents', 'claude']);
+    expect(config.links.beta).toEqual(['agents', 'claude']);
+  }, 15000);
 
 });
