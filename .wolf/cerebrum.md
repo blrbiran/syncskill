@@ -99,3 +99,4 @@
 - **[2026-06-03]** push 使用 `receivers/<server>.json` 里的 receiver backup 作为远端拓扑真相源，而不是只回显 `config.servers[*].remote_agents`。
 - **[2026-06-04]** `restore <skill>` 是本地 recovery：从最新 `pre-pull` backup 回放，并故意把 manifest 留在显式 `conflict`，直到用户 resolve。
 - **[2026-06-19]** step-4 e2e 审查结论：保留 `install-local-archive`、`link-reconcile`、`source-update`、`source-stale-checkout` 这类真实用户可见 contract；same-repo install merge 不再补 e2e，继续放在 real-git integration 层；`tests/end2end/cases/sync/*` 与 `source-install-stale` 保持 skipped，直到 harness 能真实覆盖 transport / stale-checkout 语义。
+- **[2026-06-19]** step-5 docs/help 收口时，要把 install same-repo 语义写清楚：重复安装同一 git/http source 会复用已有 source 条目，必要时扩大 `path`，并把非目标范围技能落到 `config.sources[*].ignore[]`；同时文档里的 local source 示例必须保持 `url`=源根目录、`path`=相对目录，不能把 absolute path 塞进 `path`。

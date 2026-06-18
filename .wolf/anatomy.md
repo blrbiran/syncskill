@@ -1,6 +1,6 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-06-09T14:37:56.479Z
+> Auto-maintained by OpenWolf. Last scanned: 2026-06-18T16:58:24.042Z
 > Files: 161 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ../../../.claude/
@@ -16,7 +16,7 @@
 - `LICENSE` — Project license (~284 tok)
 - `package-lock.json` — npm lock file (~24651 tok)
 - `package.json` — Node.js package manifest (~355 tok)
-- `README.md` — Project documentation (~2200 tok)
+- `README.md` — Project documentation (~2286 tok)
 - `tsconfig.build.json` — TypeScript build configuration (~41 tok)
 - `tsconfig.json` — TypeScript configuration (~99 tok)
 
@@ -30,11 +30,11 @@
 
 ## docs/
 
-- `config-guide.md` — Configuration Guide (~3556 tok)
+- `config-guide.md` — Configuration Guide (~3558 tok)
 - `design-guide.md` — Design Guide (~3878 tok)
 - `e2e-test-guide.md` — E2E Test Writing Guide (~3907 tok)
 - `README.md` — Project documentation (~600 tok)
-- `usage-guide.md` — Usage Guide with install/help, remote transport, and destructive-flag workflow notes (~4542 tok)
+- `usage-guide.md` — Usage Guide (~4608 tok)
 
 ## docs/superpowers/plans/
 
@@ -47,7 +47,7 @@
 
 ## skills/syncskill/
 
-- `SKILL.md` — syncskill (~2014 tok)
+- `SKILL.md` — syncskill (~2018 tok)
 
 ## src/
 
@@ -213,7 +213,7 @@
 - `config.test.ts` — Declares paths (~2999 tok)
 - `conflict.test.ts` — Declares ServerManifest (~2877 tok)
 - `dashboard.test.ts` — Declares ServerManifest (~1496 tok)
-- `docs.test.ts` — Docs smoke assertions for README/guides/SKILL public CLI wording and transport fields (~2063 tok)
+- `docs.test.ts` — Declares rootDir (~2223 tok)
 - `e2e-cleanup.test.ts` — tests/unit/e2e-cleanup.test.ts (~495 tok)
 - `e2e-context.test.ts` — tests/unit/e2e-context.test.ts (~2371 tok)
 - `e2e-fixtures-archive.test.ts` — tests/unit/e2e-fixtures-archive.test.ts (~588 tok)

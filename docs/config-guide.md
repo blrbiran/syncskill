@@ -349,7 +349,8 @@ Example:
     },
     "local-dev": {
       "type": "local",
-      "path": "/Users/alice/dev/skills"
+      "url": "~/dev/skills",
+      "path": "."
     },
     "archive-skills": {
       "type": "local",

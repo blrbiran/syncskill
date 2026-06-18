@@ -23,7 +23,7 @@ Use this skill when:
 | `init [--skip-scan] [--skip-self] [-y]` | Initialize `~/.syncskill/` and create `config.json` |
 | `install` / `i` | Show install help with no target; use `install self` or `install <url-or-path>` for actual installs |
 | `install self` | Install built-in syncskill skill |
-| `install <url-or-path> [--name] [--branch] [--type <type>] [-y]` | Install skill from URL or path and register it as a managed source |
+| `install <url-or-path> [--name] [--path <dir>] [--branch] [--type <type>] [-y]` | Install skill from URL or path and register it as a managed source |
 
 Install options: `--name`, `--path` (repo-relative subdirectory containing skills), `--skill-subdir` (alias for `--path`), `--type` (`git`, `http`, `local`), `--branch`, `-y`
 

@@ -264,6 +264,7 @@ Install options:
 | `-y, --yes` | Skip confirmation prompts |
 
 `syncskill install` with no target shows help. Use `install self` for the built-in skill or `install <url-or-path>` for external sources.
+Repeated installs from the same git or HTTP source reuse the existing source entry. If the new request widens the scope, syncskill expands the recorded `path` and writes unrelated skills to `config.sources[*].ignore[]` instead of creating duplicate source records.
 
 For v2 plan-then-execute workflows, `install self` also supports the global `--plan`, `--apply`, and `--resolutions` flags. Save the generated plan with shell redirection when needed. This is the supported way to preview or hand off built-in skill installation before making changes.
 

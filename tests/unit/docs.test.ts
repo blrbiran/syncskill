@@ -44,6 +44,8 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('link build');
     expect(readme).toContain('syncskill install <url-or-path> [--path <dir>] [--type <type>]');
     expect(readme).toContain('repo-relative skills subdirectory inside the source checkout');
+    expect(readme).toContain('`--skill-subdir` is an alias for `--path`');
+    expect(readme).toContain('Repeated installs from the same git or HTTP source reuse the existing source entry');
     expect(readme).toContain('syncskill restore <skill>');
     expect(readme).toContain('latest pre-pull backup');
     expect(readme).toContain('pre-restore snapshot');
@@ -77,6 +79,8 @@ describe('ship-readiness docs', () => {
     expect(configGuide).toContain('SYNCSKILL_STRICT');
     expect(configGuide).toContain('SYNCSKILL_PULL_BACKUP');
     expect(configGuide).toContain('relative subdirectory within the local source root pointed to by `url`');
+    expect(configGuide).toContain('"url": "~/dev/skills"');
+    expect(configGuide).not.toContain('"path": "/Users/alice/dev/skills"');
     expect(configGuide).toContain('npm link');
     expect(configGuide).toContain('pre-restore');
     expect(configGuide).toContain('forced_conflict');
@@ -105,11 +109,13 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('link set');
     expect(usageGuide).toContain('link build');
     expect(usageGuide).toContain('Repo-relative subdirectory within the source checkout containing skills');
+    expect(usageGuide).toContain('Repeated installs from the same git or HTTP source reuse the existing source entry');
     expect(usageGuide).toContain('--type <type>');
     expect(usageGuide).toContain('syncskill restore welcome');
     expect(usageGuide).toContain('pre-restore');
 
     expect(skillDoc).toContain('repo-relative subdirectory containing skills');
+    expect(skillDoc).toContain('install <url-or-path> [--name] [--path <dir>] [--branch] [--type <type>] [-y]');
     expect(skillDoc).toContain('Show install help with no target');
     expect(skillDoc).toContain('--type');
     expect(skillDoc).toContain('--remote-repo');
