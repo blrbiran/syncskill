@@ -98,3 +98,4 @@
 - **[2026-06-03]** 用户可见的 `server` 命令面向 `remote` 收口；文档、help、tests 都应优先暴露 `remote`。
 - **[2026-06-03]** push 使用 `receivers/<server>.json` 里的 receiver backup 作为远端拓扑真相源，而不是只回显 `config.servers[*].remote_agents`。
 - **[2026-06-04]** `restore <skill>` 是本地 recovery：从最新 `pre-pull` backup 回放，并故意把 manifest 留在显式 `conflict`，直到用户 resolve。
+- **[2026-06-19]** step-4 e2e 审查结论：保留 `install-local-archive`、`link-reconcile`、`source-update`、`source-stale-checkout` 这类真实用户可见 contract；same-repo install merge 不再补 e2e，继续放在 real-git integration 层；`tests/end2end/cases/sync/*` 与 `source-install-stale` 保持 skipped，直到 harness 能真实覆盖 transport / stale-checkout 语义。
