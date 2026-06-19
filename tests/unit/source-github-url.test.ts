@@ -1,5 +1,5 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -138,7 +138,49 @@ describe('addSourceFromUrl', () => {
     expect(config.sources['repo']).toBeUndefined();
   });
 
-  it('throws helpful error for non-GitHub URLs without explicit options', async () => {
+  it('registers a local directory source with default relative path', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-url-'));
+    tempDirs.push(homeDir);
+    const sourceRoot = join(homeDir, 'local-source');
+    await mkdir(join(homeDir, '.syncskill'), { recursive: true });
+    await mkdir(join(sourceRoot, 'alpha'), { recursive: true });
+    await writeFile(join(sourceRoot, 'alpha', 'SKILL.md'), '# alpha\n', 'utf8');
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    const { name, source } = await addSourceFromUrl(homeDir, sourceRoot);
+
+    expect(name).toBe('local-source');
+    expect(source).toEqual({
+      type: 'local',
+      url: sourceRoot,
+      path: '.'
+    });
+  });
+
+  it('expands tilde when registering a local directory source', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-url-'));
+    tempDirs.push(homeDir);
+    await mkdir(join(homeDir, '.syncskill'), { recursive: true });
+    await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
+
+    const actualRoot = await mkdtemp(join(tmpdir(), 'syncskill-local-tilde-'));
+    tempDirs.push(actualRoot);
+    await mkdir(join(actualRoot, 'beta'), { recursive: true });
+    await writeFile(join(actualRoot, 'beta', 'SKILL.md'), '# beta\n', 'utf8');
+
+    const linkPath = join(homedir(), `syncskill-local-tilde-${Date.now()}`);
+    await symlink(actualRoot, linkPath);
+
+    try {
+      const { source } = await addSourceFromUrl(homeDir, `~/${linkPath.split('/').pop()}`);
+      expect(source.url).toBe(linkPath);
+      expect(source.path).toBe('.');
+    } finally {
+      await rm(linkPath, { force: true });
+    }
+  });
+
+  it('throws helpful error for unsupported remote URLs without explicit options', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-url-'));
     tempDirs.push(homeDir);
     await mkdir(join(homeDir, '.syncskill'), { recursive: true });
@@ -146,7 +188,7 @@ describe('addSourceFromUrl', () => {
 
     await expect(
       addSourceFromUrl(homeDir, 'https://gitlab.com/org/repo')
-    ).rejects.toThrow('Could not parse URL');
+    ).rejects.toThrow('Could not parse source input');
   });
 
   it('accepts non-GitHub URL with explicit type and path', async () => {

@@ -1,8 +1,8 @@
-import { cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, readdir, readFile, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import process from 'node:process';
 import { createWriteStream } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
@@ -22,7 +22,7 @@ import {
 } from './core/skills-registry.js';
 import { hashSkillDirectory } from './core/manifest.js';
 import { backupDirtySkillsToSidecar, getSidecarBackupDir } from './utils/backup.js';
-import { execFileAsync, isNotFoundError, pathExists } from './utils/utils.js';
+import { execFileAsync, isNotFoundError, pathExists, resolveHomePath } from './utils/utils.js';
 import {
   type ArchiveType,
   type ArchiveFormat,
@@ -244,6 +244,56 @@ export async function scanSkillsInDirectory(baseDir: string): Promise<Discovered
 export async function scanSkillsInSource(sourceDir: string): Promise<DiscoveredSkill[]> {
   const skills = await scanSkillsInDirectory(sourceDir);
   return skills.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function inferRootSkillName(sourceName: string, source: SourceDefinition): string {
+  if (source.type === 'git') {
+    const match = source.url.match(/\/([^/]+?)(?:\.git)?$/);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+
+  if (source.type === 'local') {
+    const match = source.url.match(/\/([^/]+)$/);
+    if (match?.[1]) {
+      return match[1].replace(/\.(tar\.gz|tgz|tar\.xz|tar\.bz2|zip)$/i, '');
+    }
+  }
+
+  return sourceName;
+}
+
+export async function discoverMaterializedSkillEntries(
+  sourceName: string,
+  source: SourceDefinition,
+  sourceRoot: string
+): Promise<DiscoveredSkill[]> {
+  const discoveredSkills = await scanSkillsInSource(sourceRoot);
+
+  if (await pathExists(join(sourceRoot, 'SKILL.md'))) {
+    discoveredSkills.push({
+      name: inferRootSkillName(sourceName, source),
+      relativePath: '.',
+      absolutePath: sourceRoot
+    });
+  }
+
+  const deduped = new Map<string, DiscoveredSkill>();
+  for (const skill of discoveredSkills) {
+    const key = `${skill.name}:${skill.relativePath}`;
+    deduped.set(key, skill);
+  }
+
+  return [...deduped.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function mapSkillAbsolutePaths(skills: DiscoveredSkill[]): Map<string, string> {
+  return new Map(skills.map((skill) => [skill.name, skill.absolutePath]));
+}
+
+export function listDiscoveredSkillNames(skills: DiscoveredSkill[]): string[] {
+  return skills.map((skill) => skill.name).sort();
 }
 
 export interface SourceDefinition {
@@ -1211,12 +1261,14 @@ async function syncSource(
 
   const materializedRoot = await prepareMaterializedRoot(homeDir, name, source);
   const ownershipState = await loadSkillOwnershipState(homeDir);
-  const materializedSkills = await listSkillDirectories(materializedRoot);
+  const discoveredSkills = await discoverMaterializedSkillEntries(name, source, materializedRoot);
+  const materializedSkills = listDiscoveredSkillNames(discoveredSkills);
+  const materializedSkillPaths = mapSkillAbsolutePaths(discoveredSkills);
 
   const nextOwnership = structuredClone(ownershipState) as SkillOwnershipState;
 
   await mkdir(skillsDir, { recursive: true });
-  await assertMaterializationTargetsAvailable(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type, name, ownershipState);
+  await assertMaterializationTargetsAvailable(skillsDir, previousSkills, discoveredSkills, source.type, name, ownershipState);
 
   // Identify removed skills and ask user what to do
   const removedSkills = previousSkills.filter(
@@ -1230,7 +1282,10 @@ async function syncSource(
   await removeStaleSkills(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type, name, nextOwnership);
 
   for (const skill of materializedSkills) {
-    const sourceDir = join(materializedRoot, skill);
+    const sourceDir = materializedSkillPaths.get(skill);
+    if (!sourceDir) {
+      throw new Error(`Discovered skill path missing: ${skill}`);
+    }
     const targetDir = join(skillsDir, skill);
 
     if (source.type === 'local') {
@@ -1507,11 +1562,8 @@ async function prepareLocalArchiveMaterializedRoot(homeDir: string, name: string
   const stagingDir = join(runtimeDir, 'checkout.next');
   const backupDir = join(runtimeDir, 'checkout.prev');
 
-  // Resolve the archive path (handle ~ expansion)
   const archivePath = source.archive_path ?? source.url;
-  const resolvedArchivePath = archivePath.startsWith('~')
-    ? join(homedir(), archivePath.slice(1))
-    : resolve(archivePath);
+  const resolvedArchivePath = resolveHomePath(archivePath);
 
   // Detect format from archive file name
   const archiveFormat = detectArchiveFormat(resolvedArchivePath);
@@ -1596,7 +1648,7 @@ function getLocalMaterializedRoot(source: SourceDefinition): string {
     throw new Error('Local source path must be a relative path');
   }
 
-  const sourceRoot = resolve(source.url);
+  const sourceRoot = resolveHomePath(source.url);
   const materializedRoot = resolve(sourceRoot, source.path);
   const relativePath = relative(sourceRoot, materializedRoot);
 
@@ -1669,10 +1721,13 @@ async function removeStaleSkills(
       continue;
     }
 
-    const expectedTarget = join(materializedRoot, staleSkill);
     const currentTarget = await readlinkIfMatches(targetDir);
+    if (currentTarget === null) {
+      continue;
+    }
 
-    if (currentTarget !== expectedTarget) {
+    const relativeTarget = relative(materializedRoot, currentTarget);
+    if (relativeTarget.startsWith('..') || isAbsolute(relativeTarget)) {
       continue;
     }
 
@@ -1726,16 +1781,16 @@ async function recreateSymlink(sourceDir: string, targetDir: string): Promise<vo
 
 async function assertMaterializationTargetsAvailable(
   skillsDir: string,
-  materializedRoot: string,
   previousSkills: string[],
-  skillNames: string[],
+  discoveredSkills: DiscoveredSkill[],
   sourceType: SourceType,
   sourceName: string,
   ownershipState: SkillOwnershipState
 ): Promise<void> {
-  for (const skillName of skillNames) {
+  for (const skill of discoveredSkills) {
+    const skillName = skill.name;
     const targetDir = join(skillsDir, skillName);
-    const expectedTarget = join(materializedRoot, skillName);
+    const expectedTarget = skill.absolutePath;
     const currentTarget = await readlinkIfMatches(targetDir);
 
     if (currentTarget === expectedTarget) {
@@ -1972,26 +2027,51 @@ export async function addSourceFromUrl(
 ): Promise<AddSourceFromUrlResult> {
   const { syncDir } = getSyncPaths(homeDir);
 
-  // Check if input is a local archive file
   const detected = detectSourceType(urlOrName);
-  if (detected?.type === 'local' && detected.isArchive) {
-    // Resolve archive path
-    const archivePath = urlOrName.startsWith('~')
-      ? join(homedir(), urlOrName.slice(1))
-      : resolve(urlOrName);
+  const shouldHandleAsLocal = detected?.type === 'local' && (options.type === undefined || options.type === 'local');
+  if (shouldHandleAsLocal) {
+    const localPath = resolveHomePath(urlOrName);
+    let stats;
 
-    // Extract name from archive file name (remove extension)
-    const baseName = archivePath.split('/').pop() ?? 'archive';
-    const nameWithoutExt = baseName
-      .replace(/\.(tar\.gz|tgz|tar\.xz|tar\.bz2|zip)$/i, '');
-    const sourceName = options.name ?? nameWithoutExt;
+    try {
+      stats = await stat(localPath);
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        throw new Error(`Local source path not found: ${urlOrName}`);
+      }
+      throw error;
+    }
 
-    // Set up source with archive_path
+    const configuredPath = options.skillSubdir ?? options.path ?? '.';
+
+    if (detected.isArchive) {
+      if (!stats.isFile()) {
+        throw new Error(`Local archive path must be a file: ${urlOrName}`);
+      }
+
+      const nameWithoutExt = basename(localPath)
+        .replace(/\.(tar\.gz|tgz|tar\.xz|tar\.bz2|zip)$/i, '');
+      const sourceName = options.name ?? nameWithoutExt;
+      const source: SourceDefinition = {
+        type: 'local',
+        url: join(syncDir, '.sources', sourceName, 'checkout'),
+        path: configuredPath,
+        archive_path: localPath,
+      };
+
+      await addSource(homeDir, sourceName, source);
+      return { name: sourceName, source };
+    }
+
+    if (!stats.isDirectory()) {
+      throw new Error(`Local source path must be a directory: ${urlOrName}`);
+    }
+
+    const sourceName = options.name ?? basename(localPath);
     const source: SourceDefinition = {
       type: 'local',
-      url: join(syncDir, '.sources', sourceName, 'checkout'),
-      path: options.skillSubdir ?? '.',
-      archive_path: archivePath,
+      url: localPath,
+      path: configuredPath,
     };
 
     await addSource(homeDir, sourceName, source);
@@ -2061,15 +2141,17 @@ export async function addSourceFromUrl(
     }
   }
 
-  // Not a GitHub URL - require explicit parameters
   if (!options.type || !options.path) {
     const expectedFormats = [
       'https://github.com/<org>/<repo>/tree/<branch>/<path>',
       'https://github.com/<org>/<repo>.git',
-      'https://github.com/<org>/<repo>'
+      'https://github.com/<org>/<repo>',
+      '/path/to/local-source',
+      './local-source',
+      '/path/to/source.zip'
     ];
     throw new Error(
-      `Could not parse URL. Expected GitHub URL formats:\n${expectedFormats.map(f => `  ${f}`).join('\n')}\n\nOr provide explicit --type, --url, and --path options.`
+      `Could not parse source input. Supported formats include:\n${expectedFormats.map(f => `  ${f}`).join('\n')}\n\nOr provide explicit --type and --path options.`
     );
   }
 

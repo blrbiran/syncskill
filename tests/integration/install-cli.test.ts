@@ -313,6 +313,56 @@ describe('install CLI command', () => {
     }
   });
 
+  it('installs skills from a local directory source', async () => {
+    const sourceRoot = join(homeDir, 'local-source');
+    await mkdir(join(sourceRoot, 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), '# alpha');
+
+    const { stdout } = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', 'install', sourceRoot, '--yes'],
+      {
+        cwd: join(import.meta.dirname, '../..'),
+        env: { ...process.env, HOME: homeDir }
+      }
+    );
+
+    expect(stdout).toContain('Installed 1 skill(s)');
+    expect(stdout).toContain('Linked to: claude');
+
+    const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
+    expect(config.sources['local-source']).toEqual({
+      type: 'local',
+      url: sourceRoot,
+      path: '.'
+    });
+    expect(config.links.alpha).toEqual(['agents', 'claude']);
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha');
+  });
+
+  it('retries install when config links exist but local skill files are missing', async () => {
+    const sourceRoot = join(homeDir, 'retry-source');
+    await mkdir(join(sourceRoot, 'skills', 'retry-skill'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'retry-skill', 'SKILL.md'), '# retry');
+
+    const configPath = join(homeDir, '.syncskill', 'config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    config.links['retry-skill'] = ['claude'];
+    await writeFile(configPath, JSON.stringify(config, null, 2));
+
+    const { stdout } = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', 'install', sourceRoot, '--yes'],
+      {
+        cwd: join(import.meta.dirname, '../..'),
+        env: { ...process.env, HOME: homeDir }
+      }
+    );
+
+    expect(stdout).toContain('Installed 1 skill(s)');
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'retry-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# retry');
+  });
+
   it('merges same-repo installs into one source and activates the newly requested skill', async () => {
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
 

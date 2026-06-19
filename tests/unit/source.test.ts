@@ -226,6 +226,29 @@ sources:
     });
   });
 
+  it('materializeSource discovers nested leaf skills for local sources rooted above skills/', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'shared');
+    await mkdir(join(sourceRoot, 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), '# alpha\n', 'utf8');
+
+    const result = await materializeSource(
+      homeDir,
+      'shared',
+      { type: 'local', url: sourceRoot, path: '.' },
+      '2026-05-01T00:00:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['alpha']);
+    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'alpha'))).resolves.toBe(join(sourceRoot, 'skills', 'alpha'));
+    await expect(loadSourceState(homeDir, 'shared')).resolves.toEqual({
+      materialized_skills: ['alpha'],
+      updated_at: '2026-05-01T00:00:00.000Z'
+    });
+  });
+
   it('materializeSource removes stale local-source skills from a previous state file', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
     tempDirs.push(homeDir);

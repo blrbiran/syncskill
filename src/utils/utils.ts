@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process';
 import { lstat, readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 /**
@@ -57,4 +59,16 @@ export async function pathExists(targetPath: string): Promise<boolean> {
     }
     throw error;
   }
+}
+
+export function resolveHomePath(targetPath: string): string {
+  if (targetPath.startsWith('~/')) {
+    return resolve(homedir(), targetPath.slice(2));
+  }
+
+  if (targetPath === '~') {
+    return homedir();
+  }
+
+  return resolve(targetPath);
 }

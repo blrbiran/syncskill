@@ -3,10 +3,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { getSyncPaths, loadConfig, saveConfig } from './config/config.js';
+import { listLocalSkillNames } from './core/manifest.js';
 import { ensureDefaultLinkTargets } from './core/private-agents.js';
 import { linkConfiguredSkills } from './linker.js';
-import { addSourceFromUrl, materializeSource, parseGitHubUrl, scanSkillsInSource, type AddSourceFromUrlResult, type DiscoveredSkill, type SourceDefinition } from './source.js';
-import { pathExists } from './utils/utils.js';
+import { addSourceFromUrl, discoverMaterializedSkillEntries, inferRootSkillName, materializeSource, parseGitHubUrl, type AddSourceFromUrlResult, type DiscoveredSkill, type SourceDefinition } from './source.js';
+import { pathExists, resolveHomePath } from './utils/utils.js';
 
 /**
  * Get the path to the embedded syncskill skill in dist/skills/syncskill/
@@ -125,27 +126,9 @@ function getRequestedSubdir(urlOrPath: string, options: InstallFromSourceOptions
   return normalizeSubdir(options.skillSubdir ?? options.path ?? parsed?.path ?? '.');
 }
 
-function inferRootSkillName(sourceName: string, source: SourceDefinition): string {
-  if (source.type === 'git') {
-    const match = source.url.match(/\/([^/]+?)(?:\.git)?$/);
-    if (match?.[1]) {
-      return match[1];
-    }
-  }
-
-  if (source.type === 'local') {
-    const match = source.url.match(/\/([^/]+)$/);
-    if (match?.[1]) {
-      return match[1].replace(/\.(tar\.gz|tgz|tar\.xz|tar\.bz2|zip)$/i, '');
-    }
-  }
-
-  return sourceName;
-}
-
 function getCheckoutRootPath(homeDir: string, sourceName: string, source: SourceDefinition): string {
   if (source.type === 'local' && !source.archive_path) {
-    return resolve(source.url);
+    return resolveHomePath(source.url);
   }
 
   return resolve(getSyncPaths(homeDir).syncDir, '.sources', sourceName, 'checkout');
@@ -157,7 +140,7 @@ function getMaterializedRootPath(homeDir: string, sourceName: string, source: So
       return join(getSyncPaths(homeDir).syncDir, '.sources', sourceName, 'checkout');
     }
 
-    return resolve(source.url, source.path);
+    return resolve(resolveHomePath(source.url), source.path);
   }
 
   return resolve(getSyncPaths(homeDir).syncDir, '.sources', sourceName, 'checkout', source.path);
@@ -186,45 +169,29 @@ async function ensureSkillLinks(
   config: LoadedConfig,
   skillNames: Iterable<string>
 ): Promise<string[]> {
-  const installedSkills: string[] = [];
+  const requestedSkills = [...new Set(skillNames)].sort();
 
-  for (const skillName of skillNames) {
+  for (const skillName of requestedSkills) {
     if (config.links[skillName]) {
       continue;
     }
 
     config.links[skillName] = await ensureDefaultLinkTargets(homeDir, config);
-    installedSkills.push(skillName);
   }
 
-  return installedSkills.sort();
+  return requestedSkills;
 }
 
 function isSkillWithinScope(skill: DiscoveredSkill, scope: string): boolean {
   return subdirContains(scope, skill.relativePath);
 }
 
-async function scanSkillsForInstallRoot(sourceRoot: string, rootSkillName: string): Promise<DiscoveredSkill[]> {
-  const discoveredSkills = await scanSkillsInSource(sourceRoot);
-
-  if (await pathExists(join(sourceRoot, 'SKILL.md'))) {
-    discoveredSkills.push({
-      name: rootSkillName,
-      relativePath: '.',
-      absolutePath: sourceRoot
-    });
-  }
-
-  const deduped = new Map<string, DiscoveredSkill>();
-  for (const skill of discoveredSkills) {
-    const key = `${skill.name}:${normalizeSubdir(skill.relativePath)}`;
-    deduped.set(key, {
-      ...skill,
-      relativePath: normalizeSubdir(skill.relativePath)
-    });
-  }
-
-  return [...deduped.values()].sort((left, right) => left.name.localeCompare(right.name));
+async function scanSkillsForInstallRoot(sourceName: string, source: SourceDefinition, sourceRoot: string): Promise<DiscoveredSkill[]> {
+  const discoveredSkills = await discoverMaterializedSkillEntries(sourceName, source, sourceRoot);
+  return discoveredSkills.map((skill) => ({
+    ...skill,
+    relativePath: normalizeSubdir(skill.relativePath)
+  }));
 }
 
 async function installNewSourceSkills(
@@ -237,7 +204,7 @@ async function installNewSourceSkills(
   await materializeSource(homeDir, sourceName, source);
 
   const materializedRoot = getMaterializedRootPath(homeDir, sourceName, source);
-  const discoveredSkills = await scanSkillsForInstallRoot(materializedRoot, inferRootSkillName(sourceName, source));
+  const discoveredSkills = await scanSkillsForInstallRoot(sourceName, source, materializedRoot);
   const selectedNames = options.onSelectSkills
     ? await options.onSelectSkills(discoveredSkills, existingSkills)
     : discoveredSkills.filter((skill) => !existingSkills.has(skill.name)).map((skill) => skill.name);
@@ -281,12 +248,11 @@ async function resolveSameRepoInstalledSkills(
   const source = existingMatch.source;
   const existingSubdir = normalizeSubdir(source.path);
   const requestedSubdir = getRequestedSubdir(urlOrPath, options);
-  const rootSkillName = inferRootSkillName(sourceName, source);
 
   await materializeSource(homeDir, sourceName, source);
 
   const checkoutRoot = getCheckoutRootPath(homeDir, sourceName, source);
-  const discoveredSkills = await scanSkillsForInstallRoot(checkoutRoot, rootSkillName);
+  const discoveredSkills = await scanSkillsForInstallRoot(sourceName, source, checkoutRoot);
   const config = await loadConfig(homeDir);
   const sourceRecord = config.sources[sourceName] as Record<string, unknown> | undefined;
 
@@ -382,7 +348,7 @@ export async function installFromSource(
   urlOrPath: string,
   options: InstallFromSourceOptions = {}
 ): Promise<InstallFromSourceResult> {
-  const existingSkills = new Set(Object.keys((await loadConfig(homeDir)).links));
+  const existingSkills = new Set(await listLocalSkillNames(homeDir));
 
   const result = await addSourceFromUrl(homeDir, urlOrPath, {
     name: options.name,
