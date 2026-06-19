@@ -190,7 +190,7 @@ function shouldSkipCommandPreflight(command: Command): boolean {
 async function runCommandPreflight(homeDir: string): Promise<void> {
   const config = await loadConfig(homeDir);
   const { skillsDir } = getSyncPaths(homeDir);
-  await autoDiagnoseConfig(config, skillsDir);
+  await autoDiagnoseConfig(config, skillsDir, homeDir);
 }
 
 function failForNeedsInput(message: string, hint: string): never {

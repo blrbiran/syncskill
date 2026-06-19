@@ -328,7 +328,7 @@ describe('diagnoseConfig', () => {
       sources: {}
     };
 
-    const report = await diagnoseConfig(config, skillsDir);
+    const report = await diagnoseConfig(config, skillsDir, testDir);
 
     expect(report.isHealthy).toBe(true);
     expect(report.canProceed).toBe(true);
@@ -352,7 +352,7 @@ describe('diagnoseConfig', () => {
       sources: {}
     };
 
-    const report = await diagnoseConfig(config, skillsDir);
+    const report = await diagnoseConfig(config, skillsDir, testDir);
 
     expect(report.isHealthy).toBe(true);
     expect(report.canProceed).toBe(true);
@@ -404,7 +404,7 @@ describe('diagnoseConfig', () => {
       sources: {}
     };
 
-    const report = await diagnoseConfig(config, skillsDir);
+    const report = await diagnoseConfig(config, skillsDir, testDir);
 
     expect(report.isHealthy).toBe(false);
     expect(report.canProceed).toBe(false);
@@ -427,7 +427,7 @@ describe('diagnoseConfig', () => {
       sources: {}
     };
 
-    const report = await diagnoseConfig(config, skillsDir);
+    const report = await diagnoseConfig(config, skillsDir, testDir);
 
     expect(report.isHealthy).toBe(false);
     expect(report.canProceed).toBe(true);

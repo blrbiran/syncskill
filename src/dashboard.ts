@@ -30,7 +30,7 @@ export async function loadDashboardSummary(homeDir: string): Promise<DashboardSu
   const config = await loadConfig(homeDir);
   const { skillsDir } = getSyncPaths(homeDir);
   const [report, registry, trackedServers, agents] = await Promise.all([
-    diagnoseConfig(config, skillsDir),
+    diagnoseConfig(config, skillsDir, homeDir),
     buildSkillsRegistry(homeDir),
     listTrackedServers(homeDir),
     Promise.all(

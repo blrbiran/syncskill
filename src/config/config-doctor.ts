@@ -300,7 +300,7 @@ export async function checkRegistryHealth(
 export async function diagnoseConfig(
   config: SyncSkillConfig,
   skillsDir: string,
-  homeDir?: string
+  homeDir: string
 ): Promise<DiagnosticReport> {
   const errors: DiagnosticItem[] = [];
   const warnings: DiagnosticItem[] = [];
@@ -314,14 +314,12 @@ export async function diagnoseConfig(
     }
   }
 
-  const existingSkills = await discoverExistingSkills(homeDir ?? '', skillsDir, config.sources);
+  const existingSkills = await discoverExistingSkills(homeDir, skillsDir, config.sources);
   warnings.push(...checkSkillReferences(config.links, existingSkills));
   warnings.push(...checkAgentReferences(config.links, new Set(Object.keys(config.agents))));
   warnings.push(...await checkSourcePaths(config.sources));
 
-  if (homeDir) {
-    warnings.push(...await checkRegistryHealth(homeDir, config, skillsDir));
-  }
+  warnings.push(...await checkRegistryHealth(homeDir, config, skillsDir));
 
   return {
     errors,
@@ -447,13 +445,14 @@ export function formatDiagnosticSummary(report: DiagnosticReport): string {
 
 export async function autoDiagnoseConfig(
   config: SyncSkillConfig | null,
-  skillsDir: string
+  skillsDir: string,
+  homeDir: string
 ): Promise<void> {
   if (!config) {
     return;
   }
 
-  const report = await diagnoseConfig(config, skillsDir);
+  const report = await diagnoseConfig(config, skillsDir, homeDir);
 
   if (report.isHealthy) {
     return;
