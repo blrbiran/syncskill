@@ -329,26 +329,19 @@ export async function rebuildSkillsRegistry(
   const { skillsDir } = getSyncPaths(homeDir);
   const registry: SkillsRegistry = { version: 1, skills: {} };
 
-  // 1. Scan ~/.syncskill/skills/ for manual skills
+  // 1. Scan ~/.syncskill/skills/ for managed local skills
   try {
     const entries = await readdir(skillsDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
 
       const skillPath = join(skillsDir, entry.name);
-      const skillMdPath = join(skillPath, 'SKILL.md');
-
-      try {
-        await access(skillMdPath);
-        registry.skills[entry.name] = {
-          path: skillPath,
-          origin: 'manual',
-          type: 'manual',
-          status: 'active'
-        };
-      } catch {
-        // No SKILL.md, skip
-      }
+      registry.skills[entry.name] = {
+        path: skillPath,
+        origin: 'manual',
+        type: 'manual',
+        status: 'active'
+      };
     }
   } catch {
     // skillsDir may not exist

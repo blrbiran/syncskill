@@ -385,6 +385,26 @@ describe('rebuildSkillsRegistry', () => {
     expect(registry.skills['manual-skill'].status).toBe('active');
   });
 
+  it('treats top-level managed directories as manual skills even without SKILL.md', async () => {
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'apple'), { recursive: true });
+
+    const config = {
+      version: 1 as const,
+      conflict_resolution: 'manual' as const,
+      agents: {},
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const registry = await rebuildSkillsRegistry(homeDir, config);
+
+    expect(registry.skills['apple']).toBeDefined();
+    expect(registry.skills['apple'].origin).toBe('manual');
+    expect(registry.skills['apple'].type).toBe('manual');
+    expect(registry.skills['apple'].status).toBe('active');
+  });
+
   it('discovers skills from configured sources', async () => {
     const sourcePath = join(testDir, 'my-source');
     await mkdir(join(sourcePath, 'source-skill'), { recursive: true });
