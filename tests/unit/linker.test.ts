@@ -132,10 +132,13 @@ describe('linker', () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
     tempDirs.push(homeDir);
 
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const skillDir = join(skillsDir, 'broken-skill');
     const agentDir = join(homeDir, '.claude', 'skills');
     const targetDir = join(agentDir, 'broken-skill');
     const nonExistentSource = join(homeDir, '.syncskill', 'skills', 'deleted-skill');
 
+    await mkdir(skillDir, { recursive: true });
     await mkdir(agentDir, { recursive: true });
     await symlink(nonExistentSource, targetDir);
 
@@ -154,6 +157,67 @@ describe('linker', () => {
     const statuses = await collectLinkStatus(homeDir);
 
     expect(statuses).toEqual([{ skill: 'broken-skill', agent: 'claude', state: 'broken' }]);
+  });
+
+  it('distinguishes unconfigured cells from configured-but-missing cells', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
+    tempDirs.push(homeDir);
+
+    const managedSkillDir = join(homeDir, '.syncskill', 'skills', 'managed-skill');
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const codexDir = join(homeDir, '.codex', 'skills');
+
+    await mkdir(managedSkillDir, { recursive: true });
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(codexDir, { recursive: true });
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: claudeDir, codex: codexDir },
+        links: { 'managed-skill': ['claude'] },
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    const statuses = await collectLinkStatus(homeDir);
+
+    expect(statuses).toEqual([
+      { skill: 'managed-skill', agent: 'claude', state: 'missing' },
+      { skill: 'managed-skill', agent: 'codex', state: 'unconfigured' }
+    ]);
+  });
+
+  it('includes unmanaged local skill rows in link status output', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
+    tempDirs.push(homeDir);
+
+    const orphanSkillDir = join(homeDir, '.syncskill', 'skills', 'orphan-skill');
+    const claudeDir = join(homeDir, '.claude', 'skills');
+
+    await mkdir(orphanSkillDir, { recursive: true });
+    await mkdir(claudeDir, { recursive: true });
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: claudeDir },
+        links: {},
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    const statuses = await collectLinkStatus(homeDir);
+
+    expect(statuses).toEqual([
+      { skill: 'orphan-skill', agent: 'claude', state: 'unconfigured' }
+    ]);
   });
 
   it('falls back to copy when symlink creation fails twice', async () => {
@@ -208,7 +272,7 @@ describe('formatLinkStatusMatrix', () => {
 
   it('formats empty status list', () => {
     const result = formatLinkStatusMatrix([], false, []);
-    expect(result).toBe('No skills configured.');
+    expect(result).toBe('No managed local skills or configured agents.');
   });
 
   it('formats single skill with symbols', () => {
@@ -217,7 +281,7 @@ describe('formatLinkStatusMatrix', () => {
     ];
     const result = formatLinkStatusMatrix(statuses, false, []);
 
-    expect(result).toContain('Link Status');
+    expect(result).toContain('Realized Link Status');
     expect(result).toContain('my-skill');
     expect(result).toContain('claude');
     expect(result).toContain('✓');
@@ -230,6 +294,7 @@ describe('formatLinkStatusMatrix', () => {
       { skill: 'skill-a', agent: 'hermes', state: 'missing' },
       { skill: 'skill-b', agent: 'claude', state: 'copied' },
       { skill: 'skill-b', agent: 'hermes', state: 'broken' },
+      { skill: 'skill-b', agent: 'cursor', state: 'unconfigured' },
     ];
     const result = formatLinkStatusMatrix(statuses, false, []);
 
@@ -237,6 +302,7 @@ describe('formatLinkStatusMatrix', () => {
     expect(result).toContain('·'); // missing
     expect(result).toContain('⚠'); // copied
     expect(result).toContain('✗'); // broken
+    expect(result).toContain('-'); // unconfigured
   });
 
   it('formats verbose output with text and private agent legend', () => {

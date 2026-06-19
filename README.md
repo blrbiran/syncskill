@@ -80,8 +80,8 @@ syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 | `syncskill link remove <skill> <agent>` | Remove one agent link for a skill |
 | `syncskill link clear <skill>` | Remove all links for a skill |
 | `syncskill link build` | Reconcile all configured links (auto-cleans stale symlinks) |
-| `syncskill link list` / `ls` | Show link status |
-| `syncskill link list -v` | Show link status with verbose text |
+| `syncskill link list` / `ls` | Show realized link status |
+| `syncskill link list -v` | Show realized link status with verbose text |
 | `syncskill unlink <skill>` | Alias for `syncskill link clear <skill>` |
 
 ### Source Management

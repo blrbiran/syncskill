@@ -201,7 +201,7 @@ This field uses full override semantics. If you set `private_agents` in `config.
 
 ### `links`
 
-Maps each managed skill name to one or more target agents. `syncskill link` uses this mapping to create links from `~/.syncskill/skills/<skill>` into each configured agent directory.
+Maps each managed skill name to one or more target agents. `syncskill link` edits this configured target matrix, and `syncskill link` / `link edit` show configured intent rather than current filesystem state. `syncskill link list` / `link ls` separately reports the realized on-disk state under each agent directory.
 
 Use `["*"]` to link a skill to all configured agents.
 

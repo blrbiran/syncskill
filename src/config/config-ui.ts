@@ -170,7 +170,7 @@ export async function editLinksMatrix(config: SyncSkillConfig, homeDir: string):
 
   const matrixEditor = createMatrixEditor();
   return matrixEditor({
-    title: 'Skills → Agent Assignment',
+    title: 'Configured Skills → Agent Assignment',
     rows: skills,
     columns: agents,
     selected

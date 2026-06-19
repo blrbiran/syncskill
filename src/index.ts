@@ -1747,7 +1747,7 @@ export function createProgram(homeDir?: string): Command {
   linkCommand
     .command('list')
     .alias('ls')
-    .description('Show link status matrix')
+    .description('Show realized link status matrix')
     .option('-v, --verbose', 'Show text status instead of symbols')
     .action(async (options: { verbose?: boolean }) => {
       const config = await ensureLinkCommandReady();

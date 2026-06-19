@@ -336,6 +336,30 @@ describe('diagnoseConfig', () => {
     expect(report.warnings).toEqual([]);
   });
 
+  it('treats top-level managed directories as existing local skills', async () => {
+    const agentDir = join(testDir, 'claude-skills');
+    const skillsDir = join(testDir, 'skills');
+    const bundleDir = join(skillsDir, 'apple');
+    await mkdir(agentDir, { recursive: true });
+    await mkdir(bundleDir, { recursive: true });
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: { apple: ['claude'] },
+      servers: {},
+      sources: {}
+    };
+
+    const report = await diagnoseConfig(config, skillsDir);
+
+    expect(report.isHealthy).toBe(true);
+    expect(report.canProceed).toBe(true);
+    expect(report.errors).toEqual([]);
+    expect(report.warnings).toEqual([]);
+  });
+
   it('returns canProceed false when no valid agents', async () => {
     const skillsDir = join(testDir, 'skills');
     await mkdir(skillsDir, { recursive: true });

@@ -20,7 +20,7 @@ export interface LinkRequest {
 export interface LinkStatus {
   skill: string;
   agent: string;
-  state: 'linked' | 'missing' | 'copied' | 'broken';
+  state: 'linked' | 'missing' | 'copied' | 'broken' | 'unconfigured';
 }
 
 const STATUS_SYMBOLS: Record<LinkStatus['state'], string> = {
@@ -28,11 +28,12 @@ const STATUS_SYMBOLS: Record<LinkStatus['state'], string> = {
   copied: '⚠',
   missing: '·',
   broken: '✗',
+  unconfigured: '-',
 };
 
 export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean, privateAgents: string[] = []): string {
   if (statuses.length === 0) {
-    return 'No skills configured.';
+    return 'No managed local skills or configured agents.';
   }
 
   // Group by skill, collect unique agents
@@ -54,11 +55,14 @@ export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean,
 
   // Calculate column widths
   const skillColWidth = Math.max(5, ...skillList.map(s => s.length));
-  const agentColWidth = Math.max(verbose ? 8 : 3, ...displayAgentNames.map((name) => name.length));
+  const stateLabelWidth = Math.max(...Object.keys(STATUS_SYMBOLS).map((label) => label.length));
+  const agentColWidth = Math.max(verbose ? stateLabelWidth : 3, ...displayAgentNames.map((name) => name.length));
 
   // Build header
   const lines: string[] = [];
-  lines.push('Link Status');
+  lines.push('Realized Link Status');
+  lines.push('Current on-disk state for managed skills × agents. Use `syncskill link` to edit configured targets.');
+  lines.push('Symbols: `-` = not configured, `·` = configured but missing on disk.');
   lines.push('');
 
   const headerParts = ['Skill'.padEnd(skillColWidth)];
@@ -74,7 +78,7 @@ export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean,
     const skillStatuses = skillMap.get(skill)!;
 
     for (const agent of agentList) {
-      const state = skillStatuses.get(agent) ?? 'missing';
+      const state = skillStatuses.get(agent) ?? 'unconfigured';
       const display = verbose ? state.padStart(agentColWidth + 2) : STATUS_SYMBOLS[state].padStart(agentColWidth + 2);
       rowParts.push(display);
     }
@@ -83,7 +87,7 @@ export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean,
 
   lines.push('');
   if (!verbose) {
-    lines.push('Legend: ✓ linked  ⚠ copied  · missing  ✗ broken');
+    lines.push('Legend: ✓ linked  ⚠ copied  · missing  ✗ broken  - unconfigured');
   }
   if (displayAgentNames.some((name) => name.endsWith('*'))) {
     lines.push('* = private agent (requires separate link)');
@@ -280,11 +284,14 @@ export async function unlinkSkillFromAgent(
 export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> {
   const config = await loadConfig(homeDir);
   const results: LinkStatus[] = [];
+  const localSkills = await listLocalSkills(homeDir);
+  const skillNames = [...new Set([...localSkills, ...Object.keys(config.links)])].sort();
+  const agentNames = Object.keys(config.agents).sort();
 
-  for (const skill of Object.keys(config.links).sort()) {
-    const agents = expandTargetAgents(config, config.links[skill] ?? []);
+  for (const skill of skillNames) {
+    const configuredAgents = new Set(expandTargetAgents(config, config.links[skill] ?? []));
 
-    for (const agent of agents) {
+    for (const agent of agentNames) {
       const agentPath = resolveAgentPath(config.agents[agent], homeDir);
       const targetDir = join(agentPath, skill);
 
@@ -292,12 +299,10 @@ export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> 
         const lstats = await lstat(targetDir);
 
         if (lstats.isSymbolicLink()) {
-          // Check if symlink target exists
           try {
-            await stat(targetDir); // follows symlink
+            await stat(targetDir);
             results.push({ skill, agent, state: 'linked' });
           } catch {
-            // Symlink exists but target doesn't - broken
             results.push({ skill, agent, state: 'broken' });
           }
         } else {
@@ -305,7 +310,11 @@ export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> 
         }
       } catch (error) {
         if (isNotFoundError(error)) {
-          results.push({ skill, agent, state: 'missing' });
+          results.push({
+            skill,
+            agent,
+            state: configuredAgents.has(agent) ? 'missing' : 'unconfigured'
+          });
           continue;
         }
         throw error;

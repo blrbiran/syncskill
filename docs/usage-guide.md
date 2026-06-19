@@ -108,13 +108,15 @@ syncskill --no-interactive link build
 syncskill --json link list
 ```
 
-When you use `--json`, `link list` returns machine-readable status output instead of the symbol matrix.
+When you use `--json`, `link list` returns machine-readable realized status output instead of the symbol matrix.
+
+`syncskill link` edits the configured skill → agent assignment matrix. `syncskill link list` / `link ls` shows the realized on-disk state for every managed local skill × configured agent cell.
 
 Link subcommands:
 
 | Command | Description |
 |--------|-------------|
-| `link list` | Show link status for all managed skills |
+| `link list` | Show realized on-disk link status for all managed skills |
 | `link edit [skill]` | Open the interactive matrix editor |
 | `link set <skill> <agents...>` | Replace the configured agents for one skill |
 | `link add <skill> <agent>` | Add one configured agent for one skill |
@@ -186,7 +188,8 @@ Link status symbols:
 |--------|--------|---------|
 | `✓` | linked | Symlink is working |
 | `⚠` | copied | Fallback to copy (needs attention) |
-| `·` | missing | Not linked to this agent |
+| `-` | unconfigured | This skill is not configured for that agent |
+| `·` | missing | Configured for that agent, but no on-disk entry exists |
 | `✗` | broken | Symlink target missing |
 
 ### Managing Sources

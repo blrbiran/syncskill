@@ -13,7 +13,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-async function collectSkillNames(root: string): Promise<string[]> {
+async function collectManagedLocalSkillNames(root: string): Promise<string[]> {
+  try {
+    const entries = await readdir(root, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+async function collectSourceSkillNames(root: string): Promise<string[]> {
   const skills: string[] = [];
 
   try {
@@ -45,7 +57,7 @@ async function discoverExpectedHttpSkills(sources: Record<string, unknown>): Pro
       continue;
     }
 
-    for (const skillName of await collectSkillNames(sourceRaw.path)) {
+    for (const skillName of await collectSourceSkillNames(sourceRaw.path)) {
       skills.add(skillName);
     }
   }
@@ -57,14 +69,14 @@ async function discoverExistingSkills(
   skillsDir: string,
   sources: Record<string, unknown>
 ): Promise<Set<string>> {
-  const skills = new Set<string>(await collectSkillNames(skillsDir));
+  const skills = new Set<string>(await collectManagedLocalSkillNames(skillsDir));
 
   for (const sourceRaw of Object.values(sources)) {
     if (!isRecord(sourceRaw) || typeof sourceRaw.path !== 'string') {
       continue;
     }
 
-    for (const skillName of await collectSkillNames(sourceRaw.path)) {
+    for (const skillName of await collectSourceSkillNames(sourceRaw.path)) {
       skills.add(skillName);
     }
   }

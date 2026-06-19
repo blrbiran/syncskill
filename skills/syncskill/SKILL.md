@@ -31,9 +31,9 @@ Install options: `--name`, `--path` (repo-relative subdirectory containing skill
 
 | Command | Description |
 |---------|-------------|
-| `link` | Open the interactive matrix editor when running in a TTY; otherwise show help |
-| `link list` / `link ls` | Show link status matrix |
-| `link list -v` | Show verbose text status |
+| `link` | Open the interactive configured-assignment matrix when running in a TTY; otherwise show help |
+| `link list` / `link ls` | Show realized on-disk link status matrix |
+| `link list -v` | Show verbose realized status text |
 | `link edit [skill]` | Open the human-oriented matrix editor |
 | `link set <skill> <agents...>` | Declaratively replace a skill's target agents; idempotent and AI-friendly |
 | `link add <skill> <agent>` | Add one target agent without replacing existing targets |

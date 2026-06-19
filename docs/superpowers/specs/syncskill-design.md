@@ -501,7 +501,7 @@ Run `syncskill --help` for all commands.
 | `link clear <skill>` | 增量 | 人类 | 删除该 skill 的所有 link + 从 config 移除 |
 | `link build` | 批量（单阶段） | 人类 / AI | 按 config reconcile：创建/删除 symlink；支持 `--dry-run` + `--json` |
 | `link set <skill> <agent>...` | 声明式 | AI agent | 覆盖 `config.links[skill]` 为给定 agents |
-| `link list` / `link ls` | 只读 | 人类 / AI | 显示链接状态矩阵 |
+| `link list` / `link ls` | 只读 | 人类 / AI | 显示已落盘的链接状态矩阵（realized state） |
 
 **`unlink <skill>`**：顶级别名，等价 `link clear <skill>`。
 
@@ -749,7 +749,7 @@ Configuration Menu
 使用 `createPrompt` + `useKeypress` 实现二维网格交互。渲染示例：
 
 ```
-  Skills → Agent Assignment       Page 1/3
+  Configured Skills → Agent Assignment       Page 1/3
 
   Skill              claude     hermes     qoder
   ──────────────────────────────────────────────────────
@@ -784,33 +784,37 @@ Configuration Menu
 
 **`link edit`**（无 skill 参数）：直接调用矩阵编辑器。退出矩阵编辑器后，若 links 配置发生了变更，交互式询问用户是否立即 build（等效于 `link build`，创建/清理 symlink 使实际状态与配置一致）。用户确认则执行 reconcile，拒绝则仅保存配置不操作 symlink。
 
-**`link list`** / **`link ls`**：显示链接状态。
+**`link list`** / **`link ls`**：显示已落盘的链接状态（realized state），不是配置意图矩阵。
 
 默认符号版输出：
 ```
-Link Status
+Realized Link Status
+Current on-disk state for managed skills × agents. Use `syncskill link` to edit configured targets.
+Symbols: `-` = not configured, `·` = configured but missing on disk.
 
 Skill                    claude*   agents    cursor*   kiro*
 ────────────────────────────────────────────────────────────
-web-artifacts-builder    ⚠         ·         ✓         ·
-web-design-guidelines    ⚠         ·         ✓         ·
-webapp-testing           ✓         ·         ✓         ·
-xlsx                     ✗         ·         ·         ·
+web-artifacts-builder    ⚠         ·         ✓         -
+web-design-guidelines    ⚠         ·         ✓         -
+webapp-testing           ✓         ·         ✓         -
+xlsx                     ✗         ·         -         -
 
-Legend: ✓ linked  ⚠ copied  · missing  ✗ broken
+Legend: ✓ linked  ⚠ copied  · missing  ✗ broken  - unconfigured
         * = private agent (requires separate link)
 ```
 
 `-v` / `--verbose` 文字版输出：
 ```
-Link Status
+Realized Link Status
+Current on-disk state for managed skills × agents. Use `syncskill link` to edit configured targets.
+Symbols: `-` = not configured, `·` = configured but missing on disk.
 
-Skill                    claude*     agents      cursor*     kiro*
-──────────────────────────────────────────────────────────────────
-web-artifacts-builder    copied      missing     linked      missing
-web-design-guidelines    copied      missing     linked      missing
-webapp-testing           linked      missing     linked      missing
-xlsx                     broken      missing     missing     missing
+Skill                    claude*        agents         cursor*       kiro*
+───────────────────────────────────────────────────────────────────────────
+web-artifacts-builder    copied         missing        linked        unconfigured
+web-design-guidelines    copied         missing        linked        unconfigured
+webapp-testing           linked         missing        linked        unconfigured
+xlsx                     broken         missing        unconfigured  unconfigured
 
 * = private agent (doesn't read ~/.agents/skills/, requires separate link)
 ```
@@ -895,8 +899,9 @@ schema（v1）：
 - 生成 `~/.syncskill/config.json`（含自动检测的 agent）
 - 复制 `config.example.yaml` 作为参考
 - **Config 保护（v2.9 L1）**：当 `config.json` 文件存在但 `loadConfig()` 抛异常时（验证失败、JSON 损坏等），`initRepo` **先备份**再创建新默认 config。备份路径：`config.json.pre-init-<ISO-date>.bak`。同时在 stderr 打印 `W_CONFIG_RESET` 警告（含备份路径 + 恢复命令）。`--json` 模式同时 emit warning 事件。这防止代码升级引入新验证规则时静默丢失用户的 servers/links/sources 数据
-- **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-scan` 参数跳过此步骤。
+- **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的**顶层 skill 目录**复制到 `~/.syncskill/skills/`。迁移单位是各 agent `skills/` 根下的一层目录；允许该目录作为 bundle / namespace 容器存在，即使顶层本身没有 `SKILL.md`，只要其子目录承载实际 leaf skills。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-scan` 参数跳过此步骤。
 - **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.json` 的 `links` 字段（使用 `ensureDefaultLinkTargets()` 计算默认目标，即 `["agents"]` + 已检测到的不支持 `~/.agents/skills/` 的 agent）。
+- **本地 managed skill 与 source skill 的发现语义不同**：`~/.syncskill/skills/` 下按顶层目录识别 managed skill（供 `link` / `doctor` / manifest 使用），不要求顶层目录直接包含 `SKILL.md`；而 source / install 的发现继续遵循 leaf-skill 规则：single-skill root 直接包含 `SKILL.md`，multi-skill root 通过 `skills/<leaf>/SKILL.md` 识别。
 - **默认安装 syncskill skill（first-run 入口）**：v2.7.4 PR 5c（议题 1.5）起，`init` 是 first-run 安装内置 skill 的官方入口（`install` 命令的无参数 inquirer 菜单已删除）。流程末尾安装内置 syncskill skill 到 `~/.syncskill/skills/syncskill/` 并 link 到默认 agent（计算规则见 §3.2 `ensureDefaultLinkTargets()`）。
   - **TTY + 未安装时**：弹出 `confirm` prompt "Install built-in syncskill skill now? [Y/n]"（默认 Y）。用户按 N → 跳过安装；按 Ctrl-C → 跳过安装但 init 仍报成功。
   - **非 TTY / `--no-interactive` / `--json` / 已安装**：跳过 prompt，按默认行为执行（未安装则直接安装 → 保持 CI / script 中 `init` 一键即用的长期期望）。
