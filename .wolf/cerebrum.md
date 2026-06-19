@@ -42,6 +42,11 @@
 - **[2026-06-08]** Commander help 回归测试要锁真实输出的 description/option 文案，不要把示例命令当成帮助面必现字符串；像 install help 应断言 `Use "self" for built-in skill...`，而不是字面量 `install self`。
 - **[2026-06-09]** external `install <url>` 的 same-repo 路径不能停在 `addSourceFromUrl().sameRepoMatch`；install 层还要 materialize checkout、按 GitHub path/`--path` 推导 requested scope，并据此收敛 `config.sources[*].path`、`ignore` 与 `links`。
 - **[2026-06-09]** same-repo install 若扩大了 `config.sources[*].path`，必须先按新 scope 重新 materialize，再调用 `linkConfiguredSkills()`；否则新激活 skill 不会落到 `.syncskill/skills/<name>`，会在 link 阶段报 `Skill source directory not found`。集成测试若检查默认 `config.links[*]`，也应匹配 `ensureDefaultLinkTargets()` 的真实 contract（至少含 `agents`）。
+- **[2026-06-19]** `config-doctor` 只把顶层“目录 + 直接包含 `SKILL.md`”的条目识别为 skill；像 `apple/`、`github/`、`software-development/`、`.system/` 这类仅作为命名空间/容器、其子目录才是真正 skill 的目录，会被 `doctor` 视为不存在并触发 `SKILL_NOT_FOUND`。排查这类告警时，先核对 `~/.syncskill/skills/<name>/SKILL.md` 是否存在，不要先假设是 symlink 问题。
+- **[2026-06-19]** 用户明确说明并验证了 `~/.syncskill/skills/` 里的这批目录是真实目录，不是 symlink；类似问题先看目录层级和 `SKILL.md` 布局。
+- **[2026-06-19]** spec 与实现现已明确区分两套发现语义：`~/.syncskill/skills/` 下的 managed local skills 按顶层目录识别，不要求直接包含 `SKILL.md`；source/install discovery 仍按 leaf-skill 规则（single root `SKILL.md` 或 `skills/<leaf>/SKILL.md`）。遇到 Hermes 历史 bundle/container 目录时，应统一 managed-skill discovery，而不是给 `~/.hermes/skills/` 加单独分支。
+- **[2026-06-19]** `syncskill link` 与 `syncskill link ls` 需要明确区分：前者展示 configured assignment（配置意图矩阵），后者展示 realized on-disk status（已落盘状态矩阵）。`link ls` 中 `-` 表示未配置，`·` 表示已配置但磁盘缺失，避免把两者混成一个 “missing”。
+- **[2026-06-19]** `install <url-or-path>` 的文档已声明支持 local directory，但当前 `addSourceFromUrl()` 只对 local archive 做了自动分支；plain local directory 会继续走 GitHub URL 解析并抛 `Could not parse URL`。排查 local install 失败时，先看 `src/source.ts` 的 local 非 archive 分支是否存在，不要只看 `detectSourceType()`。
 
 ## Do-Not-Repeat
 
@@ -100,3 +105,4 @@
 - **[2026-06-04]** `restore <skill>` 是本地 recovery：从最新 `pre-pull` backup 回放，并故意把 manifest 留在显式 `conflict`，直到用户 resolve。
 - **[2026-06-19]** step-4 e2e 审查结论：保留 `install-local-archive`、`link-reconcile`、`source-update`、`source-stale-checkout` 这类真实用户可见 contract；same-repo install merge 不再补 e2e，继续放在 real-git integration 层；`tests/end2end/cases/sync/*` 与 `source-install-stale` 保持 skipped，直到 harness 能真实覆盖 transport / stale-checkout 语义。
 - **[2026-06-19]** step-5 docs/help 收口时，要把 install same-repo 语义写清楚：重复安装同一 git/http source 会复用已有 source 条目，必要时扩大 `path`，并把非目标范围技能落到 `config.sources[*].ignore[]`；同时文档里的 local source 示例必须保持 `url`=源根目录、`path`=相对目录，不能把 absolute path 塞进 `path`。
+- **[2026-06-19]** local source install 修复应优先做最小闭环：补 plain local directory 分支、统一 `~` 展开、清理过时 `--url` 错误提示，并用 targeted install/source tests 锁 contract；不要把这类 bug 修复顺手扩成 external install 全量 plan/execute 重构。
