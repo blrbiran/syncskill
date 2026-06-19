@@ -1418,7 +1418,10 @@ interface SourceConfig {
 
 **Skill 发现机制**：
 
-Skill 发现统一基于**递归搜索 SKILL.md 文件**。给定一个 subdir，在该目录下递归搜索所有含 SKILL.md 的目录，每个这样的目录是一个独立的 skill（名称 = 该目录名）。
+source / install discovery 基于 **SKILL.md** 规则，而本地 managed skills 不是同一套语义。
+
+- **managed local skills**：`~/.syncskill/skills/` 下按顶层目录识别，每个顶层目录就是一个 managed skill；该顶层目录可以是 bundle / namespace 容器，不要求直接包含 `SKILL.md`
+- **source / install discovery**：给定一个 source subdir，在该目录下按 leaf-skill 规则发现 skill——single-skill root 直接包含 `SKILL.md`，multi-skill root 通过 `skills/<leaf>/SKILL.md` 识别
 
 `skill_subdir` 取值语义：
 - `"."` → 仓库根目录（递归搜索整个仓库）— **默认值**
@@ -1646,7 +1649,10 @@ Step 5: 输出更新报告（result.summary.data，schema 见 §11.6）
 
 **全局 skill 发现**：
 
-统一通过 `discoverAllSkills(config)` 函数，合并 `~/.syncskill/skills/` 和所有 sources 的 skill。
+统一通过 `discoverAllSkills(homeDir, config)` 函数，合并 `~/.syncskill/skills/` 和所有 sources 的 skill。
+
+- 本地 `~/.syncskill/skills/` 一侧按顶层目录识别 managed skills
+- source 一侧继续通过 `discoverSourceSkills(...)` 按 leaf-skill / `SKILL.md` 规则发现
 
 ### 3.9 `sync_engine.ts` — 核心同步流程
 
@@ -2581,7 +2587,7 @@ function formatDiagnosticSummary(report: DiagnosticReport): string;
 |------|----------|---------|---------|
 | `E_NO_VALID_AGENTS` | error | `agents` 中所有路径都不存在 | 阻断，提示运行 `doctor --fix` |
 | `W_AGENT_PATH_INVALID` | warning | 单个 agent 路径不存在 | 从 `agents` 中移除 |
-| `W_SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 在 `~/.syncskill/skills/` 和 sources 中都不存在 | 从 `links` 中移除该 skill |
+| `W_SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 在 `~/.syncskill/skills/` 顶层 managed skill 目录与 sources 中都不存在 | 从 `links` 中移除该 skill |
 | `W_AGENT_NOT_CONFIGURED` | warning | `links[skill]` 中引用的 agent 不在 `agents` 中 | 从该 skill 的 targets 中移除该 agent |
 | `W_SOURCE_PATH_INVALID` | warning | `sources` 中 local 类型的 `path` 不存在 | 从 `sources` 中移除 |
 | `W_REGISTRY_CORRUPT` | warning | `skills-registry.json` 解析失败或 schema 不合法 | 备份损坏文件后重建 `http_baselines` 字段（ignore 状态由 `config.sources[].ignore[]` 持有）。若 `--fix` 模式下重建仍失败 → 升级为 `E_REGISTRY_CORRUPT` exit 3 |
@@ -2997,8 +3003,21 @@ plain-text 输出（无 `--json`）**不含**这些字段（人类优先 C1：te
 
 #### 11.6.5 `link list`
 
+返回 realized state，而不是配置意图矩阵。覆盖所有 managed local skills × configured agents；状态枚举包含 `linked` / `copied` / `broken` / `missing` / `unconfigured`。
+
 ```json
-{ "matrix": [{ "skill": "skill-a", "agents": { "claude": "linked", "cursor": "missing" } }] }
+{
+  "matrix": [
+    {
+      "skill": "skill-a",
+      "agents": {
+        "claude": "linked",
+        "cursor": "missing",
+        "hermes": "unconfigured"
+      }
+    }
+  ]
+}
 ```
 
 #### 11.6.6 `install` / `install self`
