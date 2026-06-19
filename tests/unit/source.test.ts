@@ -1169,6 +1169,34 @@ describe('discoverAllSkills', () => {
     expect(skills.sort()).toEqual(['local-skill', 'source-skill']);
   });
 
+  it('ignores source-derived skills listed in source ignore', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-all-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'source');
+    await mkdir(join(sourceRoot, 'skills', 'visible-skill'), { recursive: true });
+    await mkdir(join(sourceRoot, 'skills', 'ignored-skill'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'visible-skill', 'SKILL.md'), '# Visible Skill');
+    await writeFile(join(sourceRoot, 'skills', 'ignored-skill', 'SKILL.md'), '# Ignored Skill');
+
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      sources: {
+        'my-source': {
+          type: 'local',
+          url: sourceRoot,
+          path: '.',
+          ignore: ['ignored-skill']
+        }
+      }
+    }, homeDir);
+
+    const config = await loadConfig(homeDir);
+    const skills = await discoverAllSkills(homeDir, config);
+
+    expect(skills).toEqual(['visible-skill']);
+  });
+
   it('returns empty array when no skills exist', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-all-'));
     tempDirs.push(homeDir);

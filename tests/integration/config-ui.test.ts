@@ -7,7 +7,7 @@ import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { createDefaultConfig, loadConfig, saveConfig } from '../../src/config/config.js';
 import type { PromptApi, SSHHostConfig } from '../../src/config/config-ui.js';
-import { runConfigUi, safeSelect, applyMatrixToLinks, editServers, applyMatrixToRemote, parseSSHConfig } from '../../src/config/config-ui.js';
+import { runConfigUi, safeSelect, applyMatrixToLinks, editServers, applyMatrixToRemote, parseSSHConfig, editLinksMatrix } from '../../src/config/config-ui.js';
 import { ExitPromptError } from '@inquirer/core';
 import type { SyncSkillConfig } from '../../src/config/config.js';
 
@@ -159,6 +159,53 @@ describe('safeSelect', () => {
         choices: [{ name: 'test', value: 'test' }]
       })
     ).rejects.toThrow('Some other error');
+  });
+});
+
+describe('editLinksMatrix', () => {
+  const tempDirs = useTempDirs();
+
+  it('includes source-derived skills and existing link-only skills in matrix rows', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-ui-matrix-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'source-root');
+    await mkdir(join(sourceRoot, 'skills', 'llmfusion'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'llmfusion', 'SKILL.md'), '# llmfusion');
+
+    const config = createDefaultConfig(homeDir, {
+      claude: join(homeDir, '.claude', 'skills'),
+      cursor: join(homeDir, '.cursor', 'skills')
+    });
+    config.links['orphaned-link'] = ['claude'];
+    config.sources['llmfusion'] = {
+      type: 'local',
+      url: sourceRoot,
+      path: '.'
+    };
+
+    vi.resetModules();
+    const matrixEditor = vi.fn().mockResolvedValue({ cancelled: false, selected: {} });
+    vi.doMock('../../src/config/matrix-editor.js', () => ({ createMatrixEditor: () => matrixEditor }));
+
+    try {
+      const { editLinksMatrix: mockedEditLinksMatrix } = await import('../../src/config/config-ui.js');
+      const matrix = await mockedEditLinksMatrix(config, homeDir);
+
+      expect(matrix).toEqual({ cancelled: false, selected: {} });
+      expect(matrixEditor).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Configured Skills → Agent Assignment',
+        rows: ['llmfusion', 'orphaned-link'],
+        columns: ['claude', 'cursor'],
+        selected: {
+          llmfusion: [],
+          'orphaned-link': ['claude']
+        }
+      }));
+    } finally {
+      vi.doUnmock('../../src/config/matrix-editor.js');
+      vi.resetModules();
+    }
   });
 });
 

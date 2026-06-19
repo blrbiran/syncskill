@@ -1,8 +1,8 @@
 import { access, copyFile, readFile, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
 
 import type { SyncSkillConfig } from './config.js';
 import { rebuildRegistryV2 } from '../core/registry-builder.js';
+import { discoverActiveSourceSkillNames } from '../source.js';
 import {
   getSkillsRegistryPath,
   loadSkillsRegistryV2,
@@ -25,60 +25,27 @@ async function collectManagedLocalSkillNames(root: string): Promise<string[]> {
   }
 }
 
-async function collectSourceSkillNames(root: string): Promise<string[]> {
-  const skills: string[] = [];
+async function discoverExpectedHttpSkills(homeDir: string, sources: Record<string, unknown>): Promise<Set<string>> {
+  const httpSources: Record<string, unknown> = {};
 
-  try {
-    const entries = await readdir(root, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-
-      try {
-        await access(join(root, entry.name, 'SKILL.md'));
-        skills.push(entry.name);
-      } catch {
-        // Ignore non-skill directories.
-      }
-    }
-  } catch {
-    // Ignore missing or unreadable directories.
-  }
-
-  return skills;
-}
-
-async function discoverExpectedHttpSkills(sources: Record<string, unknown>): Promise<Set<string>> {
-  const skills = new Set<string>();
-
-  for (const sourceRaw of Object.values(sources)) {
-    if (!isRecord(sourceRaw) || sourceRaw.type !== 'http' || typeof sourceRaw.path !== 'string') {
-      continue;
-    }
-
-    for (const skillName of await collectSourceSkillNames(sourceRaw.path)) {
-      skills.add(skillName);
+  for (const [name, sourceRaw] of Object.entries(sources)) {
+    if (isRecord(sourceRaw) && sourceRaw.type === 'http') {
+      httpSources[name] = sourceRaw;
     }
   }
 
-  return skills;
+  return discoverActiveSourceSkillNames(homeDir, httpSources);
 }
 
 async function discoverExistingSkills(
+  homeDir: string,
   skillsDir: string,
   sources: Record<string, unknown>
 ): Promise<Set<string>> {
   const skills = new Set<string>(await collectManagedLocalSkillNames(skillsDir));
 
-  for (const sourceRaw of Object.values(sources)) {
-    if (!isRecord(sourceRaw) || typeof sourceRaw.path !== 'string') {
-      continue;
-    }
-
-    for (const skillName of await collectSourceSkillNames(sourceRaw.path)) {
-      skills.add(skillName);
-    }
+  for (const skillName of await discoverActiveSourceSkillNames(homeDir, sources)) {
+    skills.add(skillName);
   }
 
   return skills;
@@ -126,7 +93,7 @@ async function checkRegistryBaselineCoverage(
   homeDir: string,
   config: SyncSkillConfig
 ): Promise<DiagnosticItem[]> {
-  const expectedSkills = await discoverExpectedHttpSkills(config.sources);
+  const expectedSkills = await discoverExpectedHttpSkills(homeDir, config.sources);
   const registry = await loadSkillsRegistryV2(homeDir);
   const actualSkills = new Set(Object.keys(registry.http_baselines));
 
@@ -347,7 +314,7 @@ export async function diagnoseConfig(
     }
   }
 
-  const existingSkills = await discoverExistingSkills(skillsDir, config.sources);
+  const existingSkills = await discoverExistingSkills(homeDir ?? '', skillsDir, config.sources);
   warnings.push(...checkSkillReferences(config.links, existingSkills));
   warnings.push(...checkAgentReferences(config.links, new Set(Object.keys(config.agents))));
   warnings.push(...await checkSourcePaths(config.sources));

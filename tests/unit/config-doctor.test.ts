@@ -360,6 +360,37 @@ describe('diagnoseConfig', () => {
     expect(report.warnings).toEqual([]);
   });
 
+  it('treats recursive source-derived active skills as existing', async () => {
+    const agentDir = join(testDir, 'claude-skills');
+    const skillsDir = join(testDir, 'skills');
+    const sourceRoot = join(testDir, 'source-root');
+    await mkdir(agentDir, { recursive: true });
+    await mkdir(skillsDir, { recursive: true });
+    await mkdir(join(sourceRoot, 'skills', 'llmfusion'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'llmfusion', 'SKILL.md'), '# llmfusion');
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: { llmfusion: ['claude'] },
+      servers: {},
+      sources: {
+        llmfusion: {
+          type: 'local',
+          url: sourceRoot,
+          path: '.'
+        }
+      }
+    };
+
+    const report = await diagnoseConfig(config, skillsDir, testDir);
+
+    expect(report.errors).toEqual([]);
+    expect(report.warnings).toEqual([]);
+    expect(report.isHealthy).toBe(true);
+  });
+
   it('returns canProceed false when no valid agents', async () => {
     const skillsDir = join(testDir, 'skills');
     await mkdir(skillsDir, { recursive: true });

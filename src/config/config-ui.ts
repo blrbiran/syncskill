@@ -13,7 +13,7 @@ export const SLOW_REFRESH_SERVER_THRESHOLD = 3;
 import { listLocalSkills } from '../linker.js';
 import { createMatrixEditor, type MatrixEditorResult } from './matrix-editor.js';
 import { probeServer } from '../core/server.js';
-import { formatSourceListLines, listSources, removeSource, RemovalAction, updateAllSources, updateSource } from '../source.js';
+import { discoverActiveSourceSkillNames, formatSourceListLines, listSources, removeSource, RemovalAction, updateAllSources, updateSource } from '../source.js';
 
 export interface PromptApi {
   select<T>(options: { message: string; choices: Array<{ name: string; value: T }> }): Promise<T>;
@@ -159,7 +159,9 @@ export function applyMatrixToLinks(config: SyncSkillConfig, result: MatrixEditor
 }
 
 export async function editLinksMatrix(config: SyncSkillConfig, homeDir: string): Promise<MatrixEditorResult> {
-  const skills = await listLocalSkills(homeDir);
+  const localSkills = await listLocalSkills(homeDir);
+  const sourceSkills = await discoverActiveSourceSkillNames(homeDir, config.sources);
+  const skills = [...new Set([...localSkills, ...sourceSkills, ...Object.keys(config.links)])].sort();
   const agents = Object.keys(config.agents).sort();
 
   const selected: Record<string, string[]> = {};

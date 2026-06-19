@@ -2214,6 +2214,39 @@ export function parseGitHubUrl(url: string): GitHubUrlParsed | null {
   return null;
 }
 
+export async function discoverActiveSourceSkillNames(
+  homeDir: string,
+  sources: Record<string, unknown>
+): Promise<Set<string>> {
+  const skills = new Set<string>();
+
+  for (const [name, sourceDef] of Object.entries(sources)) {
+    const sourceEntry = normalizeSourceEntry(name, sourceDef)[0];
+    if (!sourceEntry) {
+      continue;
+    }
+
+    try {
+      const materializedRoot = getMaterializedRootPath(homeDir, name, sourceEntry);
+      if (!(await pathExists(materializedRoot))) {
+        continue;
+      }
+
+      const ignored = new Set(getConfiguredIgnoredSkills(sourceDef));
+      const discovered = await discoverMaterializedSkillEntries(name, sourceEntry, materializedRoot);
+      for (const skill of discovered) {
+        if (!ignored.has(skill.name)) {
+          skills.add(skill.name);
+        }
+      }
+    } catch {
+      // Skip sources that can't be read.
+    }
+  }
+
+  return skills;
+}
+
 export async function discoverAllSkills(
   homeDir: string,
   config: SyncSkillConfig
@@ -2221,7 +2254,6 @@ export async function discoverAllSkills(
   const { skillsDir } = getSyncPaths(homeDir);
   const allSkills = new Set<string>();
 
-  // 1. Discover skills from ~/.syncskill/skills/
   if (await pathExists(skillsDir)) {
     const localSkills = await listSkillDirectories(skillsDir);
     for (const skill of localSkills) {
@@ -2229,22 +2261,8 @@ export async function discoverAllSkills(
     }
   }
 
-  // 2. Discover skills from configured sources
-  for (const [name, sourceDef] of Object.entries(config.sources)) {
-    const sourceEntry = normalizeSourceEntry(name, sourceDef)[0];
-    if (!sourceEntry) continue;
-
-    try {
-      const materializedRoot = getMaterializedRootPath(homeDir, name, sourceEntry);
-      if (!(await pathExists(materializedRoot))) continue;
-
-      const sourceSkills = await discoverSourceSkills(materializedRoot, name);
-      for (const skill of sourceSkills) {
-        allSkills.add(skill);
-      }
-    } catch {
-      // Skip sources that can't be read
-    }
+  for (const skill of await discoverActiveSourceSkillNames(homeDir, config.sources)) {
+    allSkills.add(skill);
   }
 
   return Array.from(allSkills).sort();
