@@ -159,3 +159,6 @@ vite.config.ts.timestamp-*
 .omc/
 
 docs/issue.md
+
+.claude/worktrees/
+
