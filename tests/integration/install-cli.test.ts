@@ -340,6 +340,135 @@ describe('install CLI command', () => {
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha');
   });
 
+  it('outputs plan JSON with --plan install local directory source', async () => {
+    const sourceRoot = join(homeDir, 'planned-local-source');
+    await mkdir(join(sourceRoot, 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), '# alpha');
+
+    const { stdout } = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', '--plan', 'install', sourceRoot],
+      {
+        cwd: join(import.meta.dirname, '../..'),
+        env: { ...process.env, HOME: homeDir }
+      }
+    );
+
+    const plan = JSON.parse(stdout);
+    expect(plan.version).toBe(1);
+    expect(plan.command).toBe('install');
+    expect(plan.actions.some((action: { op: string }) => action.op === 'install-source')).toBe(true);
+    expect(plan.unresolved).toEqual([
+      expect.objectContaining({
+        kind: 'skill-selection',
+        resolve_phase: 'execute',
+        default_under_y: 'all'
+      })
+    ]);
+  });
+
+  it('applies a planned local directory install with resolutions', async () => {
+    const sourceRoot = join(homeDir, 'apply-local-source');
+    await mkdir(join(sourceRoot, 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), '# alpha');
+
+    const { stdout: planStdout } = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', '--plan', 'install', sourceRoot],
+      {
+        cwd: join(import.meta.dirname, '../..'),
+        env: { ...process.env, HOME: homeDir }
+      }
+    );
+
+    const planPath = join(tempDir, 'install-local.plan.json');
+    await writeFile(planPath, planStdout, 'utf8');
+
+    const { stdout } = await execWithInput(
+      'npx',
+      ['tsx', 'dist/index.js', '--json', '--apply', planPath, '--resolutions-stdin', 'install', sourceRoot],
+      {
+        cwd: join(import.meta.dirname, '../..'),
+        env: { ...process.env, HOME: homeDir },
+        input: JSON.stringify({
+          'skill-selection': {
+            selected: ['alpha']
+          }
+        })
+      }
+    );
+
+    const events = stdout.trim().split('\n').map((line) => JSON.parse(line));
+    const resultEvent = events.find((event) => event.type === 'result');
+    expect(resultEvent.ok).toBe(true);
+    expect(resultEvent.summary.source).toEqual({
+      name: 'apply-local-source',
+      type: 'local',
+      url: sourceRoot,
+      path: '.'
+    });
+    expect(resultEvent.summary.data.skills.installed).toEqual([
+      expect.objectContaining({ name: 'alpha' })
+    ]);
+    expect(resultEvent.summary.data.skills.ignored).toEqual([]);
+    expect(resultEvent.summary.data.skills.already_installed).toEqual([]);
+    expect(resultEvent.summary.data.links_created).toEqual([
+      expect.objectContaining({ skill: 'alpha', agent: 'claude' })
+    ]);
+
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha');
+  });
+
+  it('rejects planned local directory install apply without resolutions', async () => {
+    const sourceRoot = join(homeDir, 'missing-resolution-source');
+    await mkdir(join(sourceRoot, 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), '# alpha');
+
+    const { stdout: planStdout } = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', '--plan', 'install', sourceRoot],
+      {
+        cwd: join(import.meta.dirname, '../..'),
+        env: { ...process.env, HOME: homeDir }
+      }
+    );
+
+    const planPath = join(tempDir, 'install-local-missing-resolution.plan.json');
+    await writeFile(planPath, planStdout, 'utf8');
+
+    await expect(
+      execFileAsync(
+        'npx',
+        ['tsx', 'dist/index.js', '--json', '--apply', planPath, 'install', sourceRoot],
+        {
+          cwd: join(import.meta.dirname, '../..'),
+          env: { ...process.env, HOME: homeDir }
+        }
+      )
+    ).rejects.toMatchObject({
+      stdout: expect.stringContaining('"code":"E_UNRESOLVED"')
+    });
+  });
+
+  it('rejects interactive external install in json mode without -y or resolutions', async () => {
+    const sourceRoot = join(homeDir, 'json-needs-input-source');
+    await mkdir(join(sourceRoot, 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), '# alpha');
+
+    await expect(
+      execFileAsync(
+        'npx',
+        ['tsx', 'dist/index.js', '--json', 'install', sourceRoot],
+        {
+          cwd: join(import.meta.dirname, '../..'),
+          env: { ...process.env, HOME: homeDir }
+        }
+      )
+    ).rejects.toMatchObject({
+      stdout: expect.stringContaining('"code":"E_NEEDS_INPUT"')
+    });
+  });
+
   it('retries install when config links exist but local skill files are missing', async () => {
     const sourceRoot = join(homeDir, 'retry-source');
     await mkdir(join(sourceRoot, 'skills', 'retry-skill'), { recursive: true });
@@ -398,6 +527,57 @@ describe('install CLI command', () => {
     expect(config.sources['demo-source'].path).toBe('skills');
     expect(config.sources['demo-source'].ignore).toBeUndefined();
     expect(config.links.alpha).toEqual(['agents', 'claude']);
+    expect(config.links.beta).toEqual(['agents', 'claude']);
+  }, 15000);
+
+  it('does not require resolutions for planned same-repo install apply', async () => {
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+
+    await mkdir(join(workRepoDir, 'skills', 'alpha', 'alpha'), { recursive: true });
+    await mkdir(join(workRepoDir, 'skills', 'beta', 'beta'), { recursive: true });
+    await writeFile(join(workRepoDir, 'skills', 'alpha', 'alpha', 'SKILL.md'), '# alpha');
+    await writeFile(join(workRepoDir, 'skills', 'beta', 'beta', 'SKILL.md'), '# beta');
+    await commitAll(workRepoDir, 'Add alpha and beta skills');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    const commonOptions = {
+      cwd: join(import.meta.dirname, '../..'),
+      env: { ...process.env, HOME: homeDir }
+    };
+
+    await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/alpha', '--yes'],
+      commonOptions
+    );
+
+    const { stdout: planStdout } = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', '--plan', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/beta'],
+      commonOptions
+    );
+
+    const plan = JSON.parse(planStdout);
+    expect(plan.unresolved).toEqual([]);
+
+    const planPath = join(tempDir, 'same-repo-install.plan.json');
+    await writeFile(planPath, planStdout, 'utf8');
+
+    const { stdout } = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', '--json', '--apply', planPath, 'install', bareRepoDir, '--type', 'git', '--path', 'skills/beta'],
+      commonOptions
+    );
+
+    const events = stdout.trim().split('\n').map((line) => JSON.parse(line));
+    const resultEvent = events.find((event) => event.type === 'result');
+    expect(resultEvent.ok).toBe(true);
+    expect(resultEvent.summary.data.skills.installed).toEqual([
+      expect.objectContaining({ name: 'beta' })
+    ]);
+
+    const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
+    expect(config.sources['demo-source'].path).toBe('skills');
     expect(config.links.beta).toEqual(['agents', 'claude']);
   }, 15000);
 

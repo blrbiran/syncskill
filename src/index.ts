@@ -103,7 +103,7 @@ import {
   isRegistryDiagnostic,
   type RepairOptions
 } from './config/config-doctor.js';
-import { installSyncskillSkill, installFromSource } from './install.js';
+import { buildExternalInstallPlan, executeExternalInstallPlan, installSyncskillSkill } from './install.js';
 import { expandTargetAgents, getConfigPaths, getConfiguredServer, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
 import { createPromptApi, runConfigUi } from './config/config-ui.js';
 import { collectLinkStatus, discoverSkills, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
@@ -136,7 +136,6 @@ import {
 } from './refresh.js';
 import {
   addSourceFromUrl,
-  DiscoveredSkill,
   findOrphanSkills,
   formatSourceListLines,
   listSourcesWithDetails,
@@ -948,15 +947,42 @@ function handleSyncCommandError(error: unknown): never {
   throw error;
 }
 
+function handleInstallCommandError(error: unknown): never {
+  const parsed = parseStructuredError(error);
+  if (!parsed) {
+    throw error;
+  }
+
+  if (parsed.code === 'E_NEEDS_INPUT') {
+    return failWithOutputError(parsed.code, parsed.message, 'Use -y / --resolutions, or remove --no-interactive');
+  }
+
+  if (parsed.code === 'E_UNRESOLVED') {
+    return failWithOutputError(parsed.code, parsed.message, 'Provide --resolutions when using --apply');
+  }
+
+  if (parsed.code === 'E_USAGE') {
+    return failWithOutputError(parsed.code, parsed.message);
+  }
+
+  throw error;
+}
+
 // Install-specific plan actions
 type InstallAction =
   | { op: 'install-self'; to: string }
   | { op: 'link-skill'; skill: string; agents: string[] };
 
+interface InstallExecutionRuntimeOptions {
+  yes?: boolean;
+  applyMode?: boolean;
+  selectSkills?: (skills: Array<{ name: string; relativePath: string }>, existingSkills: Set<string>) => Promise<string[]>;
+}
+
 async function buildInstallPlan(
   homeDir: string,
   urlOrPath: string | undefined,
-  options: { self?: boolean; yes?: boolean }
+  options: { self?: boolean; yes?: boolean; name?: string; path?: string; skillSubdir?: string; type?: 'git' | 'http' | 'local'; branch?: string }
 ): Promise<Plan> {
   let plan = createPlan('install');
   const { skillsDir } = getSyncPaths(homeDir);
@@ -972,74 +998,124 @@ async function buildInstallPlan(
     if (agents.length > 0) {
       plan = addAction(plan, { op: 'link-skill', skill: 'syncskill', agents } satisfies InstallAction);
     }
+
+    return plan;
   }
 
-  return plan;
+  if (!urlOrPath) {
+    throw new Error('E_USAGE: install requires a URL/path or use "self"');
+  }
+
+  return buildExternalInstallPlan(homeDir, urlOrPath, options);
 }
 
 async function executeInstallPlan(
   homeDir: string,
   plan: Plan,
-  _resolutions: Resolutions,
-  deprecations: string[] = []
+  resolutions: Resolutions,
+  deprecations: string[] = [],
+  runtimeOptions: InstallExecutionRuntimeOptions = {}
 ): Promise<void> {
   const output = getGlobalOutput();
   const installAction = plan.actions.find((action) => action.op === 'install-self');
   const linkAction = plan.actions.find((action) => action.op === 'link-skill' && action.skill === 'syncskill');
 
-  if (!installAction || installAction.op !== 'install-self') {
-    output.result(true, {});
+  if (installAction && installAction.op === 'install-self') {
+    const result = await installSyncskillSkill(homeDir);
+    let summary: Record<string, unknown>;
+
+    if (result.alreadyInstalled) {
+      output.info('syncskill skill already installed');
+      summary = {
+        installed: false,
+        skill: 'syncskill',
+        alreadyInstalled: true,
+        linkedAgents: result.linkedAgents ?? [],
+        ...(deprecations.length > 0 ? { deprecations } : {}),
+        data: {
+          skills: {
+            already_installed: ['syncskill']
+          }
+        }
+      };
+    } else {
+      output.change('add', 'skill', 'syncskill', { target: result.installedPath });
+      if (result.linkedAgents?.length) {
+        output.info(`Linked to: ${result.linkedAgents.join(', ')}`);
+      }
+      summary = {
+        installed: true,
+        skill: 'syncskill',
+        path: result.installedPath,
+        linkedAgents: result.linkedAgents ?? [],
+        ...(deprecations.length > 0 ? { deprecations } : {}),
+        data: {
+          skills: {
+            installed: [
+              {
+                name: 'syncskill',
+                path: result.installedPath,
+                ...(installAction.id ? { plan_ref: installAction.id } : {})
+              }
+            ]
+          },
+          links_created: (result.linkedAgents ?? []).map((agent) => ({
+            skill: 'syncskill',
+            agent,
+            ...(linkAction?.id ? { plan_ref: linkAction.id } : {})
+          }))
+        }
+      };
+    }
+
+    output.result(true, summary);
     return;
   }
 
-  const result = await installSyncskillSkill(homeDir);
-  let summary: Record<string, unknown>;
+  const result = await executeExternalInstallPlan(homeDir, plan, resolutions, runtimeOptions);
+  const config = await loadConfig(homeDir);
+  const { skillsDir } = getSyncPaths(homeDir);
 
-  if (result.alreadyInstalled) {
-    output.info('syncskill skill already installed');
-    summary = {
-      installed: false,
-      skill: 'syncskill',
-      alreadyInstalled: true,
-      linkedAgents: result.linkedAgents ?? [],
-      ...(deprecations.length > 0 ? { deprecations } : {}),
-      data: {
-        skills: {
-          already_installed: ['syncskill']
-        }
-      }
-    };
+  if (result.installedSkills.length === 0) {
+    output.info('No skills installed.');
   } else {
-    output.change('add', 'skill', 'syncskill', { target: result.installedPath });
-    if (result.linkedAgents?.length) {
-      output.info(`Linked to: ${result.linkedAgents.join(', ')}`);
+    output.info(`Installed ${result.installedSkills.length} skill(s)`);
+    for (const skill of result.installedSkills) {
+      output.change('add', 'skill', skill, { target: join(skillsDir, skill) });
     }
-    summary = {
-      installed: true,
-      skill: 'syncskill',
-      path: result.installedPath,
-      linkedAgents: result.linkedAgents ?? [],
-      ...(deprecations.length > 0 ? { deprecations } : {}),
-      data: {
-        skills: {
-          installed: [
-            {
-              name: 'syncskill',
-              path: result.installedPath,
-              ...(installAction.id ? { plan_ref: installAction.id } : {})
-            }
-          ]
-        },
-        links_created: (result.linkedAgents ?? []).map((agent) => ({
-          skill: 'syncskill',
-          agent,
-          ...(linkAction?.id ? { plan_ref: linkAction.id } : {})
-        }))
-      }
-    };
   }
 
-  output.result(true, summary);
+  if (result.linkedAgents.length > 0) {
+    output.info(`Linked to: ${result.linkedAgents.join(', ')}`);
+  }
+
+  output.result(true, {
+    source: result.source,
+    installedSkills: result.installedSkills,
+    linkedAgents: result.linkedAgents,
+    ...(deprecations.length > 0 ? { deprecations } : {}),
+    data: {
+      source: result.source,
+      skills: {
+        installed: result.installedSkills.map((skill) => ({
+          name: skill,
+          path: join(skillsDir, skill),
+          ...(result.installActionId ? { plan_ref: result.installActionId } : {})
+        })),
+        ignored: result.ignoredSkills.map((skill) => ({
+          name: skill,
+          reason: 'user-deselected'
+        })),
+        already_installed: result.alreadyInstalledSkills
+      },
+      links_created: result.linkStatuses.map((status) => ({
+        skill: status.skill,
+        agent: status.agent,
+        path: join(resolveAgentPath(config.agents[status.agent], homeDir), status.skill),
+        ...(result.linkActionId ? { plan_ref: result.linkActionId } : {})
+      }))
+    }
+  });
 }
 
 async function resolveRestoreTargetPath(homeDir: string, skill: string): Promise<string> {
@@ -1407,115 +1483,85 @@ export function createProgram(homeDir?: string): Command {
           { hint: 'To install ./self, run `syncskill install ./self` instead.' }
         );
       }
-      const isPlanOperation = Boolean(planMode || applyPath);
-      const isSimpleCase = Boolean(isSelfInstall);
+      const planOptions: PlanExecuteOptions = {
+        plan: planMode,
+        apply: applyPath,
+        resolutions: resolutionsPath,
+        yes: options.yes
+      };
 
-      if (isPlanOperation && isSimpleCase) {
-        const planOptions: PlanExecuteOptions = {
-          plan: planMode,
-          apply: applyPath,
-          resolutions: resolutionsPath,
-          yes: options.yes
-        };
+      const deprecations: string[] = [];
+      if (rootOptions.applyStdin) {
+        deprecations.push('--apply-stdin');
+      }
+      if (rootOptions.resolutionsStdin) {
+        deprecations.push('--resolutions-stdin');
+      }
 
-        const deprecations: string[] = [];
-        if (rootOptions.applyStdin) {
-          deprecations.push('--apply-stdin');
+      const interactiveSelectSkills = (!applyPath && !rootOptions.json && !isNoInteractive(program))
+        ? async (skills: Array<{ name: string; relativePath: string }>, existingSkills: Set<string>) => {
+            const available = skills.filter((skill) => !existingSkills.has(skill.name));
+
+            if (available.length === 0) {
+              output.info('All skills from this source already exist.');
+              return [];
+            }
+
+            if (options.yes) {
+              return available.map((skill) => skill.name);
+            }
+
+            console.log(`\nFound ${skills.length} skill(s):\n`);
+
+            const selected = await checkbox({
+              message: 'Select skills to install:',
+              choices: available.map((skill) => ({
+                name: `${skill.name} (${skill.relativePath})`,
+                value: skill.name,
+                checked: true
+              }))
+            });
+
+            return selected;
+          }
+        : undefined;
+
+      const collectInstallResolutions = async (plan: Plan): Promise<Resolutions> => {
+        if (plan.unresolved.length === 0 || options.yes) {
+          return {};
         }
-        if (rootOptions.resolutionsStdin) {
-          deprecations.push('--resolutions-stdin');
+
+        if (applyPath) {
+          throw new Error('E_UNRESOLVED: install plan contains execute-phase skill-selection; provide --resolutions when using --apply');
         }
 
+        if (rootOptions.json || isNoInteractive(program)) {
+          throw new Error('E_NEEDS_INPUT: This command requires interactive input');
+        }
+
+        return {};
+      };
+
+      try {
         const result = await withPlanExecute({
           buildPlan: () => buildInstallPlan(resolvedHomeDir, urlOrPath, options),
-          executePlan: (plan, resolutions) => executeInstallPlan(resolvedHomeDir, plan, resolutions, deprecations),
+          executePlan: (plan, resolutions) => executeInstallPlan(resolvedHomeDir, plan, resolutions, deprecations, {
+            yes: options.yes,
+            applyMode: Boolean(applyPath),
+            selectSkills: interactiveSelectSkills
+          }),
+          collectResolutions: collectInstallResolutions,
           options: planOptions
         });
 
         if (result.planOnly && result.plan) {
           console.log(serializePlan(result.plan));
         }
-        return;
+      } catch (error) {
+        return handleInstallCommandError(error);
       }
 
-      if (isSelfInstall) {
-        const result = await installSyncskillSkill(resolvedHomeDir);
-
-        if (result.alreadyInstalled) {
-          output.info('syncskill skill already installed');
-          output.result(true, {
-            installed: false,
-            skill: 'syncskill',
-            alreadyInstalled: true,
-            linkedAgents: result.linkedAgents ?? []
-          });
-          return;
-        }
-
-        output.change('add', 'skill', 'syncskill', { target: result.installedPath });
-        if (result.linkedAgents && result.linkedAgents.length > 0) {
-          output.info(`Linked to: ${result.linkedAgents.join(', ')}`);
-        }
-        output.result(true, {
-          installed: true,
-          skill: 'syncskill',
-          path: result.installedPath,
-          linkedAgents: result.linkedAgents ?? []
-        });
-        return;
-      }
-
-      if (!urlOrPath) {
-        throw new Error('install requires a URL/path or use "self"');
-      }
-
-      const result = await installFromSource(resolvedHomeDir, urlOrPath, {
-        name: options.name,
-        path: options.path,
-        skillSubdir: options.skillSubdir,
-        type: options.type,
-        branch: options.branch,
-        skipPrompt: options.yes,
-        onSelectSkills: async (skills: DiscoveredSkill[], existingSkills: Set<string>) => {
-          const available = skills.filter(s => !existingSkills.has(s.name));
-
-          if (available.length === 0) {
-            output.info('All skills from this source already exist.');
-            return [];
-          }
-
-          if (options.yes) {
-            return available.map(s => s.name);
-          }
-
-          console.log(`\nFound ${skills.length} skill(s):\n`);
-
-          if (isNoInteractive(program)) {
-            return failForNoInteractive();
-          }
-
-          const selected = await checkbox({
-            message: 'Select skills to install:',
-            choices: available.map(s => ({
-              name: `${s.name} (${s.relativePath})`,
-              value: s.name,
-              checked: true
-            }))
-          });
-
-          return selected;
-        }
-      });
-
-      if (result.installedSkills.length === 0) {
-        console.log('No skills installed.');
-        return;
-      }
-
-      console.log(`✓ Installed ${result.installedSkills.length} skill(s)`);
-      if (result.linkedAgents.length > 0) {
-        console.log(`✓ Linked to: ${result.linkedAgents.join(', ')}`);
-      }
+      return;
     });
 
   const configCommand = program.command('config').description('Manage syncskill config');

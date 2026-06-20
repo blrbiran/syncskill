@@ -369,7 +369,7 @@ syncskill/
    - **禁止**：`git clone`、HTTP body 下载（MB+ archive）、`rsync` 真实文件传输
    - 准则：每次网络请求的数据量必须为**常数级（KB 量级）**，不依赖 skill 数量、仓库大小或目录文件数。否则用户回车后会"卡住"。
 2. **`buildPlan()` 与 `executePlan()` 都是纯函数**：从不 prompt、从不写盘、从不发起写网络请求。两者完全可重放。
-   - **`resolve_phase: "execute"` 的 unresolved**：少数决议项的 candidates 只有 execute 阶段才能枚举（plan 阶段连"候选集"都拿不到）。这些项在 plan 中已用 `resolve_phase: "execute"` 显式标注（§3.0.B.2），agent 据此机读判断。目前唯一的此类项是 `install` 的 `skill-selection`（git source 真实 skill 列表只有 clone 完成后才能枚举，plan 阶段只允许 `git ls-remote` 等常数级元数据）。`executeInstallPlan()` 允许在 clone 完成后、TTY + 无 `--apply` + 无 `--no-interactive` 组合下，弹出 inquirer prompt 收集 skill 子集决议；其他所有命令、其他所有 kind（`resolve_phase: "plan"` 项）都**不允许** execute 阶段 prompt。
+   - **`resolve_phase: "execute"` 的 unresolved**：少数决议项的 candidates 只有 execute 阶段才能枚举（plan 阶段连"候选集"都拿不到）。这些项在 plan 中已用 `resolve_phase: "execute"` 显式标注（§3.0.B.2），agent 据此机读判断。目前唯一的此类项是 `install` 的 `skill-selection`（凡需 materialize/clone/download 后才能可靠枚举实际 skill 集合的 external install 路径，均可使用该 kind；不限于 git source）。`executeInstallPlan()` 允许在 materialize 完成后、TTY + 无 `--apply` + 无 `--no-interactive` 组合下，弹出 inquirer prompt 收集 skill 子集决议；其他所有命令、其他所有 kind（`resolve_phase: "plan"` 项）都**不允许** execute 阶段 prompt。
    - `resolve_phase: "execute"` 项在以下模式下**仍不弹 prompt**，按下表降级：
      - `--apply <plan>` / `--apply -`：plan 含此类 unresolved 时必须用 `--resolutions` 提供决议；缺决议直接 `E_UNRESOLVED` + exit 7（不弹 prompt）。
      - `--no-interactive` 单独使用：输出 `prompt` 事件 + `E_NEEDS_INPUT` + exit 4。
@@ -971,9 +971,9 @@ syncskill install <url-or-path> [--name <n>] [--path <p>] [--type git|http|local
 │   ├─ http source: HEAD 请求拿 Content-Type / Content-Disposition
 │   ├─ local source: fs.stat 验证存在
 │   ├─ 计算默认 name / path（推断或显式 --name/--path 覆盖）
-│   ├─ 推断会发现的 skill 集合（git: SKILL.md 路径只能在 clone 后确定 →
+│   ├─ 推断会发现的 skill 集合（凡需 materialize 后才能可靠枚举实际 skill 集合的 external source →
 │   │   plan 标 unresolved.kind="skill-selection" + resolve_phase="execute"
-│   │   （§3.0.B.2）。execute 阶段 clone 完成后列出 candidates 并按 flag 处理：
+│   │   （§3.0.B.2）。execute 阶段 materialize 完成后列出 candidates 并按 flag 处理：
 │   │     - TTY → 弹 prompt（§3.0.B.4 约束 2 允许 resolve_phase=execute 的
 │   │       项在 execute 内部作为 sub-plan 周期处理；非"例外"，是正规化的契约）
 │   │     - `-y` / `--resolutions <path|->` 提供 → 应用决议
@@ -3038,8 +3038,8 @@ plain-text 输出（无 `--json`）**不含**这些字段（人类优先 C1：te
 
 **plan_ref 语义**：
 
-- `skills.installed[].plan_ref` → 对应的 `install.source.*` action id（同一 source 装出多个 skill 时，所有 installed[] 项共享同一 plan_ref —— 1:N fan-out）
-- `links_created[].plan_ref` → 对应的 `install.link` action id（同一 plan 内所有 link 共享该 id —— `install.link` action 携带 `targets[]` 列表 N 个 agent × M 个 skill 全部回指它）
+- `skills.installed[].plan_ref` → 对应的 source-install action id（当前实现为 `install-source`；同一 source 装出多个 skill 时，所有 installed[] 项共享同一 plan_ref —— 1:N fan-out）
+- `links_created[].plan_ref` → 对应的 `link-skill` action id（同一 plan 内所有 created link 共享该 id）
 - `skills.ignored[]` 由用户决议产生（skill-selection unresolved），无 plan action 对应，省略 `plan_ref`
 - `skills.already_installed[]` 仅是字符串列表（spec 未指定子项 schema），无 `plan_ref`
 
