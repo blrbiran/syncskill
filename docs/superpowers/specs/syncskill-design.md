@@ -782,7 +782,7 @@ Configuration Menu
 
 **Matrix editor 保存时的通配符优化**：如果某个 skill 选中了所有已配置的 agents，保存时写入 `["*"]` 而不是逐个列出所有 agent 名称。
 
-**`link edit`**（无 skill 参数）：直接调用矩阵编辑器。退出矩阵编辑器后，若 links 配置发生了变更，交互式询问用户是否立即 build（等效于 `link build`，创建/清理 symlink 使实际状态与配置一致）。用户确认则执行 reconcile，拒绝则仅保存配置不操作 symlink。
+**`link edit`**（无 skill 参数）：直接调用矩阵编辑器。矩阵行集合 = managed local skills ∪ active source-derived skills ∪ `config.links` 中已存在的 skill key；其中 source-derived skills 按 leaf-skill 规则发现，并过滤 `config.sources[*].ignore[]`。这样 source 安装得到的 skill 可直接配置，且坏状态下残留的 `config.links` 条目不会从 UI 中消失。退出矩阵编辑器后，若 links 配置发生了变更，交互式询问用户是否立即 build（等效于 `link build`，创建/清理 symlink 使实际状态与配置一致）。用户确认则执行 reconcile，拒绝则仅保存配置不操作 symlink。
 
 **`link list`** / **`link ls`**：显示已落盘的链接状态（realized state），不是配置意图矩阵。
 
@@ -901,7 +901,7 @@ schema（v1）：
 - **Config 保护（v2.9 L1）**：当 `config.json` 文件存在但 `loadConfig()` 抛异常时（验证失败、JSON 损坏等），`initRepo` **先备份**再创建新默认 config。备份路径：`config.json.pre-init-<ISO-date>.bak`。同时在 stderr 打印 `W_CONFIG_RESET` 警告（含备份路径 + 恢复命令）。`--json` 模式同时 emit warning 事件。这防止代码升级引入新验证规则时静默丢失用户的 servers/links/sources 数据
 - **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的**顶层 skill 目录**复制到 `~/.syncskill/skills/`。迁移单位是各 agent `skills/` 根下的一层目录；允许该目录作为 bundle / namespace 容器存在，即使顶层本身没有 `SKILL.md`，只要其子目录承载实际 leaf skills。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-scan` 参数跳过此步骤。
 - **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.json` 的 `links` 字段（使用 `ensureDefaultLinkTargets()` 计算默认目标，即 `["agents"]` + 已检测到的不支持 `~/.agents/skills/` 的 agent）。
-- **本地 managed skill 与 source skill 的发现语义不同**：`~/.syncskill/skills/` 下按顶层目录识别 managed skill（供 `link` / `doctor` / manifest 使用），不要求顶层目录直接包含 `SKILL.md`；而 source / install 的发现继续遵循 leaf-skill 规则：single-skill root 直接包含 `SKILL.md`，multi-skill root 通过 `skills/<leaf>/SKILL.md` 识别。
+- **本地 managed skill 与 source skill 的发现语义不同**：`~/.syncskill/skills/` 下按顶层目录识别 managed skill，不要求顶层目录直接包含 `SKILL.md`；而 source / install 的发现继续遵循 leaf-skill 规则：single-skill root 直接包含 `SKILL.md`，multi-skill root 通过 `skills/<leaf>/SKILL.md` 识别。`syncskill link` 与 `doctor` 的可见 skill 集合 = managed local skills ∪ active source-derived skills；其中 source-derived 集合按 leaf-skill 规则发现，并过滤 `config.sources[*].ignore[]`。另外 `syncskill link` 仍保留 `config.links` 中已存在但当前文件缺失的 skill 行，便于修复坏状态。
 - **默认安装 syncskill skill（first-run 入口）**：v2.7.4 PR 5c（议题 1.5）起，`init` 是 first-run 安装内置 skill 的官方入口（`install` 命令的无参数 inquirer 菜单已删除）。流程末尾安装内置 syncskill skill 到 `~/.syncskill/skills/syncskill/` 并 link 到默认 agent（计算规则见 §3.2 `ensureDefaultLinkTargets()`）。
   - **TTY + 未安装时**：弹出 `confirm` prompt "Install built-in syncskill skill now? [Y/n]"（默认 Y）。用户按 N → 跳过安装；按 Ctrl-C → 跳过安装但 init 仍报成功。
   - **非 TTY / `--no-interactive` / `--json` / 已安装**：跳过 prompt，按默认行为执行（未安装则直接安装 → 保持 CI / script 中 `init` 一键即用的长期期望）。
@@ -2575,7 +2575,7 @@ interface RepairOptions {
 }
 
 // 核心函数
-function diagnoseConfig(config: SyncSkillConfig, paths: SyncPaths): Promise<DiagnosticReport>;
+function diagnoseConfig(config: SyncSkillConfig, skillsDir: string, homeDir: string): Promise<DiagnosticReport>;
 function repairConfig(config: SyncSkillConfig, report: DiagnosticReport, options: RepairOptions): SyncSkillConfig;
 function formatDiagnosticReport(report: DiagnosticReport): string;
 function formatDiagnosticSummary(report: DiagnosticReport): string;
@@ -2587,7 +2587,7 @@ function formatDiagnosticSummary(report: DiagnosticReport): string;
 |------|----------|---------|---------|
 | `E_NO_VALID_AGENTS` | error | `agents` 中所有路径都不存在 | 阻断，提示运行 `doctor --fix` |
 | `W_AGENT_PATH_INVALID` | warning | 单个 agent 路径不存在 | 从 `agents` 中移除 |
-| `W_SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 在 `~/.syncskill/skills/` 顶层 managed skill 目录与 sources 中都不存在 | 从 `links` 中移除该 skill |
+| `W_SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 不在 `~/.syncskill/skills/` 顶层 managed local skill 集合，也不在 active source-derived skill 集合中；其中 source-derived 集合按 leaf-skill 规则发现，并过滤 `config.sources[*].ignore[]` | 从 `links` 中移除该 skill |
 | `W_AGENT_NOT_CONFIGURED` | warning | `links[skill]` 中引用的 agent 不在 `agents` 中 | 从该 skill 的 targets 中移除该 agent |
 | `W_SOURCE_PATH_INVALID` | warning | `sources` 中 local 类型的 `path` 不存在 | 从 `sources` 中移除 |
 | `W_REGISTRY_CORRUPT` | warning | `skills-registry.json` 解析失败或 schema 不合法 | 备份损坏文件后重建 `http_baselines` 字段（ignore 状态由 `config.sources[].ignore[]` 持有）。若 `--fix` 模式下重建仍失败 → 升级为 `E_REGISTRY_CORRUPT` exit 3 |
