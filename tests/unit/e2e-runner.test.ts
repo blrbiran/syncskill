@@ -43,6 +43,21 @@ describe('E2E Runner', () => {
     expect(result.exitCode).toBe(1);
   });
 
+  it('execCommand passes stdin to spawned command', async () => {
+    const { execCommand } = await import('../end2end/framework/runner.js');
+    const tempDir = await mkdtemp(join(tmpdir(), 'e2e-runner-'));
+    tempDirs.push(tempDir);
+
+    const result = await execCommand('node', ['-e', 'process.stdin.on("data", c => process.stdout.write(String(c).toUpperCase()))'], {
+      cwd: tempDir,
+      stdin: 'hello stdin',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe('HELLO STDIN');
+  });
+
   it('runSyncskill runs syncskill CLI with HOME override', async () => {
     const { runSyncskill } = await import('../end2end/framework/runner.js');
     const tempDir = await mkdtemp(join(tmpdir(), 'e2e-runner-'));

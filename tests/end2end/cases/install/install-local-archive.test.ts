@@ -42,6 +42,57 @@ describe('install local archive', () => {
     }
   });
 
+  e2eTest('apply planned local archive install with selective resolutions', async () => {
+    const ctx = await new E2EScenario()
+      .withAgents('claude')
+      .withInit({ skipScan: true, skipSelf: true })
+      .withArchive('planned-archive.zip', {
+        skills: ['skill-alpha', 'skill-beta'],
+        format: 'zip',
+      })
+      .setup();
+
+    try {
+      const archivePath = ctx.getArchivePath('planned-archive.zip');
+      const planResult = await ctx.run('syncskill', ['--plan', 'install', archivePath]);
+      expect(planResult.success).toBe(true);
+
+      await ctx.writeFile('install-local-archive.plan.json', planResult.stdout);
+      const applyResult = await ctx.run(
+        'syncskill',
+        ['--json', '--apply', ctx.getPath('install-local-archive.plan.json'), '--resolutions', '-', 'install', archivePath],
+        {
+          stdin: JSON.stringify({
+            'skill-selection': {
+              selected: ['skill-alpha']
+            }
+          })
+        }
+      );
+      expect(applyResult.success).toBe(true);
+
+      const events = applyResult.stdout.trim().split('\n').map((line) => JSON.parse(line));
+      const resultEvent = events.find((event) => event.type === 'result');
+      expect(resultEvent.ok).toBe(true);
+      expect(resultEvent.summary.data.skills.installed).toEqual([
+        expect.objectContaining({ name: 'skill-alpha' })
+      ]);
+      expect(resultEvent.summary.data.skills.ignored).toEqual([
+        expect.objectContaining({ name: 'skill-beta', reason: 'user-deselected' })
+      ]);
+
+      await ctx.assertFileExists('.syncskill/skills/skill-alpha/SKILL.md');
+      await ctx.assertNotLinked('skill-beta', ['claude']);
+
+      const config = (await ctx.readConfig()) as {
+        sources?: Record<string, { type: string; path?: string; ignore?: string[] }>;
+      };
+      expect(config.sources?.['planned-archive']?.ignore).toEqual(['skill-beta']);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
   e2eTest('install local tar.gz extracts correctly', async () => {
     const ctx = await new E2EScenario()
       .withAgents('claude')

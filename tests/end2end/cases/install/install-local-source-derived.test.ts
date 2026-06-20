@@ -41,4 +41,52 @@ describe('install local source derived', () => {
       await ctx.cleanup();
     }
   });
+
+  e2eTest('apply planned local source install with resolutions', async () => {
+    const ctx = await new E2EScenario()
+      .withAgents('claude', 'agents')
+      .withInit({ skipScan: true, skipSelf: true })
+      .setup();
+
+    try {
+      const sourceRoot = join(ctx.homeDir, 'planned-local-source');
+      await mkdir(join(sourceRoot, 'skills', 'llmfusion'), { recursive: true });
+      await writeFile(join(sourceRoot, 'skills', 'llmfusion', 'SKILL.md'), '# llmfusion', 'utf8');
+
+      const planResult = await ctx.run('syncskill', ['--plan', 'install', sourceRoot]);
+      expect(planResult.success).toBe(true);
+      const plan = JSON.parse(planResult.stdout) as {
+        actions: Array<{ op: string }>;
+        unresolved: Array<{ kind: string; resolve_phase: string }>;
+      };
+      expect(plan.actions.some((action) => action.op === 'install-source')).toBe(true);
+      expect(plan.unresolved).toEqual([
+        expect.objectContaining({ kind: 'skill-selection', resolve_phase: 'execute' })
+      ]);
+
+      await ctx.writeFile('install-local-source.plan.json', planResult.stdout);
+      const applyResult = await ctx.run(
+        'syncskill',
+        ['--json', '--apply', ctx.getPath('install-local-source.plan.json'), '--resolutions', '-', 'install', sourceRoot],
+        {
+          stdin: JSON.stringify({
+            'skill-selection': {
+              selected: ['llmfusion']
+            }
+          })
+        }
+      );
+      expect(applyResult.success).toBe(true);
+
+      const events = applyResult.stdout.trim().split('\n').map((line) => JSON.parse(line));
+      const resultEvent = events.find((event) => event.type === 'result');
+      expect(resultEvent.ok).toBe(true);
+
+      await ctx.assertFileExists('.syncskill/skills/llmfusion/SKILL.md');
+      await ctx.assertLinked('llmfusion', ['claude', 'agents']);
+      await ctx.assertLinksConfig('llmfusion', ['agents', 'claude']);
+    } finally {
+      await ctx.cleanup();
+    }
+  });
 });

@@ -1,5 +1,5 @@
 // tests/end2end/framework/runner.ts
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -51,6 +51,7 @@ export async function execCommand(
     env = {},
     timeout = 30000,
     expectedExitCode = 0,
+    stdin,
   } = options;
 
   const verbose = isVerbose();
@@ -67,14 +68,54 @@ export async function execCommand(
   let exitCode = 0;
 
   try {
-    const result = await execFileAsync(cmd, args, {
-      cwd,
-      env: { ...process.env, ...env },
-      timeout,
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    stdout = result.stdout;
-    stderr = result.stderr;
+    if (stdin === undefined) {
+      const result = await execFileAsync(cmd, args, {
+        cwd,
+        env: { ...process.env, ...env },
+        timeout,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      stdout = result.stdout;
+      stderr = result.stderr;
+    } else {
+      const result = await new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve, reject) => {
+        const child = spawn(cmd, args, {
+          cwd,
+          env: { ...process.env, ...env },
+          stdio: 'pipe',
+        });
+        let spawnedStdout = '';
+        let spawnedStderr = '';
+        const timer = setTimeout(() => {
+          child.kill('SIGTERM');
+        }, timeout);
+
+        child.stdout.on('data', (chunk) => {
+          spawnedStdout += chunk.toString();
+        });
+        child.stderr.on('data', (chunk) => {
+          spawnedStderr += chunk.toString();
+        });
+        child.on('error', (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child.on('close', (code) => {
+          clearTimeout(timer);
+          resolve({
+            stdout: spawnedStdout,
+            stderr: spawnedStderr,
+            exitCode: code ?? 1,
+          });
+        });
+
+        child.stdin.end(stdin);
+      });
+
+      stdout = result.stdout;
+      stderr = result.stderr;
+      exitCode = result.exitCode;
+    }
   } catch (error: unknown) {
     const execError = error as { stdout?: string; stderr?: string; code?: number };
     stdout = execError.stdout ?? '';
