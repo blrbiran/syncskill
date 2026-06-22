@@ -1526,7 +1526,7 @@ export function createProgram(homeDir?: string): Command {
           }
         : undefined;
 
-      const collectInstallResolutions = async (plan: Plan): Promise<Resolutions> => {
+      const guardInstallPlanExecution = async (plan: Plan): Promise<Resolutions> => {
         if (plan.unresolved.length === 0 || options.yes) {
           return {};
         }
@@ -1550,7 +1550,7 @@ export function createProgram(homeDir?: string): Command {
             applyMode: Boolean(applyPath),
             selectSkills: interactiveSelectSkills
           }),
-          collectResolutions: collectInstallResolutions,
+          collectResolutions: guardInstallPlanExecution,
           options: planOptions
         });
 

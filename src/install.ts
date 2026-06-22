@@ -604,6 +604,7 @@ export async function buildExternalInstallPlan(
   let plan = createPlan('install');
   const config = await loadConfig(homeDir);
   const defaultAgents = (await computeDefaultLinkTargets(homeDir, config)).targets;
+  const plannedLinkAgents = probe.restoredFromIgnore ? Object.keys(config.agents).sort() : defaultAgents;
   const source = probe.source;
 
   if (!probe.sameRepoMatch) {
@@ -634,7 +635,7 @@ export async function buildExternalInstallPlan(
   plan = addAction(plan, {
     op: 'link-skill',
     skill: probe.restoredSkill ?? '*',
-    agents: defaultAgents,
+    agents: plannedLinkAgents,
   });
 
   if (!probe.restoredFromIgnore && !probe.sameRepoMatch) {
