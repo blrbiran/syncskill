@@ -24,6 +24,11 @@
 - **[2026-06-08]** 共享 command preflight 改动后，`install`（尤其 `install self` / plan / apply）必须跳过共享 doctor/preflight；负向 integration test 若要命中命令分支，也要先准备能通过 preflight 的最小 fixture。
 - **[2026-06-19]** 发现语义现已明确分成两套：`~/.syncskill/skills/` 下的 managed local skills 按顶层目录识别；source/install discovery 仍按 leaf-skill 规则（single root `SKILL.md` 或 `skills/<leaf>/SKILL.md`）。
 - **[2026-06-19]** `syncskill link` 展示 configured assignment（配置意图矩阵），`syncskill link ls` 展示 realized on-disk status（已落盘状态矩阵）；`-` 表示未配置，`·` 表示已配置但磁盘缺失。
+- **[2026-06-20]** `install` 的 spec 是命令级统一 plan/execute 协议：`install self` 与 `install <url>` 都属于两阶段命令；允许唯一的 execute-phase prompt 例外是 external install 的 `skill-selection` unresolved。现代码已把 external install 接入 `withPlanExecute()`，并要求 `--apply` 配合 `--resolutions` 解决 execute-phase unresolved。
+- **[2026-06-20]** external install 的 planner 不能调用带副作用的 default-link helper（如 `ensureDefaultLinkTargets()`），否则 `--plan` JSON 会被目录创建提示污染。plan 阶段只能用纯只读 helper（如 `computeDefaultLinkTargets()`）。
+- **[2026-06-22]** 用户明确了期望语义：local directory source 不应经过 `~/.syncskill/skills` 这层 managed store，而应从 source 里的实际 skill 目录直接链接到各 agent skills 目录。后续分析/修复 local source 安装问题时，要把 `~/.syncskill/skills` 参与进来视为实现偏差。
+- **[2026-06-22]** local directory source 的修复后语义：agent 侧 link source 解析必须保持 `manual (~/.syncskill/skills) > local-source-owned direct path` 的优先级；否则会把已有 manual skill 错误覆盖成 source 直链。后续改 linker/source 优先级时先守住 manual precedence。
+- **[2026-06-22]** local directory source 当前会把 `~/.syncskill/skills/<skill>` 直接 symlink 到原始 source tree；随后 `linkConfiguredSkills()` 又会无条件删掉 agent 侧同名路径并重建为 symlink。后续修复此类问题时，不能让本地安装暴露源仓库，也不能在未确认下接管既有真实目录。
 
 ## Do-Not-Repeat
 
