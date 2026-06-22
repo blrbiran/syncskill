@@ -8,6 +8,7 @@ import { useTempDirs } from '../helpers/temp-dir.js';
 import { saveConfig, type SyncSkillConfig } from '../../src/config/config.js';
 import { collectLinkStatus, ensureLinkedDirectory, formatLinkStatusMatrix, linkConfiguredSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent } from '../../src/linker.js';
 import type { LinkStatus } from '../../src/linker.js';
+import { materializeSource } from '../../src/source.js';
 
 describe('linker', () => {
   const tempDirs = useTempDirs();
@@ -67,6 +68,55 @@ describe('linker', () => {
       /Skill source directory not found/
     );
     await expect(readFile(existingFile, 'utf8')).resolves.toBe('# existing target');
+  });
+
+  it('links local-source-owned skills directly from the source directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'shared');
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const targetDir = join(agentDir, 'alpha');
+
+    await mkdir(join(sourceRoot, 'alpha'), { recursive: true });
+    await writeFile(join(sourceRoot, 'alpha', 'SKILL.md'), '# alpha', 'utf8');
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: agentDir },
+        links: { alpha: ['claude'] },
+        servers: {},
+        sources: {
+          shared: { type: 'local', url: sourceRoot, path: '.' }
+        }
+      },
+      homeDir
+    );
+
+    await materializeSource(homeDir, 'shared', { type: 'local', url: sourceRoot, path: '.' });
+
+    const statuses = await linkConfiguredSkills(homeDir, { all: false, skillName: 'alpha' });
+
+    await expect(readlink(targetDir)).resolves.toBe(join(sourceRoot, 'alpha'));
+    expect(statuses).toEqual([{ skill: 'alpha', agent: 'claude', state: 'linked' }]);
+  });
+
+  it('refuses to replace an existing real directory when linking', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
+    tempDirs.push(homeDir);
+
+    const sourceDir = join(homeDir, '.syncskill', 'skills', 'demo-skill');
+    const targetDir = join(homeDir, '.claude', 'skills', 'demo-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(targetDir, { recursive: true });
+    await writeFile(join(targetDir, 'skill.md'), '# existing', 'utf8');
+
+    await expect(ensureLinkedDirectory(sourceDir, targetDir)).rejects.toThrow(
+      /Refusing to replace existing non-symlink target/
+    );
+    await expect(readFile(join(targetDir, 'skill.md'), 'utf8')).resolves.toBe('# existing');
   });
 
   it('removes linked directories with unlinkSkill', async () => {

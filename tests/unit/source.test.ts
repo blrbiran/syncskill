@@ -11,7 +11,7 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config/config.js';
 import type { SyncSkillConfig } from '../../src/config/config.js';
-import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectArchiveFormatFromFilename, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, DirtySourceQuitError, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, parseContentDisposition, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
+import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectArchiveFormatFromFilename, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, DirtySourceQuitError, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSkillOwnershipState, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, parseContentDisposition, resolveLinkedSkillSourcePath, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
 import type { SkillsRegistry } from '../../src/source.js';
 import { normalizeSkillsRegistry } from '../../src/core/skills-registry.js';
 
@@ -201,7 +201,7 @@ sources:
     ]);
   });
 
-  it('materializeSource symlinks local-source skills into the sync store and records state', async () => {
+  it('materializeSource records local-source ownership without writing managed skill directories', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
     tempDirs.push(homeDir);
 
@@ -210,6 +210,12 @@ sources:
     await mkdir(join(sourceRoot, 'beta'), { recursive: true });
     await writeFile(join(sourceRoot, 'alpha', 'SKILL.md'), '# alpha\n', 'utf8');
     await writeFile(join(sourceRoot, 'beta', 'SKILL.md'), '# beta\n', 'utf8');
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      sources: {
+        shared: { type: 'local', url: sourceRoot, path: '.' }
+      }
+    }, homeDir);
 
     const result = await materializeSource(
       homeDir,
@@ -219,7 +225,14 @@ sources:
     );
 
     expect(result.materialized_skills).toEqual(['alpha', 'beta']);
-    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'alpha'))).resolves.toBe(join(sourceRoot, 'alpha'));
+    await expect(access(join(homeDir, '.syncskill', 'skills', 'alpha'))).rejects.toThrow();
+    await expect(loadSkillOwnershipState(homeDir)).resolves.toEqual({
+      owners: {
+        alpha: 'shared',
+        beta: 'shared'
+      }
+    });
+    await expect(resolveLinkedSkillSourcePath(homeDir, 'alpha')).resolves.toBe(join(sourceRoot, 'alpha'));
     await expect(loadSourceState(homeDir, 'shared')).resolves.toEqual({
       materialized_skills: ['alpha', 'beta'],
       updated_at: '2026-05-01T00:00:00.000Z'
@@ -233,6 +246,12 @@ sources:
     const sourceRoot = join(homeDir, 'shared');
     await mkdir(join(sourceRoot, 'skills', 'alpha'), { recursive: true });
     await writeFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), '# alpha\n', 'utf8');
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      sources: {
+        shared: { type: 'local', url: sourceRoot, path: '.' }
+      }
+    }, homeDir);
 
     const result = await materializeSource(
       homeDir,
@@ -242,20 +261,27 @@ sources:
     );
 
     expect(result.materialized_skills).toEqual(['alpha']);
-    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'alpha'))).resolves.toBe(join(sourceRoot, 'skills', 'alpha'));
+    await expect(access(join(homeDir, '.syncskill', 'skills', 'alpha'))).rejects.toThrow();
+    await expect(resolveLinkedSkillSourcePath(homeDir, 'alpha')).resolves.toBe(join(sourceRoot, 'skills', 'alpha'));
     await expect(loadSourceState(homeDir, 'shared')).resolves.toEqual({
       materialized_skills: ['alpha'],
       updated_at: '2026-05-01T00:00:00.000Z'
     });
   });
 
-  it('materializeSource removes stale local-source skills from a previous state file', async () => {
+  it('materializeSource updates local-source ownership when discovered skills change', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
     tempDirs.push(homeDir);
 
     const sourceRoot = join(homeDir, 'shared');
     await mkdir(join(sourceRoot, 'beta'), { recursive: true });
     await writeFile(join(sourceRoot, 'beta', 'SKILL.md'), '# beta\n', 'utf8');
+    await saveConfig({
+      ...createDefaultConfig(homeDir, {}),
+      sources: {
+        shared: { type: 'local', url: sourceRoot, path: '.' }
+      }
+    }, homeDir);
 
     await materializeSource(
       homeDir,
@@ -280,8 +306,13 @@ sources:
       materialized_skills: ['gamma'],
       updated_at: '2026-05-01T01:00:00.000Z'
     });
-    await expect(access(join(homeDir, '.syncskill', 'skills', 'beta'))).rejects.toThrow();
-    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'gamma'))).resolves.toBe(join(sourceRoot, 'gamma'));
+    await expect(loadSkillOwnershipState(homeDir)).resolves.toEqual({
+      owners: {
+        gamma: 'shared'
+      }
+    });
+    await expect(resolveLinkedSkillSourcePath(homeDir, 'beta')).resolves.toBeNull();
+    await expect(resolveLinkedSkillSourcePath(homeDir, 'gamma')).resolves.toBe(join(sourceRoot, 'gamma'));
   });
 
   it('materializeSource keeps a stale skill path when it is no longer the source-owned symlink', async () => {
@@ -303,6 +334,7 @@ sources:
     );
 
     await rm(join(sourceRoot, 'alpha'), { recursive: true, force: true });
+    await mkdir(join(homeDir, '.syncskill', 'skills'), { recursive: true });
     await rm(join(homeDir, '.syncskill', 'skills', 'alpha'), { recursive: true, force: true });
     await symlink(foreignRoot, join(homeDir, '.syncskill', 'skills', 'alpha'), 'dir');
 
@@ -341,6 +373,7 @@ sources:
     );
 
     await rm(join(sourceRoot, 'alpha'), { recursive: true, force: true });
+    await mkdir(skillsDir, { recursive: true });
     await rm(join(skillsDir, 'alpha'), { recursive: true, force: true });
     await symlink('../../foreign', join(skillsDir, 'alpha'), 'dir');
 
@@ -998,6 +1031,7 @@ sources:
         links: {},
         servers: {},
         sources: {
+          'local-source': { type: 'local', url: sharedRoot, path: '.' },
           'git-source': { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' }
         }
       },
@@ -1022,7 +1056,7 @@ sources:
     const result = await updateSource(homeDir, 'git-source', {}, '2026-05-01T03:00:00.000Z');
 
     expect(result.materialized_skills).toEqual(['beta']);
-    await expect(readlink(join(homeDir, '.syncskill', 'skills', 'alpha'))).resolves.toBe(join(sharedRoot, 'alpha'));
+    await expect(resolveLinkedSkillSourcePath(homeDir, 'alpha')).resolves.toBe(join(sharedRoot, 'alpha'));
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'beta', 'SKILL.md'), 'utf8')).resolves.toBe('# git beta\n');
   });
 

@@ -182,12 +182,13 @@ describe('install module', () => {
         const discoverMaterializedSkillEntries = vi.fn().mockResolvedValue([
           { name: 'demo', relativePath: 'demo', absolutePath: '/tmp/demo' }
         ]);
+        const discoverAllSkills = vi.fn().mockResolvedValue([]);
         const linkConfiguredSkills = vi.fn().mockResolvedValue([
           { skill: 'demo', agent: 'cursor', state: 'linked' },
           { skill: 'demo', agent: 'claude', state: 'linked' }
         ]);
 
-        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, discoverMaterializedSkillEntries, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn(), parseGitHubUrl: vi.fn().mockReturnValue(null) }));
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, discoverMaterializedSkillEntries, discoverAllSkills, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn(), parseGitHubUrl: vi.fn().mockReturnValue(null) }));
         vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
 
         const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
@@ -256,6 +257,7 @@ describe('install module', () => {
           { name: 'demo', relativePath: 'demo', absolutePath: '/tmp/demo' },
           { name: 'existing', relativePath: 'existing', absolutePath: '/tmp/existing' }
         ]);
+        const discoverAllSkills = vi.fn().mockResolvedValue(['existing']);
         const linkConfiguredSkills = vi.fn().mockImplementation(async (_homeDir, request) => {
           if (request.skillName === 'demo') {
             return [{ skill: 'demo', agent: 'claude', state: 'linked' }];
@@ -263,7 +265,7 @@ describe('install module', () => {
           return [];
         });
 
-        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, discoverMaterializedSkillEntries, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn(), parseGitHubUrl: vi.fn().mockReturnValue(null) }));
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, discoverMaterializedSkillEntries, discoverAllSkills, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn(), parseGitHubUrl: vi.fn().mockReturnValue(null) }));
         vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
 
         const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
@@ -316,9 +318,10 @@ describe('install module', () => {
           updated_at: '2026-06-09T00:00:00.000Z'
         });
         const discoverMaterializedSkillEntries = vi.fn().mockResolvedValue([]);
+        const discoverAllSkills = vi.fn().mockResolvedValue([]);
         const linkConfiguredSkills = vi.fn().mockResolvedValue([]);
 
-        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, discoverMaterializedSkillEntries, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn(), parseGitHubUrl: vi.fn().mockReturnValue(null) }));
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, discoverMaterializedSkillEntries, discoverAllSkills, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn(), parseGitHubUrl: vi.fn().mockReturnValue(null) }));
         vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
 
         const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
@@ -387,12 +390,13 @@ describe('install module', () => {
           updated_at: '2026-06-09T00:00:00.000Z'
         });
         const discoverMaterializedSkillEntries = vi.fn().mockResolvedValue([]);
+        const discoverAllSkills = vi.fn().mockResolvedValue(['demo']);
         const linkConfiguredSkills = vi.fn().mockResolvedValue([
           { skill: 'demo', agent: 'cursor', state: 'linked' },
           { skill: 'demo', agent: 'claude', state: 'linked' }
         ]);
 
-        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, discoverMaterializedSkillEntries, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn(), parseGitHubUrl: vi.fn().mockReturnValue(null) }));
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, discoverMaterializedSkillEntries, discoverAllSkills, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn(), parseGitHubUrl: vi.fn().mockReturnValue(null) }));
         vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
 
         const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
@@ -465,6 +469,7 @@ describe('install module', () => {
           { name: 'skill1', relativePath: 'skills/skill1', absolutePath: '/tmp/skill1' },
           { name: 'skill2', relativePath: 'skills/skill2', absolutePath: '/tmp/skill2' }
         ]);
+        const discoverAllSkills = vi.fn().mockResolvedValue(['skill1']);
         const linkConfiguredSkills = vi.fn().mockImplementation(async (_homeDir, request) => {
           if (request.skillName === 'skill2') {
             return [
@@ -475,7 +480,7 @@ describe('install module', () => {
           return [];
         });
 
-        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, parseGitHubUrl, discoverMaterializedSkillEntries, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn() }));
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, parseGitHubUrl, discoverMaterializedSkillEntries, discoverAllSkills, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn() }));
         vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
 
         const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
@@ -552,6 +557,7 @@ describe('install module', () => {
           { name: 'extra', relativePath: 'other/extra', absolutePath: '/tmp/extra' },
           { name: 'tool-a', relativePath: 'tools/tool-a', absolutePath: '/tmp/tool-a' }
         ]);
+        const discoverAllSkills = vi.fn().mockResolvedValue(['tool-a']);
         const linkConfiguredSkills = vi.fn().mockImplementation(async (_homeDir, request) => {
           if (request.skillName === 'demo') {
             return [
@@ -562,7 +568,7 @@ describe('install module', () => {
           return [];
         });
 
-        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, parseGitHubUrl, discoverMaterializedSkillEntries, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn() }));
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, parseGitHubUrl, discoverMaterializedSkillEntries, discoverAllSkills, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn() }));
         vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
 
         const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');

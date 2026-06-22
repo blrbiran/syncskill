@@ -485,7 +485,9 @@ export function applyMatrixToRemote(config: SyncSkillConfig, result: MatrixEdito
 }
 
 export async function editRemoteMatrix(config: SyncSkillConfig, homeDir: string): Promise<MatrixEditorResult> {
-  const skills = await listLocalSkills(homeDir);
+  const localSkills = await listLocalSkills(homeDir);
+  const sourceSkills = await discoverActiveSourceSkillNames(homeDir, config.sources);
+  const skills = [...new Set([...localSkills, ...sourceSkills])].sort();
   const servers = Object.keys(config.servers).sort();
 
   const selected: Record<string, string[]> = {};

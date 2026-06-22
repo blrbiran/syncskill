@@ -1266,37 +1266,63 @@ async function syncSource(
   const materializedSkillPaths = mapSkillAbsolutePaths(discoveredSkills);
 
   const nextOwnership = structuredClone(ownershipState) as SkillOwnershipState;
+  const usesManagedSkillsDir = source.type !== 'local' || Boolean(source.archive_path);
 
-  await mkdir(skillsDir, { recursive: true });
-  await assertMaterializationTargetsAvailable(skillsDir, previousSkills, discoveredSkills, source.type, name, ownershipState);
+  if (usesManagedSkillsDir) {
+    await mkdir(skillsDir, { recursive: true });
+    await assertMaterializationTargetsAvailable(skillsDir, previousSkills, discoveredSkills, source.type, name, ownershipState);
 
-  // Identify removed skills and ask user what to do
-  const removedSkills = previousSkills.filter(
-    skill => !materializedSkills.includes(skill) && ownershipState.owners[skill] === name
-  );
+    // Identify removed skills and ask user what to do
+    const removedSkills = previousSkills.filter(
+      skill => !materializedSkills.includes(skill) && ownershipState.owners[skill] === name
+    );
 
-  if (removedSkills.length > 0) {
-    await handleRemovedSkills(homeDir, name, removedSkills, skillsDir, nextOwnership, options);
+    if (removedSkills.length > 0) {
+      await handleRemovedSkills(homeDir, name, removedSkills, skillsDir, nextOwnership, options);
+    }
+
+    await removeStaleSkills(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type, name, nextOwnership);
+
+    for (const skill of materializedSkills) {
+      const sourceDir = materializedSkillPaths.get(skill);
+      if (!sourceDir) {
+        throw new Error(`Discovered skill path missing: ${skill}`);
+      }
+      const targetDir = join(skillsDir, skill);
+
+      if (source.type === 'local') {
+        await recreateSymlink(sourceDir, targetDir);
+      } else if (source.type === 'git' || source.type === 'http') {
+        await copySkillDirectory(sourceDir, targetDir);
+      } else {
+        throw new Error(`Source type not implemented: ${source.type}`);
+      }
+
+      nextOwnership.owners[skill] = name;
+    }
+  } else {
+    for (const skill of previousSkills) {
+      if (!materializedSkills.includes(skill) && nextOwnership.owners[skill] === name) {
+        delete nextOwnership.owners[skill];
+      }
+    }
+
+    for (const skill of materializedSkills) {
+      const managedPath = join(skillsDir, skill);
+      if (ownershipState.owners[skill] !== undefined && ownershipState.owners[skill] !== name) {
+        throw new Error(`Skill path is already occupied: ${skill}`);
+      }
+      if (ownershipState.owners[skill] !== name && (await pathExists(managedPath))) {
+        throw new Error(`Skill path is already occupied: ${skill}`);
+      }
+      nextOwnership.owners[skill] = name;
+    }
   }
 
-  await removeStaleSkills(skillsDir, materializedRoot, previousSkills, materializedSkills, source.type, name, nextOwnership);
-
-  for (const skill of materializedSkills) {
-    const sourceDir = materializedSkillPaths.get(skill);
-    if (!sourceDir) {
-      throw new Error(`Discovered skill path missing: ${skill}`);
+  for (const skill of Object.keys(nextOwnership.owners)) {
+    if (nextOwnership.owners[skill] === name && !materializedSkills.includes(skill)) {
+      delete nextOwnership.owners[skill];
     }
-    const targetDir = join(skillsDir, skill);
-
-    if (source.type === 'local') {
-      await recreateSymlink(sourceDir, targetDir);
-    } else if (source.type === 'git' || source.type === 'http') {
-      await copySkillDirectory(sourceDir, targetDir);
-    } else {
-      throw new Error(`Source type not implemented: ${source.type}`);
-    }
-
-    nextOwnership.owners[skill] = name;
   }
 
   const nextState: SourceState = {
@@ -1385,6 +1411,33 @@ export async function loadSkillOwnershipState(homeDir: string): Promise<SkillOwn
     }
     throw error;
   }
+}
+
+export async function resolveLinkedSkillSourcePath(
+  homeDir = homedir(),
+  skillName: string
+): Promise<string | null> {
+  const ownershipState = await loadSkillOwnershipState(homeDir);
+  const sourceName = ownershipState.owners[skillName];
+
+  if (!sourceName) {
+    return null;
+  }
+
+  const config = await loadConfig(homeDir);
+  const source = normalizeSourceEntry(sourceName, config.sources[sourceName])[0];
+
+  if (!source || source.type !== 'local' || source.archive_path) {
+    return null;
+  }
+
+  const materializedRoot = getMaterializedRootPath(homeDir, sourceName, source);
+  if (!(await pathExists(materializedRoot))) {
+    return null;
+  }
+
+  const discoveredSkills = await discoverMaterializedSkillEntries(sourceName, source, materializedRoot);
+  return discoveredSkills.find((skill) => skill.name === skillName)?.absolutePath ?? null;
 }
 
 // Re-export registry functions for backward compatibility
@@ -1804,6 +1857,10 @@ async function assertMaterializationTargetsAvailable(
       (await isReusableManagedCopiedTarget(targetDir))
     ) {
       continue;
+    }
+
+    if (ownershipState.owners[skillName] !== undefined && ownershipState.owners[skillName] !== sourceName) {
+      throw new Error(`Skill path is already occupied: ${skillName}`);
     }
 
     if (currentTarget !== null || (await pathExists(targetDir))) {

@@ -990,6 +990,8 @@ syncskill install <url-or-path> [--name <n>] [--path <p>] [--type git|http|local
 │   ├─ 应用决议（选中 skill 进 links，未选中进 ignore）
 │   ├─ 持久化 sources + links（含三种场景：新 source / 合并到已有同 URL source / 新建附加 source）
 │   ├─ 创建 symlink 到 agent 目录
+│   │   - manual / git / http / local archive：agent symlink 指向 `~/.syncskill/skills/<skill>`
+│   │   - local directory source：agent symlink 直接指向 source 的真实 skill 目录，不经过 `~/.syncskill/skills/`
 │   ├─ 保存 config.json
 │   └─ 刷新 skills-registry.json（写 http baseline 等）
 │
@@ -1089,7 +1091,7 @@ All skills from "examples/skill-a" are already included in source "my-skills".
 清理规则：
 1. 遍历所有 `config.agents` 目录，检查指定 skill（或所有 skill）是否存在需要清理的 stale 链接
 2. **仅清理 syncskill 管理的软链接**：symlink target 能被 `resolveSkillPath()` 解析到（指向 `~/.syncskill/skills/` 或 `config.sources` 中的路径）
-3. **不清理实体目录**：非 symlink 的真实目录不动，可能是用户手动放置的
+3. **不清理实体目录**：非 symlink 的真实目录不动；若后续 `link build` / `install` 试图接管真实目录，默认报错拒绝覆盖，除非用户显式确认 takeover
 4. **不清理非 syncskill 管理的链接**：symlink target 不在 syncskill 管理范围内的不动
 5. 一个 symlink 是 stale 的条件：skill 名在 `config.links` 中存在但该 agent 不在其展开后的目标列表中，或 skill 名不在 `config.links` 中（已完全移除）
 

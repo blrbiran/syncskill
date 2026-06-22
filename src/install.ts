@@ -5,12 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { addAction, addUnresolved, createPlan, type Plan } from './cli/plan.js';
 import { resolveItem, type Resolutions } from './cli/resolution.js';
 import { getSyncPaths, loadConfig, saveConfig } from './config/config.js';
-import { listLocalSkillNames } from './core/manifest.js';
 import { computeDefaultLinkTargets, ensureDefaultLinkTargets } from './core/private-agents.js';
 import { linkConfiguredSkills, type LinkStatus } from './linker.js';
 import {
   addSourceFromUrl,
   detectSourceType,
+  discoverAllSkills,
   discoverMaterializedSkillEntries,
   findExistingSourceByUrl,
   parseGitHubUrl,
@@ -763,7 +763,8 @@ export async function installFromSource(
   urlOrPath: string,
   options: InstallFromSourceOptions = {}
 ): Promise<InstallFromSourceResult> {
-  const existingSkills = new Set(await listLocalSkillNames(homeDir));
+  const config = await loadConfig(homeDir);
+  const existingSkills = new Set(await discoverAllSkills(homeDir, config));
 
   const result = await addSourceFromUrl(homeDir, urlOrPath, {
     name: options.name,

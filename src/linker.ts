@@ -1,10 +1,11 @@
 import { cp, lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, resolveAgentPath, saveConfig, type SyncSkillConfig } from './config/config.js';
 import { ensureDefaultLinkTargets } from './core/private-agents.js';
 import { rebuildRegistryV2 } from './core/registry-builder.js';
 import { saveSkillsRegistryV2 } from './core/skills-registry.js';
+import { discoverActiveSourceSkillNames, resolveLinkedSkillSourcePath } from './source.js';
 import { isNotFoundError, pathExists } from './utils/utils.js';
 
 export interface ScanOptions {
@@ -181,13 +182,95 @@ async function listSkillDirectoriesFiltered(root: string): Promise<string[]> {
   }
 }
 
-// pathExists is now imported from utils.ts
+async function resolveConfiguredSkillSourceDir(homeDir: string, skill: string): Promise<string> {
+  const { skillsDir } = getSyncPaths(homeDir);
+  const managedPath = join(skillsDir, skill);
+
+  try {
+    const managedStat = await stat(managedPath);
+    if (!managedStat.isDirectory()) {
+      throw new Error(`Skill source path is not a directory: ${managedPath}`);
+    }
+    return managedPath;
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+  }
+
+  const localSourcePath = await resolveLinkedSkillSourcePath(homeDir, skill);
+  if (localSourcePath) {
+    const localSourceStat = await stat(localSourcePath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') {
+        throw new Error(`Skill source directory not found: ${localSourcePath}`);
+      }
+
+      throw error;
+    });
+
+    if (!localSourceStat.isDirectory()) {
+      throw new Error(`Skill source path is not a directory: ${localSourcePath}`);
+    }
+
+    return localSourcePath;
+  }
+
+  throw new Error(`Skill source directory not found: ${managedPath}`);
+}
+
+async function readResolvedLinkTarget(targetPath: string): Promise<string | null> {
+  try {
+    const stats = await lstat(targetPath);
+    if (!stats.isSymbolicLink()) {
+      return null;
+    }
+
+    return resolve(dirname(targetPath), await readlink(targetPath));
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function isManagedSkillLink(homeDir: string, skillName: string, targetPath: string): Promise<boolean> {
+  const linkTarget = await readResolvedLinkTarget(targetPath);
+  if (!linkTarget) {
+    return false;
+  }
+
+  const { skillsDir } = getSyncPaths(homeDir);
+  const managedPath = resolve(join(skillsDir, skillName));
+  if (linkTarget === managedPath) {
+    return true;
+  }
+
+  const localSourcePath = await resolveLinkedSkillSourcePath(homeDir, skillName);
+  return localSourcePath !== null && linkTarget === resolve(localSourcePath);
+}
 
 export async function ensureLinkedDirectory(
   sourceDir: string,
   targetDir: string
 ): Promise<'linked' | 'copied'> {
-  await rm(targetDir, { recursive: true, force: true });
+  const currentTarget = await readResolvedLinkTarget(targetDir);
+  if (currentTarget === resolve(sourceDir)) {
+    return 'linked';
+  }
+
+  try {
+    const existing = await lstat(targetDir);
+    if (!existing.isSymbolicLink()) {
+      throw new Error(`Refusing to replace existing non-symlink target: ${targetDir}`);
+    }
+    await rm(targetDir, { recursive: true, force: true });
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+  }
+
   await mkdir(dirname(targetDir), { recursive: true });
 
   try {
@@ -211,23 +294,10 @@ export async function linkConfiguredSkills(homeDir: string, request: LinkRequest
     : request.skillName
       ? [request.skillName]
       : [];
-  const { skillsDir } = getSyncPaths(homeDir);
   const results: LinkStatus[] = [];
 
   for (const skill of skillNames) {
-    const sourceDir = join(skillsDir, skill);
-    const sourceStat = await stat(sourceDir).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') {
-        throw new Error(`Skill source directory not found: ${sourceDir}`);
-      }
-
-      throw error;
-    });
-
-    if (!sourceStat.isDirectory()) {
-      throw new Error(`Skill source path is not a directory: ${sourceDir}`);
-    }
-
+    const sourceDir = await resolveConfiguredSkillSourceDir(homeDir, skill);
     const agents = expandTargetAgents(config, config.links[skill] ?? []);
 
     for (const agent of agents) {
@@ -285,7 +355,8 @@ export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> 
   const config = await loadConfig(homeDir);
   const results: LinkStatus[] = [];
   const localSkills = await listLocalSkills(homeDir);
-  const skillNames = [...new Set([...localSkills, ...Object.keys(config.links)])].sort();
+  const sourceSkills = [...await discoverActiveSourceSkillNames(homeDir, config.sources)];
+  const skillNames = [...new Set([...localSkills, ...sourceSkills, ...Object.keys(config.links)])].sort();
   const agentNames = Object.keys(config.agents).sort();
 
   for (const skill of skillNames) {
@@ -301,7 +372,11 @@ export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> 
         if (lstats.isSymbolicLink()) {
           try {
             await stat(targetDir);
-            results.push({ skill, agent, state: 'linked' });
+            if (await isManagedSkillLink(homeDir, skill, targetDir)) {
+              results.push({ skill, agent, state: 'linked' });
+            } else {
+              results.push({ skill, agent, state: 'broken' });
+            }
           } catch {
             results.push({ skill, agent, state: 'broken' });
           }
@@ -349,8 +424,10 @@ export interface StaleLinksBySkill {
 
 export async function findUnmanagedSkills(homeDir: string): Promise<UnmanagedSkill[]> {
   const config = await loadConfig(homeDir);
-  const { skillsDir } = getSyncPaths(homeDir);
-  const managedSkills = new Set(await listLocalSkills(homeDir));
+  const managedSkills = new Set([
+    ...await listLocalSkills(homeDir),
+    ...await discoverActiveSourceSkillNames(homeDir, config.sources)
+  ]);
   const unmanaged: UnmanagedSkill[] = [];
 
   for (const [agentName, rawAgentPath] of Object.entries(config.agents)) {
@@ -364,12 +441,11 @@ export async function findUnmanagedSkills(homeDir: string): Promise<UnmanagedSki
 
         const skillPath = join(agentPath, entry.name);
 
-        // Check if it's a symlink pointing to our managed skills
+        // Check if it's a symlink already managed by syncskill
         try {
-          const linkTarget = await readlink(skillPath);
-          if (linkTarget.startsWith(skillsDir)) continue;
+          if (await isManagedSkillLink(homeDir, entry.name, skillPath)) continue;
         } catch {
-          // Not a symlink, or error reading - continue checking
+          // Not a managed symlink, or error reading - continue checking
         }
 
         // Check if skill has SKILL.md (valid skill directory)
@@ -404,7 +480,6 @@ export async function findStaleLinks(
   skillNames?: string[]
 ): Promise<StaleLinksBySkill> {
   const config = await loadConfig(homeDir);
-  const { skillsDir } = getSyncPaths(homeDir);
   const staleBySkill: StaleLinksBySkill = {};
 
   // If specific skills provided, only check those; otherwise check all configured links
@@ -425,11 +500,9 @@ export async function findStaleLinks(
           continue;
         }
 
-        // Check if it's a symlink pointing to our managed skills directory
+        // Check if it's a symlink managed by syncskill
         try {
-          const linkTarget = await readlink(skillPath);
-          if (!linkTarget.startsWith(skillsDir)) {
-            // Not managed by syncskill, skip
+          if (!(await isManagedSkillLink(homeDir, skillName, skillPath))) {
             continue;
           }
 
@@ -532,16 +605,8 @@ async function reconcileStaleLinksImpl(
         continue;
       }
 
-      // Check if symlink points to a syncskill-managed path
-      let linkTarget: string;
-      try {
-        linkTarget = await readlink(targetPath);
-      } catch {
-        continue;
-      }
-
-      // Only manage symlinks that point to .syncskill/skills/
-      if (!linkTarget.includes('.syncskill') || !linkTarget.includes('skills')) {
+      // Only manage symlinks owned by syncskill
+      if (!(await isManagedSkillLink(homeDir, skillName, targetPath))) {
         result.skipped.push(targetPath);
         continue;
       }
