@@ -22,7 +22,7 @@ Documentation for the syncskill CLI tool.
 - **Dirty source recovery**: See top-level `update --force` and the `~/.syncskill/.backups/` sidecar backup notes in the guides below
 - **Remote sync policies**: See [Usage Guide - Remote Sync Workflow](usage-guide.md#remote-sync-workflow) for `--on-remote-deletion`, conflict policy flags, and `config.pull_backup` / `SYNCSKILL_PULL_BACKUP`
 - **Restore recovery**: See [Usage Guide - Reconciliation Workflow](usage-guide.md#reconciliation-workflow) for `restore <skill>` and [Configuration Guide - Directory Structure](config-guide.md#directory-structure) for `pre-pull` / `pre-restore` backup paths
-- **Install UX**: `syncskill install` with no target shows help; use `syncskill init`, `syncskill install self`, or `syncskill install <url-or-path>` for actual installs
+- **Install UX**: `syncskill install` with no target shows help; use `syncskill init`, `syncskill install self`, or `syncskill install <url-or-path>` for actual installs, and use `--plan` / `--apply` / `--resolutions` when you need install handoff or approval
 
 ## Specifications
 

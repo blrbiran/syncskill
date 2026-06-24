@@ -1,9 +1,9 @@
 # Syncskill — TypeScript 实现设计
 
-> **当前版本**：v2.9（2026-06-06）
+> **当前版本**：v2.9.1（2026-06-24）
 > **版本历史**：[CHANGELOG.md](CHANGELOG.md)
 >
-> 主要里程碑：v2.9 健壮性强化（L1 config 保护 + L2 saveConfig 退化检测 + L3 宽容加载 + Fix-A 远端 hash 回写 + Fix-B conflict 可见性 + scp SFTP 兼容 + config-sandbox lint + W_CONFLICT_SKIPPED/W_CONFIG_RESET 注册）| v2.8 CLI 表面积优化（`--on-deletion` → `--on-remote-deletion` + `--strict`/`--no-pull-backup` 降级为 env-var-only + 5 个 extended error code 合并 + `--plan`/`--dry-run` 关系明确化）| v2.7.5 spec/code 对账（版本头补齐 v2.7.4 round-4 内容 + §3.2 函数描述简化 + `--cwd` 移除 + `restore` preAction 排除补齐 + 残留 "Tier 1" 术语清理）| v2.7.4 round-4 `--yes-destructive` BREAKING + `remote add/rm/list` + `no-baseline` guard + reconcile-engine 框架 + `server` → `remote` rename + `install` 无参数行为变更 | v2.7.3 round-3 spec/code/docs 收口（§3.7 status 枚举 6→7 文字同步 + `install --type` flag 注册补齐 + docs hygiene） | v2.7.2 round-2 spec/code 收口 + 单一 canonical error code 注册表（Plan P + P5 lint 不变量）+ 死 executor 与死 code 清理（E_CONFLICT / E_SOURCE_DIRTY / W_PULL_BACKUP_SKIPPED）+ 5 个共享 helper 抽取（emitNeedsInput / findActionId / emitError / finalizeSyncCommand / expandLinkAgentNames）+ `--strict` 范围收紧到 4 命令 | v2.7.1 spec/code 收口 + v2.6 兼容包袱清零（sidecar 路径 + cross-server 裸名） + 全 Tier 1 命令 plan_ref 落地 + force-hint 架构不变量 | v2.7 -y 破坏性 verb 规则 + plan_ref 可追溯 + sidecar backup 统一目录 + plan flag `-`=stdin + link audience 自省 + cross-server-policy `server:` 前缀 + unresolved resolve_phase | v2.6 source merge 重设计 + takeover 独立命令 + --on-conflict 统一 + cross-server-policy server-name + --plan-file 移除 + per-server result | v2.5 spec 清理 + UnresolvedKind 重命名 + remote refresh 合并 + link build 降 Tier 2 | v2.4 sidecar backup + restore 命令 + conflict 决议接通 | v2.4.1 receiver Node 18 | v2.3 远端备份模型 + remote 命令族 + takeover 协议 | v2.2 plan-then-execute + --strict | v2.1 install self + --apply 命名规则
+> 主要里程碑：v2.9.1 健壮性补丁（Fix-C 现有 receiver backup 合并 config.links — 修复矩阵编辑器只写 config.json 导致 push 静默丢弃新 link 的契约缺口）| v2.9 健壮性强化（L1 config 保护 + L2 saveConfig 退化检测 + L3 宽容加载 + Fix-A 远端 hash 回写 + Fix-B conflict 可见性 + scp SFTP 兼容 + config-sandbox lint + W_CONFLICT_SKIPPED/W_CONFIG_RESET 注册）| v2.8 CLI 表面积优化（`--on-deletion` → `--on-remote-deletion` + `--strict`/`--no-pull-backup` 降级为 env-var-only + 5 个 extended error code 合并 + `--plan`/`--dry-run` 关系明确化）| v2.7.5 spec/code 对账（版本头补齐 v2.7.4 round-4 内容 + §3.2 函数描述简化 + `--cwd` 移除 + `restore` preAction 排除补齐 + 残留 "Tier 1" 术语清理）| v2.7.4 round-4 `--yes-destructive` BREAKING + `remote add/rm/list` + `no-baseline` guard + reconcile-engine 框架 + `server` → `remote` rename + `install` 无参数行为变更 | v2.7.3 round-3 spec/code/docs 收口（§3.7 status 枚举 6→7 文字同步 + `install --type` flag 注册补齐 + docs hygiene） | v2.7.2 round-2 spec/code 收口 + 单一 canonical error code 注册表（Plan P + P5 lint 不变量）+ 死 executor 与死 code 清理（E_CONFLICT / E_SOURCE_DIRTY / W_PULL_BACKUP_SKIPPED）+ 5 个共享 helper 抽取（emitNeedsInput / findActionId / emitError / finalizeSyncCommand / expandLinkAgentNames）+ `--strict` 范围收紧到 4 命令 | v2.7.1 spec/code 收口 + v2.6 兼容包袱清零（sidecar 路径 + cross-server 裸名） + 全 Tier 1 命令 plan_ref 落地 + force-hint 架构不变量 | v2.7 -y 破坏性 verb 规则 + plan_ref 可追溯 + sidecar backup 统一目录 + plan flag `-`=stdin + link audience 自省 + cross-server-policy `server:` 前缀 + unresolved resolve_phase | v2.6 source merge 重设计 + takeover 独立命令 + --on-conflict 统一 + cross-server-policy server-name + --plan-file 移除 + per-server result | v2.5 spec 清理 + UnresolvedKind 重命名 + remote refresh 合并 + link build 降 Tier 2 | v2.4 sidecar backup + restore 命令 + conflict 决议接通 | v2.4.1 receiver Node 18 | v2.3 远端备份模型 + remote 命令族 + takeover 协议 | v2.2 plan-then-execute + --strict | v2.1 install self + --apply 命名规则
 
 **相关文档**：
 - [E2E 测试框架设计](e2e-test-design.md) — End-to-End 测试框架规范
@@ -369,7 +369,7 @@ syncskill/
    - **禁止**：`git clone`、HTTP body 下载（MB+ archive）、`rsync` 真实文件传输
    - 准则：每次网络请求的数据量必须为**常数级（KB 量级）**，不依赖 skill 数量、仓库大小或目录文件数。否则用户回车后会"卡住"。
 2. **`buildPlan()` 与 `executePlan()` 都是纯函数**：从不 prompt、从不写盘、从不发起写网络请求。两者完全可重放。
-   - **`resolve_phase: "execute"` 的 unresolved**：少数决议项的 candidates 只有 execute 阶段才能枚举（plan 阶段连"候选集"都拿不到）。这些项在 plan 中已用 `resolve_phase: "execute"` 显式标注（§3.0.B.2），agent 据此机读判断。目前唯一的此类项是 `install` 的 `skill-selection`（凡需 materialize/clone/download 后才能可靠枚举实际 skill 集合的 external install 路径，均可使用该 kind；不限于 git source）。`executeInstallPlan()` 允许在 materialize 完成后、TTY + 无 `--apply` + 无 `--no-interactive` 组合下，弹出 inquirer prompt 收集 skill 子集决议；其他所有命令、其他所有 kind（`resolve_phase: "plan"` 项）都**不允许** execute 阶段 prompt。
+   - **`resolve_phase: "execute"` 的 unresolved**：少数决议项的 candidates 只有 execute 阶段才能枚举（plan 阶段连"候选集"都拿不到）。这些项在 plan 中已用 `resolve_phase: "execute"` 显式标注（§3.0.B.2），agent 据此机读判断。目前唯一的此类项是 `install` 的 `skill-selection`（git source 真实 skill 列表只有 clone 完成后才能枚举，plan 阶段只允许 `git ls-remote` 等常数级元数据）。`executeInstallPlan()` 允许在 clone 完成后、TTY + 无 `--apply` + 无 `--no-interactive` 组合下，弹出 inquirer prompt 收集 skill 子集决议；其他所有命令、其他所有 kind（`resolve_phase: "plan"` 项）都**不允许** execute 阶段 prompt。
    - `resolve_phase: "execute"` 项在以下模式下**仍不弹 prompt**，按下表降级：
      - `--apply <plan>` / `--apply -`：plan 含此类 unresolved 时必须用 `--resolutions` 提供决议；缺决议直接 `E_UNRESOLVED` + exit 7（不弹 prompt）。
      - `--no-interactive` 单独使用：输出 `prompt` 事件 + `E_NEEDS_INPUT` + exit 4。
@@ -501,7 +501,7 @@ Run `syncskill --help` for all commands.
 | `link clear <skill>` | 增量 | 人类 | 删除该 skill 的所有 link + 从 config 移除 |
 | `link build` | 批量（单阶段） | 人类 / AI | 按 config reconcile：创建/删除 symlink；支持 `--dry-run` + `--json` |
 | `link set <skill> <agent>...` | 声明式 | AI agent | 覆盖 `config.links[skill]` 为给定 agents |
-| `link list` / `link ls` | 只读 | 人类 / AI | 显示已落盘的链接状态矩阵（realized state） |
+| `link list` / `link ls` | 只读 | 人类 / AI | 显示链接状态矩阵 |
 
 **`unlink <skill>`**：顶级别名，等价 `link clear <skill>`。
 
@@ -749,7 +749,7 @@ Configuration Menu
 使用 `createPrompt` + `useKeypress` 实现二维网格交互。渲染示例：
 
 ```
-  Configured Skills → Agent Assignment       Page 1/3
+  Skills → Agent Assignment       Page 1/3
 
   Skill              claude     hermes     qoder
   ──────────────────────────────────────────────────────
@@ -782,39 +782,35 @@ Configuration Menu
 
 **Matrix editor 保存时的通配符优化**：如果某个 skill 选中了所有已配置的 agents，保存时写入 `["*"]` 而不是逐个列出所有 agent 名称。
 
-**`link edit`**（无 skill 参数）：直接调用矩阵编辑器。矩阵行集合 = managed local skills ∪ active source-derived skills ∪ `config.links` 中已存在的 skill key；其中 source-derived skills 按 leaf-skill 规则发现，并过滤 `config.sources[*].ignore[]`。这样 source 安装得到的 skill 可直接配置，且坏状态下残留的 `config.links` 条目不会从 UI 中消失。退出矩阵编辑器后，若 links 配置发生了变更，交互式询问用户是否立即 build（等效于 `link build`，创建/清理 symlink 使实际状态与配置一致）。用户确认则执行 reconcile，拒绝则仅保存配置不操作 symlink。
+**`link edit`**（无 skill 参数）：直接调用矩阵编辑器。退出矩阵编辑器后，若 links 配置发生了变更，交互式询问用户是否立即 build（等效于 `link build`，创建/清理 symlink 使实际状态与配置一致）。用户确认则执行 reconcile，拒绝则仅保存配置不操作 symlink。
 
-**`link list`** / **`link ls`**：显示已落盘的链接状态（realized state），不是配置意图矩阵。
+**`link list`** / **`link ls`**：显示链接状态。
 
 默认符号版输出：
 ```
-Realized Link Status
-Current on-disk state for managed skills × agents. Use `syncskill link` to edit configured targets.
-Symbols: `-` = not configured, `·` = configured but missing on disk.
+Link Status
 
 Skill                    claude*   agents    cursor*   kiro*
 ────────────────────────────────────────────────────────────
-web-artifacts-builder    ⚠         ·         ✓         -
-web-design-guidelines    ⚠         ·         ✓         -
-webapp-testing           ✓         ·         ✓         -
-xlsx                     ✗         ·         -         -
+web-artifacts-builder    ⚠         ·         ✓         ·
+web-design-guidelines    ⚠         ·         ✓         ·
+webapp-testing           ✓         ·         ✓         ·
+xlsx                     ✗         ·         ·         ·
 
-Legend: ✓ linked  ⚠ copied  · missing  ✗ broken  - unconfigured
+Legend: ✓ linked  ⚠ copied  · missing  ✗ broken
         * = private agent (requires separate link)
 ```
 
 `-v` / `--verbose` 文字版输出：
 ```
-Realized Link Status
-Current on-disk state for managed skills × agents. Use `syncskill link` to edit configured targets.
-Symbols: `-` = not configured, `·` = configured but missing on disk.
+Link Status
 
-Skill                    claude*        agents         cursor*       kiro*
-───────────────────────────────────────────────────────────────────────────
-web-artifacts-builder    copied         missing        linked        unconfigured
-web-design-guidelines    copied         missing        linked        unconfigured
-webapp-testing           linked         missing        linked        unconfigured
-xlsx                     broken         missing        unconfigured  unconfigured
+Skill                    claude*     agents      cursor*     kiro*
+──────────────────────────────────────────────────────────────────
+web-artifacts-builder    copied      missing     linked      missing
+web-design-guidelines    copied      missing     linked      missing
+webapp-testing           linked      missing     linked      missing
+xlsx                     broken      missing     missing     missing
 
 * = private agent (doesn't read ~/.agents/skills/, requires separate link)
 ```
@@ -868,6 +864,11 @@ xlsx                     broken         missing        unconfigured  unconfigure
 
 每个 server 一份独立 JSON 文件，是远端 `~/.syncskill/receiver_config.json`（§3.13）的**本地真相源**。push 时 scp 同步到远端，远端 receiver 按此文件决定 link 行为。所有编辑通过 `remote` 命令族（§3.1）操作本地备份，避免每次配置变更走 SSH 往返。
 
+**link 意图的两层写入与 push 合并（v2.9.1 Fix-C 澄清）**：link 意图存在两层——`config.json` `links`（全局，skill → agent 列表）与 `~/.syncskill/receivers/<server>.json` `links`（per-server，skill → 该 server 的 agent 列表）。两者写入路径不同：
+- **矩阵编辑器**（无参数 `remote` / `config` 的 remote 菜单，§3.1 / §3.3 矩阵编辑器）写 `config.json` `links` + `servers.<name>.skills.include`，**不直接写 per-server backup**。
+- **`remote link add <server> <skill> <agent>`** 等写入型子命令直接写 `~/.syncskill/receivers/<server>.json`（§3.1 "Backup 创建语义"）。
+- **push 合并**（§3.9 step 2）：`ensureReceiverBackup` 在 backup 已存在时，把 `config.links` 中已声明但 `backup.links` 缺失的 included skill 按 fresh-creation seed 规则补进 per-server backup（只增不覆盖）。这让矩阵编辑器的新增意图在下次 push 自动落到 per-server backup，无需用户手动 `remote link add` 或 `refresh <server>`。**显式 per-server override 优先**：`remote link add` 设过的 `backup.links[skill]` 不被合并覆盖（user-set state wins）。
+
 schema（v1）：
 
 ```json
@@ -899,9 +900,8 @@ schema（v1）：
 - 生成 `~/.syncskill/config.json`（含自动检测的 agent）
 - 复制 `config.example.yaml` 作为参考
 - **Config 保护（v2.9 L1）**：当 `config.json` 文件存在但 `loadConfig()` 抛异常时（验证失败、JSON 损坏等），`initRepo` **先备份**再创建新默认 config。备份路径：`config.json.pre-init-<ISO-date>.bak`。同时在 stderr 打印 `W_CONFIG_RESET` 警告（含备份路径 + 恢复命令）。`--json` 模式同时 emit warning 事件。这防止代码升级引入新验证规则时静默丢失用户的 servers/links/sources 数据
-- **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的**顶层 skill 目录**复制到 `~/.syncskill/skills/`。迁移单位是各 agent `skills/` 根下的一层目录；允许该目录作为 bundle / namespace 容器存在，即使顶层本身没有 `SKILL.md`，只要其子目录承载实际 leaf skills。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-scan` 参数跳过此步骤。
+- **自动迁移已有 skills（默认行为）**：当 `~/.syncskill/` 目录不存在或 `~/.syncskill/skills/` 为空时，按顺序扫描 agent 目录，将发现的 skill 复制到 `~/.syncskill/skills/`。重名 skill 不覆盖，以前面扫描到的目录为准。仅复制普通文件，跳过软链接。`--skip-scan` 参数跳过此步骤。
 - **自动更新 links**：如果迁移了 skills，自动将迁移的 skill 名写入 `config.json` 的 `links` 字段（使用 `ensureDefaultLinkTargets()` 计算默认目标，即 `["agents"]` + 已检测到的不支持 `~/.agents/skills/` 的 agent）。
-- **本地 managed skill 与 source skill 的发现语义不同**：`~/.syncskill/skills/` 下按顶层目录识别 managed skill，不要求顶层目录直接包含 `SKILL.md`；而 source / install 的发现继续遵循 leaf-skill 规则：single-skill root 直接包含 `SKILL.md`，multi-skill root 通过 `skills/<leaf>/SKILL.md` 识别。`syncskill link` 与 `doctor` 的可见 skill 集合 = managed local skills ∪ active source-derived skills；其中 source-derived 集合按 leaf-skill 规则发现，并过滤 `config.sources[*].ignore[]`。另外 `syncskill link` 仍保留 `config.links` 中已存在但当前文件缺失的 skill 行，便于修复坏状态。
 - **默认安装 syncskill skill（first-run 入口）**：v2.7.4 PR 5c（议题 1.5）起，`init` 是 first-run 安装内置 skill 的官方入口（`install` 命令的无参数 inquirer 菜单已删除）。流程末尾安装内置 syncskill skill 到 `~/.syncskill/skills/syncskill/` 并 link 到默认 agent（计算规则见 §3.2 `ensureDefaultLinkTargets()`）。
   - **TTY + 未安装时**：弹出 `confirm` prompt "Install built-in syncskill skill now? [Y/n]"（默认 Y）。用户按 N → 跳过安装；按 Ctrl-C → 跳过安装但 init 仍报成功。
   - **非 TTY / `--no-interactive` / `--json` / 已安装**：跳过 prompt，按默认行为执行（未安装则直接安装 → 保持 CI / script 中 `init` 一键即用的长期期望）。
@@ -971,9 +971,9 @@ syncskill install <url-or-path> [--name <n>] [--path <p>] [--type git|http|local
 │   ├─ http source: HEAD 请求拿 Content-Type / Content-Disposition
 │   ├─ local source: fs.stat 验证存在
 │   ├─ 计算默认 name / path（推断或显式 --name/--path 覆盖）
-│   ├─ 推断会发现的 skill 集合（凡需 materialize 后才能可靠枚举实际 skill 集合的 external source →
+│   ├─ 推断会发现的 skill 集合（git: SKILL.md 路径只能在 clone 后确定 →
 │   │   plan 标 unresolved.kind="skill-selection" + resolve_phase="execute"
-│   │   （§3.0.B.2）。execute 阶段 materialize 完成后列出 candidates 并按 flag 处理：
+│   │   （§3.0.B.2）。execute 阶段 clone 完成后列出 candidates 并按 flag 处理：
 │   │     - TTY → 弹 prompt（§3.0.B.4 约束 2 允许 resolve_phase=execute 的
 │   │       项在 execute 内部作为 sub-plan 周期处理；非"例外"，是正规化的契约）
 │   │     - `-y` / `--resolutions <path|->` 提供 → 应用决议
@@ -990,8 +990,6 @@ syncskill install <url-or-path> [--name <n>] [--path <p>] [--type git|http|local
 │   ├─ 应用决议（选中 skill 进 links，未选中进 ignore）
 │   ├─ 持久化 sources + links（含三种场景：新 source / 合并到已有同 URL source / 新建附加 source）
 │   ├─ 创建 symlink 到 agent 目录
-│   │   - manual / git / http / local archive：agent symlink 指向 `~/.syncskill/skills/<skill>`
-│   │   - local directory source：agent symlink 直接指向 source 的真实 skill 目录，不经过 `~/.syncskill/skills/`
 │   ├─ 保存 config.json
 │   └─ 刷新 skills-registry.json（写 http baseline 等）
 │
@@ -1091,7 +1089,7 @@ All skills from "examples/skill-a" are already included in source "my-skills".
 清理规则：
 1. 遍历所有 `config.agents` 目录，检查指定 skill（或所有 skill）是否存在需要清理的 stale 链接
 2. **仅清理 syncskill 管理的软链接**：symlink target 能被 `resolveSkillPath()` 解析到（指向 `~/.syncskill/skills/` 或 `config.sources` 中的路径）
-3. **不清理实体目录**：非 symlink 的真实目录不动；若后续 `link build` / `install` 试图接管真实目录，默认报错拒绝覆盖，除非用户显式确认 takeover
+3. **不清理实体目录**：非 symlink 的真实目录不动，可能是用户手动放置的
 4. **不清理非 syncskill 管理的链接**：symlink target 不在 syncskill 管理范围内的不动
 5. 一个 symlink 是 stale 的条件：skill 名在 `config.links` 中存在但该 agent 不在其展开后的目标列表中，或 skill 名不在 `config.links` 中（已完全移除）
 
@@ -1420,10 +1418,7 @@ interface SourceConfig {
 
 **Skill 发现机制**：
 
-source / install discovery 基于 **SKILL.md** 规则，而本地 managed skills 不是同一套语义。
-
-- **managed local skills**：`~/.syncskill/skills/` 下按顶层目录识别，每个顶层目录就是一个 managed skill；该顶层目录可以是 bundle / namespace 容器，不要求直接包含 `SKILL.md`
-- **source / install discovery**：给定一个 source subdir，在该目录下按 leaf-skill 规则发现 skill——single-skill root 直接包含 `SKILL.md`，multi-skill root 通过 `skills/<leaf>/SKILL.md` 识别
+Skill 发现统一基于**递归搜索 SKILL.md 文件**。给定一个 subdir，在该目录下递归搜索所有含 SKILL.md 的目录，每个这样的目录是一个独立的 skill（名称 = 该目录名）。
 
 `skill_subdir` 取值语义：
 - `"."` → 仓库根目录（递归搜索整个仓库）— **默认值**
@@ -1651,10 +1646,7 @@ Step 5: 输出更新报告（result.summary.data，schema 见 §11.6）
 
 **全局 skill 发现**：
 
-统一通过 `discoverAllSkills(homeDir, config)` 函数，合并 `~/.syncskill/skills/` 和所有 sources 的 skill。
-
-- 本地 `~/.syncskill/skills/` 一侧按顶层目录识别 managed skills
-- source 一侧继续通过 `discoverSourceSkills(...)` 按 leaf-skill / `SKILL.md` 规则发现
+统一通过 `discoverAllSkills(config)` 函数，合并 `~/.syncskill/skills/` 和所有 sources 的 skill。
 
 ### 3.9 `sync_engine.ts` — 核心同步流程
 
@@ -1665,7 +1657,7 @@ Step 5: 输出更新报告（result.summary.data，schema 见 §11.6）
 1. 按需部署 receiver：计算本地 `sync_receiver.mjs` 的 MD5 hash，通过 SSH `md5sum` 获取远程文件 hash，仅在 hash 不同或远程文件不存在时重新部署 `sync_receiver.mjs` + `bootstrap_remote.sh`（首次部署时同时 `ssh bash bootstrap_remote.sh` 做目录预创建 + Node 存在性预检）
 2. 读取本地 receiver 备份 `~/.syncskill/receivers/<server>.json`（§3.3）：
    - 若备份不存在 → 走 **scan-based auto-synthesize**：详细规则见 §3.3 节场景 2。简述：先 SSH `scan-agents` 拉真实远端布局，按 symlink/真目录/远端独有/本地新建 4 类分别填 `links`；持久化后推流程继续。SSH 失败 → abort + `E_RECEIVER_SCAN_FAILED`（exit 5），用户需先跑 `syncskill refresh <server>` 或修 SSH 后重试。
-   - 备份存在 → 提取 `remote_agents` + `links` 矩阵进入下游步骤
+   - 备份存在 → `ensureReceiverBackup` **先合并再进入下游**：用 backup 自身的 `remote_agents`（不重新 SSH 扫描）把 `config.links` 中已声明、但 `backup.links` 缺失的 included skill 按 fresh-creation 同款 seed 规则补进 `backup.links`（只增不覆盖——用户已设的 link 与 `[]` 保护真目录项一律保留；有变更才落盘）。这闭合"矩阵编辑器只写 `config.json` links、不写 per-server backup"的契约缺口（v2.9.1 Fix-C，bug-051）：否则 push 读 stale backup 会把矩阵编辑器新加的 skill 静默踢出 push 集，push 仍打印 "complete"。合并后提取 `remote_agents` + `links` 矩阵进入下游步骤
 3. **计算推送集**：`pushSet = { skill | links[skill] 非空 且 该 skill 在本地存在 }`。push 不"推所有本地 skill"，而是按 per-server `links` 矩阵筛选，避免 server A 拉回的远端独有 skill 污染 server B 的远端
 4. 计算本地 hash（仅 pushSet 内的 skill）
 5. 拉取远程 manifest
@@ -2577,7 +2569,7 @@ interface RepairOptions {
 }
 
 // 核心函数
-function diagnoseConfig(config: SyncSkillConfig, skillsDir: string, homeDir: string): Promise<DiagnosticReport>;
+function diagnoseConfig(config: SyncSkillConfig, paths: SyncPaths): Promise<DiagnosticReport>;
 function repairConfig(config: SyncSkillConfig, report: DiagnosticReport, options: RepairOptions): SyncSkillConfig;
 function formatDiagnosticReport(report: DiagnosticReport): string;
 function formatDiagnosticSummary(report: DiagnosticReport): string;
@@ -2589,7 +2581,7 @@ function formatDiagnosticSummary(report: DiagnosticReport): string;
 |------|----------|---------|---------|
 | `E_NO_VALID_AGENTS` | error | `agents` 中所有路径都不存在 | 阻断，提示运行 `doctor --fix` |
 | `W_AGENT_PATH_INVALID` | warning | 单个 agent 路径不存在 | 从 `agents` 中移除 |
-| `W_SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 不在 `~/.syncskill/skills/` 顶层 managed local skill 集合，也不在 active source-derived skill 集合中；其中 source-derived 集合按 leaf-skill 规则发现，并过滤 `config.sources[*].ignore[]` | 从 `links` 中移除该 skill |
+| `W_SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 在 `~/.syncskill/skills/` 和 sources 中都不存在 | 从 `links` 中移除该 skill |
 | `W_AGENT_NOT_CONFIGURED` | warning | `links[skill]` 中引用的 agent 不在 `agents` 中 | 从该 skill 的 targets 中移除该 agent |
 | `W_SOURCE_PATH_INVALID` | warning | `sources` 中 local 类型的 `path` 不存在 | 从 `sources` 中移除 |
 | `W_REGISTRY_CORRUPT` | warning | `skills-registry.json` 解析失败或 schema 不合法 | 备份损坏文件后重建 `http_baselines` 字段（ignore 状态由 `config.sources[].ignore[]` 持有）。若 `--fix` 模式下重建仍失败 → 升级为 `E_REGISTRY_CORRUPT` exit 3 |
@@ -3005,21 +2997,8 @@ plain-text 输出（无 `--json`）**不含**这些字段（人类优先 C1：te
 
 #### 11.6.5 `link list`
 
-返回 realized state，而不是配置意图矩阵。覆盖所有 managed local skills × configured agents；状态枚举包含 `linked` / `copied` / `broken` / `missing` / `unconfigured`。
-
 ```json
-{
-  "matrix": [
-    {
-      "skill": "skill-a",
-      "agents": {
-        "claude": "linked",
-        "cursor": "missing",
-        "hermes": "unconfigured"
-      }
-    }
-  ]
-}
+{ "matrix": [{ "skill": "skill-a", "agents": { "claude": "linked", "cursor": "missing" } }] }
 ```
 
 #### 11.6.6 `install` / `install self`
@@ -3040,8 +3019,8 @@ plain-text 输出（无 `--json`）**不含**这些字段（人类优先 C1：te
 
 **plan_ref 语义**：
 
-- `skills.installed[].plan_ref` → 对应的 source-install action id（当前实现为 `install-source`；同一 source 装出多个 skill 时，所有 installed[] 项共享同一 plan_ref —— 1:N fan-out）
-- `links_created[].plan_ref` → 对应的 `link-skill` action id（同一 plan 内所有 created link 共享该 id）
+- `skills.installed[].plan_ref` → 对应的 `install.source.*` action id（同一 source 装出多个 skill 时，所有 installed[] 项共享同一 plan_ref —— 1:N fan-out）
+- `links_created[].plan_ref` → 对应的 `install.link` action id（同一 plan 内所有 link 共享该 id —— `install.link` action 携带 `targets[]` 列表 N 个 agent × M 个 skill 全部回指它）
 - `skills.ignored[]` 由用户决议产生（skill-selection unresolved），无 plan action 对应，省略 `plan_ref`
 - `skills.already_installed[]` 仅是字符串列表（spec 未指定子项 schema），无 `plan_ref`
 

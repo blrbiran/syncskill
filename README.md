@@ -9,7 +9,7 @@ v2 adds JSONL output, non-interactive execution, and plan/apply workflows for ag
 - **Multi-agent support**: Manage skills across Claude, Hermes, Qoder, and other AI agents
 - **Source management**: Import skills from git repositories, HTTP archives, or local directories with `install`; maintain them with `source list`, top-level `update`, and `source remove`
 - **Declarative linking**: Manage skill links with `link set`, `link add`, `link remove`, `link clear`, and `link build`
-- **Agent automation**: Stream JSONL events, disable prompts, or split planning from execution with `--json`, `--no-interactive`, `--plan`, `--apply`, and `--resolutions`
+- **Agent automation**: Stream JSONL events, disable prompts, or split install planning from execution with `--json`, `--no-interactive`, `--plan`, `--apply`, and `--resolutions`
 - **Remote sync**: Push and pull skills to/from remote servers via SSH/rsync, with optional `--timeout` control
 - **Conflict resolution**: Three-way merge with manual or automatic resolution
 - **Cross-platform**: Works on macOS, Linux, and Windows
@@ -41,11 +41,14 @@ syncskill
 # Install the syncskill skill (for AI agents)
 syncskill install self
 
-# Preview the built-in install plan first
+# Preview built-in or external install plans first
 syncskill --plan install self
+syncskill --plan install https://github.com/org/skills-repo
 
 # Show install help when no target is provided
 syncskill install
+# Apply a saved install plan (provide resolutions when required)
+syncskill --apply /tmp/install.plan.json --resolutions /tmp/install.resolutions.json install https://github.com/org/skills-repo
 
 # Link skills to agent directories
 syncskill link                    # Open matrix editor

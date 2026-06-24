@@ -22,12 +22,14 @@ syncskill --no-interactive link build
 
 # Generate a plan, save it, and execute it
 syncskill --plan install self > /tmp/syncskill.plan.json
+syncskill --plan install https://github.com/org/skills-repo > /tmp/external-install.plan.json
 
-# Execute a saved plan later
-syncskill --apply /tmp/syncskill.plan.json
+# Execute saved plans later
+syncskill --apply /tmp/syncskill.plan.json install self
+syncskill --apply /tmp/external-install.plan.json --resolutions /tmp/install.resolutions.json install https://github.com/org/skills-repo
 ```
 
-Use `--resolutions <path>` when a generated plan contains unresolved items that should be answered by another agent or approval step.
+Use `--resolutions <path>` when a generated plan contains unresolved items that should be answered by another agent or approval step. External installs can produce unresolved skill-selection items that must be resolved before `--apply` executes.
 
 Environment variables also support automation:
 
@@ -273,6 +275,7 @@ Each server entry supports:
 | `identity_file` | No | Path to SSH private key |
 | `remote_repo` | No | Remote syncskill repository path |
 | `remote_agents` | No | Agent directory mappings on the remote server |
+| `skills.include` | No | Skills that should be active on this server when using the remote matrix editor |
 
 Example:
 
@@ -296,9 +299,10 @@ Example:
 
 Remote lifecycle notes:
 
-- `config show` or direct inspection of `~/.syncskill/config.json` is the source of truth for configured transport fields such as `host`, optional `user`, optional `port`, optional `identity_file`, optional `remote_repo`, and configured `remote_agents`
+- `config show` or direct inspection of `~/.syncskill/config.json` is the source of truth for configured transport fields such as `host`, optional `user`, optional `port`, optional `identity_file`, optional `remote_repo`, configured `remote_agents`, and optional per-server `skills.include`
 - `refresh --remote <server>` scans the configured `remote_agents` roots and updates `~/.syncskill/receivers/<server>.json` from the real remote skill directories
 - `remote show <name>` prints the local receiver backup for one remote (`version`, `server`, `updated_at`, `remote_agents`, `links`)
+- The remote matrix editor (`syncskill remote` / `syncskill config remote`) updates `config.json` intent first; when a receiver backup already exists, the next `push` seeds any missing `backup.links[skill]` entries for included skills without overriding explicit per-server backup state
 - If a configured remote agent root path does not exist, `refresh --remote` fails instead of treating the remote skill tree as empty
 
 ### `sources`

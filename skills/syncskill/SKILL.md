@@ -27,6 +27,30 @@ Use this skill when:
 
 Install options: `--name`, `--path` (repo-relative subdirectory containing skills), `--skill-subdir` (alias for `--path`), `--type` (`git`, `http`, `local`), `--branch`, `-y`
 
+Install plan/apply workflow:
+- `syncskill --plan install self`
+- `syncskill --plan install <url-or-path>`
+- `syncskill --apply <plan> --resolutions <file>` when the plan contains unresolved install choices
+- External installs may require `--resolutions` for skill selection before `--apply` can execute
+
+Use `syncskill install` with no target to show help.
+
+`link list` / `link ls` shows realized on-disk status, while `link` / `link edit` / `link set` manage configured intent.
+
+`remote` / `config remote` edits skill → server intent in `config.json`; if a receiver backup already exists, the next `push` seeds missing included skills into `~/.syncskill/receivers/<server>.json` without overriding explicit per-server backup links.
+
+Use `remote show <name>` to inspect the local receiver backup (`updated_at`, `remote_agents`, `links`).
+
+Use `restore <skill> [--server <server>|--all-servers|--dry-run]` to replay the latest pre-pull backup and mark manifests as conflict.
+
+Automation flags: `--json`, `--no-interactive`, `--yes-destructive`, `SYNCSKILL_STRICT=1`, `SYNCSKILL_PULL_BACKUP`.
+
+`pull` / `sync` use `--on-remote-deletion` for remote delete handling, `remote add` supports `--remote-repo`, and `install <url-or-path>` supports `--type`.
+
+Prefer the current repo-relative path wording: `repo-relative subdirectory containing skills`.
+
+Key reminders: `Show install help with no target`, `--type`, `--remote-repo`, `--yes-destructive`, `--on-remote-deletion`, `SYNCSKILL_STRICT=1`, `SYNCSKILL_PULL_BACKUP`, `restore <skill> [--server <server>|--all-servers|--dry-run]`.
+
 ### Link Management
 
 | Command | Description |

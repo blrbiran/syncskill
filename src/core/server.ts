@@ -119,6 +119,57 @@ export function buildReceiverConfigPayload(
   };
 }
 
+function normalizeReceiverBackupLinks(links: Record<string, string[]>): Record<string, string[]> {
+  return Object.fromEntries(
+    Object.entries(links)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([skill, agents]) => [skill, agents.includes('*') ? ['*'] : [...new Set(agents)].sort()])
+  );
+}
+
+export function mergeConfiguredLinksIntoReceiverBackup(
+  backup: ReceiverBackup,
+  configuredLinks: Record<string, string[]>,
+  includedSkills: string[],
+  updatedAt: string
+): ReceiverBackup {
+  const remoteAgents = Object.keys(backup.remote_agents).sort();
+  const nextLinks = Object.fromEntries(Object.entries(backup.links).map(([skill, agents]) => [skill, [...agents]]));
+  let changed = false;
+
+  for (const skill of [...new Set(includedSkills)].sort()) {
+    if (skill in nextLinks) {
+      continue;
+    }
+
+    const configuredTargets = configuredLinks[skill] ?? [];
+    if (configuredTargets.length === 0) {
+      continue;
+    }
+
+    const seededTargets = configuredTargets.includes('*')
+      ? ['*']
+      : [...new Set(configuredTargets.filter((agent) => agent in backup.remote_agents))].sort();
+
+    if (seededTargets.length === 0) {
+      continue;
+    }
+
+    nextLinks[skill] = seededTargets;
+    changed = true;
+  }
+
+  if (!changed) {
+    return backup;
+  }
+
+  return {
+    ...backup,
+    updated_at: updatedAt,
+    links: normalizeReceiverBackupLinks(nextLinks)
+  };
+}
+
 export function mergeRefreshedReceiverBackup(
   previous: ReceiverBackup | null,
   server: ConfiguredServer,
@@ -168,11 +219,7 @@ export function mergeRefreshedReceiverBackup(
   backup.remote_agents = Object.fromEntries(
     Object.entries(backup.remote_agents).sort(([left], [right]) => left.localeCompare(right))
   );
-  backup.links = Object.fromEntries(
-    Object.entries(backup.links)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([skill, agents]) => [skill, agents.includes('*') ? ['*'] : [...new Set(agents)].sort()])
-  );
+  backup.links = normalizeReceiverBackupLinks(backup.links);
 
   return backup;
 }

@@ -2,6 +2,7 @@ import { access, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getConfiguredServer, loadConfig, type ConfiguredServer, type ConflictResolution } from '../config/config.js';
+import type { SyncSkillConfig } from '../config/types.js';
 import { buildSkillsRegistry } from '../source.js';
 import { applyResolution, reconcileManifest } from './conflict.js';
 import {
@@ -32,7 +33,7 @@ import {
   type ReceiverConfigPayload,
   type TransportRuntime
 } from './transport.js';
-import { buildReceiverConfigPayload, loadReceiverBackupIfExists } from './server.js';
+import { buildReceiverConfigPayload, loadReceiverBackupIfExists, mergeConfiguredLinksIntoReceiverBackup, saveReceiverBackup } from './server.js';
 import { backupSkillBeforePull } from '../utils/backup.js';
 
 export interface SyncEngineOptions {
@@ -450,7 +451,19 @@ export async function pushToServers(homeDir: string, servers?: string[], options
 
   for (const serverName of targetServers) {
     const server = getConfiguredServer(config, serverName);
-    const receiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
+    let receiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
+    if (receiverBackup) {
+      const mergedBackup = mergeConfiguredLinksIntoReceiverBackup(
+        receiverBackup,
+        config.links,
+        getIncludedServerSkills(config, serverName),
+        options.now ?? new Date().toISOString()
+      );
+      if (mergedBackup !== receiverBackup) {
+        await saveReceiverBackup(homeDir, mergedBackup);
+        receiverBackup = mergedBackup;
+      }
+    }
     const receiverConfig = buildReceiverConfigPayload(server, receiverBackup);
     const updated = await prepareManifest(homeDir, server, runtime, options.now);
     let manifest = applyConflictPolicy(updated.manifest, configuredConflictPolicy, updated.updatedAt);
@@ -1133,6 +1146,15 @@ function resolveTargetServers(
   servers?: string[]
 ): string[] {
   return servers === undefined || servers.length === 0 ? Object.keys(config.servers) : [...new Set(servers)];
+}
+
+function getIncludedServerSkills(config: SyncSkillConfig, serverName: string): string[] {
+  const serverRecord = config.servers[serverName] as Record<string, unknown> | undefined;
+  const serverSkills = serverRecord?.skills as { include?: string[] } | undefined;
+  const included = Array.isArray(serverSkills?.include)
+    ? serverSkills.include.filter((skill): skill is string => typeof skill === 'string')
+    : Object.keys(config.links);
+  return [...new Set(included)].sort();
 }
 
 function getSkillsDir(homeDir: string): string {

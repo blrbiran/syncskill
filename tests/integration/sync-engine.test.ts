@@ -96,7 +96,9 @@ describe('sync engine orchestration', () => {
         version: 1,
         conflict_resolution: 'manual',
         agents: {},
-        links: {},
+        links: {
+          welcome: ['claude']
+        },
         servers: {
           alpha: {
             host: 'alpha.example.com',
@@ -117,9 +119,7 @@ describe('sync engine orchestration', () => {
       remote_agents: {
         claude: '/srv/claude'
       },
-      links: {
-        welcome: ['claude']
-      }
+      links: {}
     });
 
     const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
@@ -144,7 +144,7 @@ describe('sync engine orchestration', () => {
     expect(runtime.calls.some((call) => call.file === 'rsync' && call.args.at(-1) === 'alpha.example.com:~/.syncskill/skills/welcome/')).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'write-manifest')).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'apply')).toBe(true);
-    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > ~/.syncskill/receiver_config.json' && call.stdin?.includes('"claude"') && call.stdin?.includes('"links"') && !call.stdin?.includes('"stale"'))).toBe(true);
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > ~/.syncskill/receiver_config.json' && call.stdin?.includes('"claude"') && call.stdin?.includes('"links"') && call.stdin?.includes('"welcome"') && !call.stdin?.includes('"stale"'))).toBe(true);
 
     const manifest = await loadServerManifest(homeDir, 'alpha');
     expect(manifest.skills.welcome.direction).toBe('skip');
@@ -163,6 +163,61 @@ describe('sync engine orchestration', () => {
         })
       ])
     );
+  });
+
+  it('pushToServers only seeds missing backup links for skills included on that server', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {
+          alpha: ['claude'],
+          beta: ['claude']
+        },
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {},
+            skills: {
+              include: ['alpha']
+            }
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    await saveReceiverBackup(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-01T00:30:00.000Z',
+      remote_agents: {
+        claude: '/srv/claude'
+      },
+      links: {}
+    });
+
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), '# alpha\n', 'utf8');
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00.000Z', skills: {} })
+    });
+
+    await pushToServers(homeDir, ['alpha'], {
+      runtime,
+      now: '2026-05-01T01:30:00.000Z'
+    });
+
+    const receiverConfigWrites = runtime.calls.filter((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > ~/.syncskill/receiver_config.json');
+    const finalReceiverConfigWrite = receiverConfigWrites.at(-1);
+    expect(finalReceiverConfigWrite?.stdin).toContain('"alpha"');
+    expect(finalReceiverConfigWrite?.stdin).not.toContain('"beta"');
   });
 
   it('pullFromServer imports remote-only skills and finalizes local state', async () => {

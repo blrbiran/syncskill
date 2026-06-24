@@ -21,18 +21,19 @@ v2 adds automation-friendly global flags and environment variables so AI agents 
 ```bash
 # Preview the plan without changing files
 syncskill --plan install self
+syncskill --plan install https://github.com/org/skills-repo
 
 # Save the plan, then execute it
-syncskill --plan install self > /tmp/install-self.plan.json
+syncskill --plan install https://github.com/org/skills-repo > /tmp/install.plan.json
 
 # Execute a previously generated plan
-syncskill --apply /tmp/install-self.plan.json
+syncskill --apply /tmp/install.plan.json --resolutions /tmp/install.resolutions.json install https://github.com/org/skills-repo
 
 # Non-interactive JSON mode for agents and scripts
 syncskill --json --no-interactive link list
 ```
 
-Prefer `--json` for machine-readable output and `--no-interactive` when a command must fail instead of prompting. Use `--plan`, `--apply`, and `--resolutions <path>` when your workflow needs approval or handoff between one agent that plans and another that executes. To save a generated plan, use shell redirection with `--plan`.
+Prefer `--json` for machine-readable output and `--no-interactive` when a command must fail instead of prompting. Use `--plan`, `--apply`, and `--resolutions <path>` when your workflow needs approval or handoff between one agent that plans and another that executes. External installs may require `--resolutions` when the generated plan contains unresolved skill selection.
 
 ### Init Options
 
@@ -269,7 +270,7 @@ Install options:
 `syncskill install` with no target shows help. Use `install self` for the built-in skill or `install <url-or-path>` for external sources.
 Repeated installs from the same git or HTTP source reuse the existing source entry. If the new request widens the scope, syncskill expands the recorded `path` and writes unrelated skills to `config.sources[*].ignore[]` instead of creating duplicate source records.
 
-For v2 plan-then-execute workflows, `install self` also supports the global `--plan`, `--apply`, and `--resolutions` flags. Save the generated plan with shell redirection when needed. This is the supported way to preview or hand off built-in skill installation before making changes.
+For v2 plan-then-execute workflows, both `install self` and `install <url-or-path>` support the global `--plan`, `--apply`, and `--resolutions` flags. Save the generated plan with shell redirection when needed. This is the supported way to preview or hand off built-in and external installs before making changes.
 
 ### Typical Loop
 
@@ -346,7 +347,8 @@ Recommended flow:
 2. Run `syncskill config show` or inspect `~/.syncskill/config.json` to review transport fields such as `host`, `user`, `port`, `identity_file`, and optional `remote_repo`
 3. Run `syncskill refresh --remote alpha` when you want reconciliation to rescan the remote skill tree and update `~/.syncskill/receivers/alpha.json`
 4. Run `syncskill remote show alpha` to inspect the resulting local receiver backup (`updated_at`, `remote_agents`, `links`)
-5. Run `syncskill pull alpha` when you want to materialize remote skill contents locally.
+5. Use `syncskill remote` / `syncskill config remote` to edit skill → server intent in the matrix UI when needed; this updates `config.json` and the next `push` seeds missing per-server backup links for included skills.
+6. Run `syncskill pull alpha` when you want to materialize remote skill contents locally.
 
 Note: `server probe` was removed in v2.
 

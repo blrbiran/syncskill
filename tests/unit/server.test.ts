@@ -10,6 +10,7 @@ import {
   formatServerListLines,
   formatServerShowLines,
   loadReceiverBackupIfExists,
+  mergeConfiguredLinksIntoReceiverBackup,
   mergeRefreshedReceiverBackup,
   mutateReceiverBackup,
   snapshotReceiverBackupState,
@@ -187,6 +188,47 @@ describe('server helpers', () => {
         shared: ['*'],
         stale: ['codex'],
         welcome: ['claude']
+      }
+    });
+  });
+
+  it('merges configured links into an existing receiver backup without overriding explicit backup state', () => {
+    expect(mergeConfiguredLinksIntoReceiverBackup(
+      {
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-06-24T00:00:00.000Z',
+        remote_agents: {
+          claude: '/srv/claude',
+          cursor: '/srv/cursor'
+        },
+        links: {
+          explicit: [],
+          existing: ['claude']
+        }
+      },
+      {
+        existing: ['claude'],
+        explicit: ['cursor'],
+        wildcard: ['*'],
+        scoped: ['claude', 'missing-agent'],
+        skipped: []
+      },
+      ['existing', 'explicit', 'wildcard', 'scoped', 'skipped'],
+      '2026-06-24T01:00:00.000Z'
+    )).toEqual({
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-06-24T01:00:00.000Z',
+      remote_agents: {
+        claude: '/srv/claude',
+        cursor: '/srv/cursor'
+      },
+      links: {
+        existing: ['claude'],
+        explicit: [],
+        scoped: ['claude'],
+        wildcard: ['*']
       }
     });
   });

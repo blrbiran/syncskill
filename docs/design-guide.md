@@ -207,7 +207,7 @@ Local state lives under `~/.syncskill/`:
 
 When a dirty source is overwritten during top-level `update --force`, syncskill writes HTTP source backups to `~/.syncskill/.backups/sources/<source>/pre-update/`. Pull and sync flows also write skill backups to `~/.syncskill/.backups/skills/<skill>/pre-pull/` before overwriting local content. `restore <skill>` then snapshots the current local skill tree into `~/.syncskill/.backups/skills/<skill>/pre-restore/`, restores the latest pre-pull snapshot into place, and relies on a sticky manifest flag to keep reconciliation in `conflict` until the user resolves it. Recovery is path-based rather than driven by `update-history.json` or a `source restore` command.
 
-Remote synchronization exchanges skill trees plus manifest state, while `receivers/<server>.json` preserves the locally cached remote receiver topology (`remote_agents`, `links`) that refresh and remote commands operate on. Manifest entries may also persist `forced_conflict: true` when restore intentionally keeps a reconciled hash set in explicit conflict.
+Remote synchronization exchanges skill trees plus manifest state, while `receivers/<server>.json` preserves the locally cached remote receiver topology (`remote_agents`, `links`) that refresh and remote commands operate on. The remote matrix editor writes global/per-server intent into `config.json`; when a receiver backup already exists, `push` seeds any missing included skills from `config.links` into that backup before writing `receiver_config.json`, without overriding explicit per-server backup entries. Manifest entries may also persist `forced_conflict: true` when restore intentionally keeps a reconciled hash set in explicit conflict.
 
 ## Sync Protocol
 
@@ -235,7 +235,7 @@ Phase 3: RECONCILE (remote receiver)
 The push operation follows these steps:
 
 1. **Receiver deployment** (hash-based): Compare local `sync_receiver.mjs` MD5 hash with remote. Only redeploy if hash differs or file missing.
-2. **Push receiver config**: Always push `receiver_config.json` (remote_agents may change).
+2. **Push receiver config**: Build `receiver_config.json` from the local receiver backup; when a backup already exists, seed any missing included skills from `config.links` before pushing so remote matrix edits in `config.json` are not silently dropped.
 3. **Compute local hashes**: Calculate MD5 for each skill directory.
 4. **Fetch remote manifest**: Get current remote state.
 5. **Compute delta**: Compare using 3-field model (local_hash, remote_hash, recorded_hash).

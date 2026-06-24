@@ -1222,8 +1222,8 @@ describe('reconciliation CLI', () => {
     await mkdir(claudeDir, { recursive: true });
     await mkdir(cursorDir, { recursive: true });
     await mkdir(hermesDir, { recursive: true });
-    await writeFile(join(claudeDir, 'my-skill'), 'stale file', 'utf8');
-    await writeFile(join(hermesDir, 'my-skill'), 'stale file', 'utf8');
+    await symlink(skillDir, join(claudeDir, 'my-skill'));
+    await symlink(skillDir, join(hermesDir, 'my-skill'));
 
     mockCheckbox.mockResolvedValue(['claude', 'cursor']);
     mockConfirm.mockResolvedValue(true);
@@ -1253,7 +1253,7 @@ describe('reconciliation CLI', () => {
     });
     await expect(readlink(join(claudeDir, 'my-skill'))).resolves.toBe(skillDir);
     await expect(readlink(join(cursorDir, 'my-skill'))).resolves.toBe(skillDir);
-    await expect(readFile(join(hermesDir, 'my-skill'), 'utf8')).resolves.toBe('stale file');
+    await expect(readlink(join(hermesDir, 'my-skill'))).rejects.toThrow();
     expect(consoleLog).toHaveBeenCalledWith('✓ Updated my-skill: linked to cursor, unlinked from hermes');
   });
 
