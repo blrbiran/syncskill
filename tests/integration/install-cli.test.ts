@@ -492,6 +492,67 @@ describe('install CLI command', () => {
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'retry-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# retry');
   });
 
+  it('reports already-installed skills when reinstalling the same git subdir skill', async () => {
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+
+    await mkdir(join(workRepoDir, 'skills', 'research', 'arxiv'), { recursive: true });
+    await writeFile(join(workRepoDir, 'skills', 'research', 'arxiv', 'SKILL.md'), '# arxiv');
+    await commitAll(workRepoDir, 'Add arxiv skill');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    const commonOptions = {
+      cwd: join(import.meta.dirname, '../..'),
+      env: { ...process.env, HOME: homeDir }
+    };
+
+    const first = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
+      commonOptions
+    );
+    expect(first.stdout).toContain('Installed 1 skill(s)');
+
+    const second = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
+      commonOptions
+    );
+    expect(second.stdout).toContain('Already installed: arxiv');
+    expect(second.stdout).not.toContain('No skills installed.');
+  });
+
+  it('emits already_installed in json output when reinstalling the same git subdir skill', async () => {
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+
+    await mkdir(join(workRepoDir, 'skills', 'research', 'arxiv'), { recursive: true });
+    await writeFile(join(workRepoDir, 'skills', 'research', 'arxiv', 'SKILL.md'), '# arxiv');
+    await commitAll(workRepoDir, 'Add arxiv skill');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    const commonOptions = {
+      cwd: join(import.meta.dirname, '../..'),
+      env: { ...process.env, HOME: homeDir }
+    };
+
+    await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
+      commonOptions
+    );
+
+    const { stdout } = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', '--json', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
+      commonOptions
+    );
+
+    const resultEvent = stdout.trim().split('\n').map((line) => JSON.parse(line)).find((event) => event.type === 'result');
+    expect(resultEvent.ok).toBe(true);
+    expect(resultEvent.summary.installedSkills).toEqual([]);
+    expect(resultEvent.summary.data.skills.installed).toEqual([]);
+    expect(resultEvent.summary.data.skills.already_installed).toEqual(['arxiv']);
+  });
+
   it('merges same-repo installs into one source and activates the newly requested skill', async () => {
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
 
@@ -523,6 +584,11 @@ describe('install CLI command', () => {
     expect(second.stdout).toContain('Linked to: claude');
 
     const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
+    expect(Object.keys(config.sources)).toHaveLength(1);
+    expect(config.sources['demo-source'].path).toBe('skills');
+    expect(config.sources['demo-source'].ignore).toBeUndefined();
+    expect(config.links.alpha).toEqual(['agents', 'claude']);
+    expect(config.links.beta).toEqual(['agents', 'claude']);
     expect(Object.keys(config.sources)).toHaveLength(1);
     expect(config.sources['demo-source'].path).toBe('skills');
     expect(config.sources['demo-source'].ignore).toBeUndefined();

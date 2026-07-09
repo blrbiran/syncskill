@@ -11,7 +11,7 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config/config.js';
 import type { SyncSkillConfig } from '../../src/config/config.js';
-import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectArchiveFormatFromFilename, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverSourceSkills, DirtySourceQuitError, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSkillOwnershipState, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, parseContentDisposition, resolveLinkedSkillSourcePath, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
+import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectArchiveFormatFromFilename, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverMaterializedSkillEntries, discoverSourceSkills, DirtySourceQuitError, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSkillOwnershipState, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, parseContentDisposition, resolveLinkedSkillSourcePath, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
 import type { SkillsRegistry } from '../../src/source.js';
 import { normalizeSkillsRegistry } from '../../src/core/skills-registry.js';
 
@@ -2338,6 +2338,38 @@ describe('scanSkillsInDirectory', () => {
 
     const skills = await scanSkillsInDirectory(baseDir);
     expect(skills).toEqual([]);
+  });
+});
+
+describe('discoverMaterializedSkillEntries', () => {
+  const tempDirs = useTempDirs();
+
+  it('uses the subdirectory basename when the requested git tree path itself is a skill root', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-materialized-'));
+    tempDirs.push(homeDir);
+
+    const skillRoot = join(homeDir, 'checkout', 'libs', 'cli', 'examples', 'skills', 'arxiv-search');
+    await mkdir(skillRoot, { recursive: true });
+    await writeFile(join(skillRoot, 'SKILL.md'), '# arxiv-search');
+
+    const discovered = await discoverMaterializedSkillEntries(
+      'arxiv-search',
+      {
+        type: 'git',
+        url: 'https://github.com/langchain-ai/deepagents.git',
+        path: 'libs/cli/examples/skills/arxiv-search',
+        branch: 'main'
+      },
+      skillRoot
+    );
+
+    expect(discovered).toEqual([
+      {
+        name: 'arxiv-search',
+        relativePath: '.',
+        absolutePath: skillRoot
+      }
+    ]);
   });
 });
 

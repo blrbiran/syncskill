@@ -83,6 +83,8 @@ The config model includes these top-level keys:
 - `servers` - Remote server configurations
 - `sources` - External skill sources
 
+`config.sources[*].path` stores the relative source-root subdirectory currently managed for that source.
+
 ## Example
 
 The top-level config object includes keys such as `version`, `conflict_resolution`, `agents`, `private_agents`, `links`, `servers`, and `sources`.

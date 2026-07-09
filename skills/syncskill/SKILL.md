@@ -33,7 +33,7 @@ Install plan/apply workflow:
 - `syncskill --apply <plan> --resolutions <file>` when the plan contains unresolved install choices
 - External installs may require `--resolutions` for skill selection before `--apply` can execute
 
-Use `syncskill install` with no target to show help.
+Use `syncskill install` with no target to show help. If requested skills already exist locally, syncskill reports them as already installed.
 
 `link list` / `link ls` shows realized on-disk status, while `link` / `link edit` / `link set` manage configured intent.
 

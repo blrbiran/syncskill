@@ -55,6 +55,7 @@ describe('ship-readiness docs', () => {
     expect(docsReadme).toContain('Remote Lifecycle Workflow');
     expect(docsReadme).toContain('receivers/<server>.json');
     expect(docsReadme).toContain('syncskill install` with no target shows help');
+    expect(docsReadme).toContain('already-installed reporting');
     expect(docsReadme).toContain('--on-remote-deletion');
     expect(docsReadme).toContain('SYNCSKILL_PULL_BACKUP');
     expect(docsReadme).toContain('restore <skill>');
@@ -76,6 +77,7 @@ describe('ship-readiness docs', () => {
     expect(configGuide).toContain('http_baselines');
     expect(configGuide).not.toContain('"ignored": {');
     expect(configGuide).toContain('config.sources[*].ignore[]');
+    expect(configGuide).toContain('`config.sources[*].path` stores the relative source-root subdirectory currently managed for that source.');
     expect(configGuide).toContain('SYNCSKILL_STRICT');
     expect(configGuide).toContain('SYNCSKILL_PULL_BACKUP');
     expect(configGuide).toContain('relative subdirectory within the local source root pointed to by `url`');
@@ -110,6 +112,7 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('link build');
     expect(usageGuide).toContain('Repo-relative subdirectory within the source checkout containing skills');
     expect(usageGuide).toContain('Repeated installs from the same git or HTTP source reuse the existing source entry');
+    expect(usageGuide).toContain('If the requested skills are already present, syncskill reports them as already installed instead of treating the install as a silent no-op.');
     expect(usageGuide).toContain('--type <type>');
     expect(usageGuide).toContain('syncskill restore welcome');
     expect(usageGuide).toContain('pre-restore');
@@ -124,6 +127,7 @@ describe('ship-readiness docs', () => {
     expect(skillDoc).toContain('SYNCSKILL_STRICT=1');
     expect(skillDoc).toContain('SYNCSKILL_PULL_BACKUP');
     expect(skillDoc).toContain('restore <skill> [--server <server>|--all-servers|--dry-run]');
+    expect(skillDoc).toContain('If requested skills already exist locally, syncskill reports them as already installed.');
 
     expect(designGuide).toContain('# Design Guide');
     expect(designGuide).toContain('src/index.ts');
@@ -134,6 +138,7 @@ describe('ship-readiness docs', () => {
     expect(designGuide).toContain('receivers/<server>.json');
     expect(designGuide).toContain('http_baselines');
     expect(designGuide).toContain('src/source.ts');
+    expect(designGuide).toContain('Repeated installs from the same source widen or reuse the recorded source path instead of creating duplicate source entries.');
     expect(designGuide).toContain('src/core/transport.ts');
     expect(designGuide).toContain('src/core/sync_engine.ts');
     expect(designGuide).toContain('SYNCSKILL_STRICT');

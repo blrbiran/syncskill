@@ -247,6 +247,11 @@ export async function scanSkillsInSource(sourceDir: string): Promise<DiscoveredS
 }
 
 export function inferRootSkillName(sourceName: string, source: SourceDefinition): string {
+  const normalizedPath = source.path.replace(/\\/g, '/').replace(/\/+$/g, '');
+  if (normalizedPath !== '' && normalizedPath !== '.') {
+    return basename(normalizedPath);
+  }
+
   if (source.type === 'git') {
     const match = source.url.match(/\/([^/]+?)(?:\.git)?$/);
     if (match?.[1]) {

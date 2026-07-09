@@ -86,8 +86,14 @@ export interface InstallFromSourceOptions {
 export interface InstallFromSourceResult {
   sourceName: string;
   installedSkills: string[];
+  alreadyInstalledSkills: string[];
   linkedAgents: string[];
   linkStatuses: LinkStatus[];
+}
+
+interface ResolvedInstallSkills {
+  installedSkills: string[];
+  alreadyInstalledSkills: string[];
 }
 
 export interface ExternalInstallPlanOptions {
@@ -270,7 +276,7 @@ async function installNewSourceSkills(
   source: SourceDefinition,
   existingSkills: Set<string>,
   options: InstallFromSourceOptions
-): Promise<string[]> {
+): Promise<ResolvedInstallSkills> {
   await materializeSource(homeDir, sourceName, source);
 
   const materializedRoot = getMaterializedRootPath(homeDir, sourceName, source);
@@ -281,6 +287,9 @@ async function installNewSourceSkills(
 
   const selectedSet = new Set(selectedNames);
   const config = await loadConfig(homeDir);
+  const alreadyInstalledSkills = discoveredSkills
+    .filter((skill) => selectedSet.has(skill.name) && existingSkills.has(skill.name))
+    .map((skill) => skill.name);
   const installableSkillNames = discoveredSkills
     .filter((skill) => selectedSet.has(skill.name) && !existingSkills.has(skill.name))
     .map((skill) => skill.name);
@@ -299,7 +308,10 @@ async function installNewSourceSkills(
 
   await saveConfig(config, homeDir);
 
-  return installedSkills;
+  return {
+    installedSkills,
+    alreadyInstalledSkills
+  };
 }
 
 async function resolveSameRepoInstalledSkills(
@@ -308,10 +320,13 @@ async function resolveSameRepoInstalledSkills(
   urlOrPath: string,
   existingSkills: Set<string>,
   options: InstallFromSourceOptions
-): Promise<string[]> {
+): Promise<ResolvedInstallSkills> {
   const existingMatch = result.sameRepoMatch;
   if (!existingMatch) {
-    return [];
+    return {
+      installedSkills: [],
+      alreadyInstalledSkills: []
+    };
   }
 
   const sourceName = existingMatch.name;
@@ -334,6 +349,7 @@ async function resolveSameRepoInstalledSkills(
   const requestedSkills = discoveredSkills.filter((skill) => isSkillWithinScope(skill, requestedSubdir));
   const existingScopeSkills = discoveredSkills.filter((skill) => isSkillWithinScope(skill, existingSubdir));
   const requestedSkillNames = requestedSkills.map((skill) => skill.name);
+  const alreadyInstalledSkills = requestedSkillNames.filter((skillName) => existingSkills.has(skillName));
 
   for (const skillName of requestedSkillNames) {
     ignoredSkills.delete(skillName);
@@ -376,7 +392,10 @@ async function resolveSameRepoInstalledSkills(
 
   await saveConfig(config, homeDir);
 
-  return installedSkills;
+  return {
+    installedSkills,
+    alreadyInstalledSkills
+  };
 }
 
 async function resolveInstalledSkills(
@@ -385,9 +404,12 @@ async function resolveInstalledSkills(
   urlOrPath: string,
   existingSkills: Set<string>,
   options: InstallFromSourceOptions
-): Promise<string[]> {
+): Promise<ResolvedInstallSkills> {
   if (result.restoredFromIgnore && result.restoredSkill) {
-    return [result.restoredSkill];
+    return {
+      installedSkills: [result.restoredSkill],
+      alreadyInstalledSkills: []
+    };
   }
 
   if (result.sameRepoMatch) {
@@ -724,7 +746,9 @@ export async function executeExternalInstallPlan(
 
   const availableDiscovered = selectionState.discovered.filter((skill) => !selectionState.existing.has(skill));
   const ignoredSkills = availableDiscovered.filter((skill) => !selectionState.selected.includes(skill));
-  const alreadyInstalledSkills = selectionState.discovered.filter((skill) => selectionState.existing.has(skill));
+  const alreadyInstalledSkills = result.alreadyInstalledSkills.length > 0
+    ? result.alreadyInstalledSkills
+    : selectionState.discovered.filter((skill) => selectionState.existing.has(skill));
   const config = await loadConfig(homeDir);
   const sourceRecord = config.sources[result.sourceName] as Record<string, unknown> | undefined;
   const finalSource = sourceRecord
@@ -776,12 +800,13 @@ export async function installFromSource(
     onSelectSkills: options.onSelectSkills
   });
 
-  const installedSkills = await resolveInstalledSkills(homeDir, result, urlOrPath, existingSkills, options);
+  const { installedSkills, alreadyInstalledSkills } = await resolveInstalledSkills(homeDir, result, urlOrPath, existingSkills, options);
   const { linkedAgents, linkStatuses } = await linkInstalledSkills(homeDir, installedSkills);
 
   return {
     sourceName: result.name,
     installedSkills,
+    alreadyInstalledSkills,
     linkedAgents,
     linkStatuses,
   };

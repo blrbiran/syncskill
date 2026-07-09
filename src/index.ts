@@ -1077,7 +1077,11 @@ async function executeInstallPlan(
   const { skillsDir } = getSyncPaths(homeDir);
 
   if (result.installedSkills.length === 0) {
-    output.info('No skills installed.');
+    if (result.alreadyInstalledSkills.length > 0) {
+      output.info(`Already installed: ${result.alreadyInstalledSkills.join(', ')}`);
+    } else {
+      output.info('No skills installed.');
+    }
   } else {
     output.info(`Installed ${result.installedSkills.length} skill(s)`);
     for (const skill of result.installedSkills) {

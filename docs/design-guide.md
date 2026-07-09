@@ -149,7 +149,7 @@ Delta classification:
 
 Owns configured source definitions, source materialization, source state tracking, and ownership checks for skills imported from local, git, or http sources.
 
-Git and HTTP sources materialize internal checkouts under `~/.syncskill/.sources/<name>/checkout/`, while local directories are used in place and local archives are extracted into the same internal checkout layout.
+Git and HTTP sources materialize internal checkouts under `~/.syncskill/.sources/<name>/checkout/`, while local directories are used in place and local archives are extracted into the same internal checkout layout. Repeated installs from the same source widen or reuse the recorded source path instead of creating duplicate source entries.
 
 Git sources: Auto-detect default branch via `git ls-remote --symref`, then `git clone --single-branch --depth 1`.
 

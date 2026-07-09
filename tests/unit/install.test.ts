@@ -594,6 +594,76 @@ describe('install module', () => {
       }
     });
 
+    it('returns alreadyInstalledSkills when reinstalling the same same-repo git subdir skill', async () => {
+      const tempDir = join(import.meta.dirname, `../../.test-tmp-install-source-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const homeDir = join(tempDir, 'home');
+      const source = { type: 'git', url: 'https://github.com/org/repo.git', path: 'skills/research/arxiv' };
+
+      await mkdir(join(homeDir, '.syncskill', 'skills', 'arxiv'), { recursive: true });
+      await writeFile(join(homeDir, '.syncskill', 'skills', 'arxiv', 'SKILL.md'), '# arxiv', 'utf8');
+      await writeFile(
+        join(homeDir, '.syncskill', 'config.json'),
+        JSON.stringify(
+          {
+            version: 1,
+            conflict_resolution: 'manual',
+            agents: {
+              claude: '~/.claude/skills',
+              cursor: '~/.cursor/skills'
+            },
+            links: { arxiv: ['*'] },
+            servers: {},
+            sources: {
+              'demo-source': source,
+            },
+          },
+          null,
+          2
+        )
+      );
+
+      try {
+        vi.resetModules();
+        const addSourceFromUrl = vi.fn().mockResolvedValue({
+          name: 'demo-source',
+          source,
+          sameRepoMatch: { name: 'demo-source', source }
+        });
+        const materializeSource = vi.fn().mockResolvedValue({
+          materialized_skills: ['arxiv'],
+          updated_at: '2026-06-09T00:00:00.000Z'
+        });
+        const parseGitHubUrl = vi.fn().mockReturnValue({
+          org: 'org',
+          repo: 'repo',
+          branch: 'main',
+          path: 'skills/research/arxiv',
+          cloneUrl: 'https://github.com/org/repo.git',
+          skillName: 'arxiv'
+        });
+        const discoverMaterializedSkillEntries = vi.fn().mockResolvedValue([
+          { name: 'arxiv', relativePath: 'skills/research/arxiv', absolutePath: '/tmp/arxiv' }
+        ]);
+        const discoverAllSkills = vi.fn().mockResolvedValue(['arxiv']);
+        const linkConfiguredSkills = vi.fn().mockResolvedValue([]);
+
+        vi.doMock('../../src/source.js', () => ({ addSourceFromUrl, materializeSource, parseGitHubUrl, discoverMaterializedSkillEntries, discoverAllSkills, detectSourceType: vi.fn(), findExistingSourceByUrl: vi.fn() }));
+        vi.doMock('../../src/linker.js', () => ({ linkConfiguredSkills }));
+
+        const { installFromSource: mockedInstallFromSource } = await import('../../src/install.js');
+        const result = await mockedInstallFromSource(homeDir, 'https://github.com/org/repo/tree/main/skills/research/arxiv');
+
+        expect(result.installedSkills).toEqual([]);
+        expect(result.alreadyInstalledSkills).toEqual(['arxiv']);
+        expect(result.linkedAgents).toEqual([]);
+      } finally {
+        vi.doUnmock('../../src/source.js');
+        vi.doUnmock('../../src/linker.js');
+        vi.resetModules();
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
     it('should throw error for invalid URL format', async () => {
       const tempDir = join(import.meta.dirname, `../../.test-tmp-install-source-${Date.now()}`);
       const homeDir = join(tempDir, 'home');

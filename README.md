@@ -97,7 +97,7 @@ syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 | `syncskill install <url-or-path> [--path <dir>] [--type <type>]` | Install and register a source from git, HTTP archive, local directory, or archive file; `--path` selects the repo-relative skills subdirectory inside the source checkout, `--skill-subdir` is an alias for `--path`, and `--type` overrides source detection |
 
 In v2, `source add`, `source update`, and `source restore` were removed. Use `install` to add new sources and top-level `update` to refresh them.
-Repeated installs from the same git or HTTP source reuse the existing source entry. If you later install another subdirectory from that source, syncskill expands the recorded `path` as needed and keeps out-of-scope skills in `config.sources[*].ignore[]` instead of creating duplicate source records.
+Repeated installs from the same git or HTTP source reuse the existing source entry. If you later install another subdirectory from that source, syncskill expands the recorded `path` as needed and keeps out-of-scope skills in `config.sources[*].ignore[]` instead of creating duplicate source records. If the requested skills are already present, syncskill reports them as already installed instead of treating the install as a silent no-op.
 
 ### Reconciliation
 

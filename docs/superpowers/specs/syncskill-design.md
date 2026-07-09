@@ -1041,7 +1041,7 @@ Source "my-skills" is up to date. All skills already linked.
 
 # 已包含的子目录 skill
 $ syncskill i https://github.com/user/my-skills/tree/main/examples/skill-a
-All skills from "examples/skill-a" are already included in source "my-skills".
+Already installed: skill-a
 ```
 
 本地压缩包安装等效于 HTTP 下载后的状态：解压到 `~/.syncskill/sources/<name>/`，`SourceConfig` 记录 `type: "local"` + `archive_path` 指向原始压缩包路径。后续的 skill 发现、link 逻辑与其他 source 类型完全一致。
@@ -1437,12 +1437,19 @@ Skill 发现统一基于**递归搜索 SKILL.md 文件**。给定一个 subdir�
 **首次安装行为**：
 
 递归搜索发现所有 skills 后：
-- **单个 skill**：直接安装，无需确认
-- **多个 skills**：交互式让用户选择要安装哪些
+- **单个 skill**：运行时直接安装，无需弹出选择 prompt
+- **多个 skills**：运行时交互式让用户选择要安装哪些
   - 选中的 → 加入 links
   - 未选中的 → 加入 ignore
 
+**关于 `skill-selection` unresolved 的建模**：当前实现对全新 external install 统一在 plan 中保留 `resolve_phase: "execute"` 的 `skill-selection` 决议项；执行期若最终只发现 1 个可安装 skill，则直接安装、不会向用户展示选择 prompt。只有执行期确实出现多个可选 skill 时，才会向用户收集子集选择。
+
 **default under -y**（skill-selection）：自动选中**所有**发现的 skills（最宽松默认；不会有 skill 被 silently 忽略）。`-y` 同时跳过任何确认。
+
+**文本输出约定**：
+- 本次新装出至少 1 个 skill：输出 `Installed <N> skill(s)`
+- 本次没有新装，但请求范围内的 skill 已全部存在：输出 `Already installed: <skill-a>, <skill-b>`
+- 本次既没有新装，也没有命中已安装 skill（例如用户在可选列表中全取消）：输出 `No skills installed.`
 
 **同仓库合并逻辑**：
 
