@@ -33,6 +33,7 @@
 - **[2026-06-22]** local directory source 当前会把 `~/.syncskill/skills/<skill>` 直接 symlink 到原始 source tree；随后 `linkConfiguredSkills()` 又会无条件删掉 agent 侧同名路径并重建为 symlink。后续修复此类问题时，不能让本地安装暴露源仓库，也不能在未确认下接管既有真实目录。
 - **[2026-07-09]** GitHub tree/subdir source 若 `source.path` 指向的目录自身含 `SKILL.md`，root skill 名必须取 `basename(source.path)`；`relativePath='.'` 表示“请求子目录的根”，不是仓库根，也不能回退成 repo 名。
 - **[2026-07-09]** external install 的 same-repo / duplicate-skill 路径也要显式保留 `alreadyInstalledSkills`；否则 text CLI 会误报 `No skills installed.`，即使 JSON summary 已经有 `data.skills.already_installed` 语义。
+- **[2026-07-10]** 共享 target `agents` 是本地 link/build/install 结果层的一级语义，不只是 `config.links` 中的占位值；凡是会“落盘 symlink”或“汇总已创建 links”的代码路径，都必须用支持 `agents -> ~/.agents/skills` 的 materialized-target 解析，而不能只按 `config.agents` 过滤。
 
 ## Do-Not-Repeat
 
