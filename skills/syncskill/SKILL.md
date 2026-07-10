@@ -68,6 +68,10 @@ Key reminders: `Show install help with no target`, `--type`, `--remote-repo`, `-
 
 For AI agents, prefer `link set ...` followed by `link build` when making declarative changes, or use `link add/remove/clear` for small incremental edits.
 
+`agents` is a valid local target name for the shared `~/.agents/skills/` directory.
+When a skill targets both the shared directory and one or more private agents, commands may report output like `Linked to: agents, claude`.
+Use `link remove <skill> agents` to drop only the shared link.
+
 **Reconcile behavior**: `link build` and the mutating `link` subcommands reconcile stale symlinks (links pointing to skills no longer in config or to non-existent paths).
 
 ### Source Management

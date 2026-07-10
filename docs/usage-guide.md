@@ -111,7 +111,7 @@ syncskill --json link list
 
 When you use `--json`, `link list` returns machine-readable realized status output instead of the symbol matrix.
 
-`syncskill link` edits the configured skill → agent assignment matrix. `syncskill link list` / `link ls` shows the realized on-disk state for every managed local skill × configured agent cell.
+`syncskill link` edits the configured skill → agent assignment matrix. `syncskill link list` / `link ls` shows the realized on-disk state for every managed local skill × configured agent cell, including realized shared links under `~/.agents/skills/`.
 
 Link subcommands:
 
@@ -145,14 +145,14 @@ The `link` workflow automatically detects and offers to remove stale links. Stal
 
 - You remove a skill from an agent in `link edit`
 - You clear a skill's links but symlinks remain from a previous session
-- Configuration changes leave orphaned symlinks in agent directories
+- Configuration changes leave orphaned symlinks in agent directories or under the shared `~/.agents/skills/` target
 
 When applying link changes, syncskill checks for symlinks that point to managed skills but are no longer in the current configuration:
 
 ```bash
 $ syncskill link add my-skill claude
 
-✓ Linked my-skill to: claude
+✓ Linked my-skill to: agents, claude
 
 Remove my-skill from hermes, qoder? (no longer in config) [Y/n] y
 ✓ Removed
@@ -164,6 +164,8 @@ For batch operations:
 $ syncskill link build
 
 ✓ Linked 5 skills
+
+Default local linking may produce output like `Linked to: agents, claude` when a skill targets the shared directory plus a private agent. You can remove the shared link explicitly with `syncskill link remove <skill> agents`.
 
 Links to remove (no longer in config):
   my-repo:

@@ -58,6 +58,15 @@ syncskill link build              # Reconcile configured links and clean stale s
 syncskill unlink my-skill         # Alias for `syncskill link clear my-skill`
 ```
 
+The shared local target `agents` maps to `~/.agents/skills/`.
+Default local linking may use `agents` plus detected `private_agents`, so output can look like `Linked to: agents, claude`.
+You can remove only the shared link with `syncskill link remove welcome agents`.
+
+```bash
+# Remove only the shared local link
+syncskill link remove welcome agents
+```
+
 ## Commands Overview
 
 ### Installation & Setup

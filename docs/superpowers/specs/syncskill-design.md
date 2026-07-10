@@ -1087,11 +1087,11 @@ Already installed: skill-a
 - `link build`：按 config 配置 reconcile 所有 skill 在所有 agent 目录中的链接状态
 
 清理规则：
-1. 遍历所有 `config.agents` 目录，检查指定 skill（或所有 skill）是否存在需要清理的 stale 链接
+1. 遍历所有显式 agent 目录以及 shared `~/.agents/skills/` 目录，检查指定 skill（或所有 skill）是否存在需要清理的 stale 链接
 2. **仅清理 syncskill 管理的软链接**：symlink target 能被 `resolveSkillPath()` 解析到（指向 `~/.syncskill/skills/` 或 `config.sources` 中的路径）
 3. **不清理实体目录**：非 symlink 的真实目录不动，可能是用户手动放置的
 4. **不清理非 syncskill 管理的链接**：symlink target 不在 syncskill 管理范围内的不动
-5. 一个 symlink 是 stale 的条件：skill 名在 `config.links` 中存在但该 agent 不在其展开后的目标列表中，或 skill 名不在 `config.links` 中（已完全移除）
+5. 一个 symlink 是 stale 的条件：skill 名在 `config.links` 中存在但该 target（包括 shared `agents`）不在其展开后的目标列表中，或 skill 名不在 `config.links` 中（已完全移除）
 
 `reconcileStaleLinks()` 函数签名：
 

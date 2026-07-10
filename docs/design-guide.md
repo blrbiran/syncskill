@@ -113,8 +113,10 @@ interface ReconcileResult {
 
 A symlink becomes "stale" when:
 - The skill it points to was removed from config (source deleted)
-- The agent directory is no longer in the skill's `links[skill].agents` list
+- The link target directory (including the shared `~/.agents/skills/` target) is no longer in the skill's configured targets
 - The source containing the skill was removed via `syncskill source remove`
+
+The shared local target `agents` resolves directly to `~/.agents/skills/` and is treated as a first-class target in local materialization, realized-status display, and stale-link cleanup flows. Named local agents still come from `config.agents`, while `private_agents` identifies agents that require dedicated per-agent links instead of relying only on the shared directory.
 
 **Integration Points:**
 

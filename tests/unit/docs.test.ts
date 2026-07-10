@@ -49,6 +49,10 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('syncskill restore <skill>');
     expect(readme).toContain('latest pre-pull backup');
     expect(readme).toContain('pre-restore snapshot');
+    expect(readme).toContain('The shared local target `agents` maps to `~/.agents/skills/`.');
+    expect(readme).toContain('Default local linking may use `agents` plus detected `private_agents`, so output can look like `Linked to: agents, claude`.');
+    expect(readme).toContain('syncskill link remove welcome agents');
+
 
     expect(docsReadme).toContain('syncskill link build');
     expect(docsReadme).toContain('remove stale symlinks');
@@ -60,6 +64,8 @@ describe('ship-readiness docs', () => {
     expect(docsReadme).toContain('SYNCSKILL_PULL_BACKUP');
     expect(docsReadme).toContain('restore <skill>');
     expect(docsReadme).toContain('pre-restore');
+    expect(docsReadme).toContain('The shared local target `agents` resolves to `~/.agents/skills/` and appears in realized link status output');
+
 
     expect(configGuide).toContain('# Configuration Guide');
     expect(configGuide).toContain('version');
@@ -86,6 +92,10 @@ describe('ship-readiness docs', () => {
     expect(configGuide).toContain('npm link');
     expect(configGuide).toContain('pre-restore');
     expect(configGuide).toContain('forced_conflict');
+    expect(configGuide).toContain('The special target name `agents` means the shared `~/.agents/skills/` directory.');
+    expect(configGuide).toContain('Unlike named entries under `config.agents`, `"agents"` does not need its own `config.agents.agents` mapping.');
+    expect(configGuide).toContain('`private_agents` lists agents that still need dedicated per-agent links in addition to the shared target.');
+    expect(configGuide).toContain('For example, `"welcome": ["agents", "claude"]` links the skill into the shared directory and also into Claude\'s private skills directory.');
 
     expect(usageGuide).toContain('# Usage Guide');
     expect(usageGuide).toContain('syncskill init');
@@ -128,6 +138,8 @@ describe('ship-readiness docs', () => {
     expect(skillDoc).toContain('SYNCSKILL_PULL_BACKUP');
     expect(skillDoc).toContain('restore <skill> [--server <server>|--all-servers|--dry-run]');
     expect(skillDoc).toContain('If requested skills already exist locally, syncskill reports them as already installed.');
+    expect(skillDoc).toContain('`agents` is a valid local target name for the shared `~/.agents/skills/` directory.');
+    expect(skillDoc).toContain('Use `link remove <skill> agents` to drop only the shared link.');
 
     expect(designGuide).toContain('# Design Guide');
     expect(designGuide).toContain('src/index.ts');

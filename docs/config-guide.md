@@ -182,6 +182,10 @@ Example:
 
 Lists agents that do not read from the shared `~/.agents/skills/` directory and therefore need individual links into their own skill homes.
 
+The special target name `agents` means the shared `~/.agents/skills/` directory. `private_agents` lists agents that still need dedicated per-agent links in addition to the shared target because they do not read that shared directory. `link list` marks private agents with `*` (for example, `claude*`).
+`private_agents` lists agents that still need dedicated per-agent links in addition to the shared target.
+Unlike named entries under `config.agents`, `"agents"` does not need its own `config.agents.agents` mapping.
+
 These agents do not read the shared `~/.agents/skills/` directory. You need to create separate links under each agent's own skills directory, and `link list` marks private agents with `*` (for example, `claude*`).
 
 Default value:
@@ -221,6 +225,7 @@ Example:
 ```
 
 When saving via the matrix editor, if a skill is linked to all agents, it is automatically saved as `["*"]` rather than listing all agent names.
+A skill can target the shared directory, one or more named agents, or both. For example, `"welcome": ["agents", "claude"]` links the skill into the shared directory and also into Claude's private skills directory.
 
 #### Config vs Actual Symlinks
 
