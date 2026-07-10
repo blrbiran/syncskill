@@ -162,7 +162,7 @@ export async function editLinksMatrix(config: SyncSkillConfig, homeDir: string):
   const localSkills = await listLocalSkills(homeDir);
   const sourceSkills = await discoverActiveSourceSkillNames(homeDir, config.sources);
   const skills = [...new Set([...localSkills, ...sourceSkills, ...Object.keys(config.links)])].sort();
-  const agents = Object.keys(config.agents).sort();
+  const agents = [...new Set(['agents', ...Object.keys(config.agents)])].sort();
 
   const selected: Record<string, string[]> = {};
   for (const skill of skills) {

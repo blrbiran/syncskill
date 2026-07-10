@@ -104,7 +104,7 @@ import {
   type RepairOptions
 } from './config/config-doctor.js';
 import { buildExternalInstallPlan, executeExternalInstallPlan, installSyncskillSkill } from './install.js';
-import { expandTargetAgents, getConfigPaths, getConfiguredServer, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
+import { expandMaterializedTargetAgents, expandTargetAgents, getConfigPaths, getConfiguredServer, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
 import { createPromptApi, runConfigUi } from './config/config-ui.js';
 import { collectLinkStatus, discoverSkills, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
 import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './core/manifest.js';
@@ -221,8 +221,16 @@ async function removeAllSkillLinks(homeDir: string, skill: string, config: SyncS
 type ReceiverBackupMutation = Awaited<ReturnType<typeof mutateReceiverBackup>>;
 type ReceiverBackupSnapshot = NonNullable<ReceiverBackupMutation>;
 
+function resolveMaterializedAgentPath(config: SyncSkillConfig, agent: string, homeDir: string): string {
+  if (agent === 'agents') {
+    return join(homeDir, '.agents', 'skills');
+  }
+
+  return resolveAgentPath(config.agents[agent], homeDir);
+}
+
 function getLinkedAgentsForSkill(config: SyncSkillConfig, skill: string): string[] {
-  return [...new Set(expandTargetAgents(config, config.links[skill] ?? []))].sort();
+  return [...new Set(expandMaterializedTargetAgents(config, config.links[skill] ?? []))].sort();
 }
 
 async function executeRemoveAllSkillLinks(
@@ -422,7 +430,7 @@ function summarizeRemovedLinks(
 
   return ownedSkills
     .map((skill) => {
-      const agents = expandTargetAgents(config, config.links[skill] ?? []);
+      const agents = expandMaterializedTargetAgents(config, config.links[skill] ?? []);
       if (agents.length === 0) {
         return null;
       }
@@ -451,7 +459,7 @@ function buildLinkBuildPlan(homeDir: string, config: SyncSkillConfig, staleBySki
   const { skillsDir } = getSyncPaths(homeDir);
 
   for (const skill of Object.keys(config.links).sort()) {
-    const agents = expandTargetAgents(config, config.links[skill] ?? []);
+    const agents = expandMaterializedTargetAgents(config, config.links[skill] ?? []);
 
     for (const agent of agents) {
       plan = addAction(plan, {
@@ -459,7 +467,7 @@ function buildLinkBuildPlan(homeDir: string, config: SyncSkillConfig, staleBySki
         skill,
         agent,
         from: join(skillsDir, skill),
-        to: join(resolveAgentPath(config.agents[agent], homeDir), skill)
+        to: join(resolveMaterializedAgentPath(config, agent, homeDir), skill)
       });
     }
   }
@@ -510,7 +518,7 @@ function summarizeLinkBuild(
         .sort((left, right) => left.agent.localeCompare(right.agent))
         .map((result) => ({
           agent: result.agent,
-          path: join(resolveAgentPath(config.agents[result.agent], homeDir), skill),
+          path: join(resolveMaterializedAgentPath(config, result.agent, homeDir), skill),
           ...(createRefs.get(`${result.skill}:${result.agent}`)
             ? { plan_ref: createRefs.get(`${result.skill}:${result.agent}`) }
             : {})
@@ -993,7 +1001,7 @@ async function buildInstallPlan(
 
     const config = await loadConfig(homeDir);
     const targets = config.links['syncskill'] ?? (await computeDefaultLinkTargets(homeDir, config)).targets;
-    const agents = expandTargetAgents(config, targets);
+    const agents = expandMaterializedTargetAgents(config, targets);
 
     if (agents.length > 0) {
       plan = addAction(plan, { op: 'link-skill', skill: 'syncskill', agents } satisfies InstallAction);
@@ -1115,7 +1123,7 @@ async function executeInstallPlan(
       links_created: result.linkStatuses.map((status) => ({
         skill: status.skill,
         agent: status.agent,
-        path: join(resolveAgentPath(config.agents[status.agent], homeDir), status.skill),
+        path: join(resolveMaterializedAgentPath(config, status.agent, homeDir), status.skill),
         ...(result.linkActionId ? { plan_ref: result.linkActionId } : {})
       }))
     }
@@ -1734,7 +1742,7 @@ export function createProgram(homeDir?: string): Command {
 
   function validateTargetAgents(config: SyncSkillConfig, targets: string[]): void {
     for (const agent of targets) {
-      if (agent === '*') {
+      if (agent === '*' || agent === 'agents') {
         continue;
       }
 
@@ -1827,7 +1835,7 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      const allAgents = Object.keys(config.agents).sort();
+      const allAgents = [...new Set(['agents', ...Object.keys(config.agents)])].sort();
       const currentTargets = config.links[skill] ?? [];
       const selectedAgents = await checkbox({
         message: `${skill} is currently linked to:\n`,
@@ -1910,7 +1918,7 @@ export function createProgram(homeDir?: string): Command {
       const config = await ensureLinkCommandReady();
       validateTargetAgents(config, agents);
 
-      const currentTargets = expandTargetAgents(config, config.links[skill] ?? []);
+      const currentTargets = expandMaterializedTargetAgents(config, config.links[skill] ?? []);
       const nextTargets = currentTargets.filter((target) => !agents.includes(target));
 
       if (options.dryRun) {

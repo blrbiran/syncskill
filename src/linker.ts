@@ -1,7 +1,7 @@
 import { cp, lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
-import { expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, resolveAgentPath, saveConfig, type SyncSkillConfig } from './config/config.js';
+import { expandMaterializedTargetAgents, expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, resolveAgentPath, saveConfig, type SyncSkillConfig } from './config/config.js';
 import { ensureDefaultLinkTargets } from './core/private-agents.js';
 import { rebuildRegistryV2 } from './core/registry-builder.js';
 import { saveSkillsRegistryV2 } from './core/skills-registry.js';
@@ -287,6 +287,14 @@ export async function ensureLinkedDirectory(
   }
 }
 
+function resolveMaterializedAgentPath(config: SyncSkillConfig, agent: string, homeDir: string): string {
+  if (agent === 'agents') {
+    return join(homeDir, '.agents', 'skills');
+  }
+
+  return resolveAgentPath(config.agents[agent], homeDir);
+}
+
 export async function linkConfiguredSkills(homeDir: string, request: LinkRequest): Promise<LinkStatus[]> {
   const config = await loadConfig(homeDir);
   const skillNames = request.all
@@ -298,10 +306,10 @@ export async function linkConfiguredSkills(homeDir: string, request: LinkRequest
 
   for (const skill of skillNames) {
     const sourceDir = await resolveConfiguredSkillSourceDir(homeDir, skill);
-    const agents = expandTargetAgents(config, config.links[skill] ?? []);
+    const agents = expandMaterializedTargetAgents(config, config.links[skill] ?? []);
 
     for (const agent of agents) {
-      const agentPath = resolveAgentPath(config.agents[agent], homeDir);
+      const agentPath = resolveMaterializedAgentPath(config, agent, homeDir);
       const state = await ensureLinkedDirectory(sourceDir, join(agentPath, skill));
       results.push({ skill, agent, state });
     }
@@ -318,10 +326,10 @@ export async function linkConfiguredSkills(homeDir: string, request: LinkRequest
 
 export async function unlinkSkill(homeDir: string, skillName: string): Promise<void> {
   const config = await loadConfig(homeDir);
-  const agents = expandTargetAgents(config, config.links[skillName] ?? []);
+  const agents = expandMaterializedTargetAgents(config, config.links[skillName] ?? []);
 
   await Promise.all(agents.map((agent) => {
-    const agentPath = resolveAgentPath(config.agents[agent], homeDir);
+    const agentPath = resolveMaterializedAgentPath(config, agent, homeDir);
     return rm(join(agentPath, skillName), { recursive: true, force: true });
   }));
 }
@@ -332,12 +340,15 @@ export async function unlinkSkillFromAgent(
   agentName: string
 ): Promise<void> {
   const config = await loadConfig(homeDir);
-  const rawAgentPath = config.agents[agentName];
-  if (!rawAgentPath) {
+  const agentPath = agentName === 'agents'
+    ? join(homeDir, '.agents', 'skills')
+    : config.agents[agentName]
+      ? resolveAgentPath(config.agents[agentName], homeDir)
+      : null;
+  if (!agentPath) {
     return;
   }
 
-  const agentPath = resolveAgentPath(rawAgentPath, homeDir);
   const linkPath = join(agentPath, skillName);
   try {
     const stats = await lstat(linkPath);
@@ -357,13 +368,19 @@ export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> 
   const localSkills = await listLocalSkills(homeDir);
   const sourceSkills = [...await discoverActiveSourceSkillNames(homeDir, config.sources)];
   const skillNames = [...new Set([...localSkills, ...sourceSkills, ...Object.keys(config.links)])].sort();
-  const agentNames = Object.keys(config.agents).sort();
+  const configuredAgentNames = new Set(Object.keys(config.agents));
+  for (const targets of Object.values(config.links)) {
+    if (targets.includes('agents')) {
+      configuredAgentNames.add('agents');
+    }
+  }
+  const agentNames = [...configuredAgentNames].sort();
 
   for (const skill of skillNames) {
-    const configuredAgents = new Set(expandTargetAgents(config, config.links[skill] ?? []));
+    const configuredAgents = new Set(expandMaterializedTargetAgents(config, config.links[skill] ?? []));
 
     for (const agent of agentNames) {
-      const agentPath = resolveAgentPath(config.agents[agent], homeDir);
+      const agentPath = resolveMaterializedAgentPath(config, agent, homeDir);
       const targetDir = join(agentPath, skill);
 
       try {
@@ -485,8 +502,13 @@ export async function findStaleLinks(
   // If specific skills provided, only check those; otherwise check all configured links
   const skillsToCheck = skillNames ?? Object.keys(config.links);
 
-  for (const [agentName, rawAgentPath] of Object.entries(config.agents)) {
-    const agentPath = resolveAgentPath(rawAgentPath, homeDir);
+  const agentEntries: Array<[string, string]> = [
+    ...Object.entries(config.agents),
+    ['agents', join(homeDir, '.agents', 'skills')]
+  ];
+
+  for (const [agentName, rawAgentPath] of agentEntries) {
+    const agentPath = resolveMaterializedAgentPath(config, agentName, homeDir);
 
     try {
       const entries = await readdir(agentPath, { withFileTypes: true });
@@ -507,7 +529,7 @@ export async function findStaleLinks(
           }
 
           // Check if this skill-agent combination is still in config
-          const configuredAgents = expandTargetAgents(config, config.links[skillName] ?? []);
+          const configuredAgents = expandMaterializedTargetAgents(config, config.links[skillName] ?? []);
           if (!configuredAgents.includes(agentName)) {
             // This link is stale - skill exists in agent but not configured
             if (!staleBySkill[skillName]) {
@@ -565,15 +587,20 @@ async function reconcileStaleLinksImpl(
   // Build a set of valid (skill, agent) pairs from config
   const validPairs = new Set<string>();
   for (const [skill, targets] of Object.entries(config.links)) {
-    const agents = expandTargetAgents(config, targets);
+    const agents = expandMaterializedTargetAgents(config, targets);
     for (const agent of agents) {
       validPairs.add(`${skill}:${agent}`);
     }
   }
 
+  const agentEntries: Array<[string, string]> = [
+    ...Object.entries(config.agents),
+    ['agents', join(homeDir, '.agents', 'skills')]
+  ];
+
   // Check each agent directory for stale links
-  for (const [agentName, rawAgentPath] of Object.entries(config.agents)) {
-    const agentPath = resolveAgentPath(rawAgentPath, homeDir);
+  for (const [agentName, rawAgentPath] of agentEntries) {
+    const agentPath = resolveMaterializedAgentPath(config, agentName, homeDir);
     let entries: import('node:fs').Dirent[];
     try {
       entries = await readdir(agentPath, { withFileTypes: true });

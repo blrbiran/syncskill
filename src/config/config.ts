@@ -206,6 +206,14 @@ export function expandTargetAgents(config: SyncSkillConfig, targets: string[]): 
   return [...new Set(targets)].filter((agent) => registeredAgents.has(agent)).sort();
 }
 
+export function expandMaterializedTargetAgents(config: SyncSkillConfig, targets: string[]): string[] {
+  const expanded = targets.includes('*')
+    ? Object.keys(config.agents)
+    : targets.filter((agent) => agent === 'agents' || agent in config.agents);
+
+  return [...new Set(expanded)].sort();
+}
+
 /**
  * Resolve an agent path, expanding ~ to the actual home directory.
  * CRITICAL: Always use this function when accessing agent paths on the filesystem.

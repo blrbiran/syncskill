@@ -196,10 +196,39 @@ describe('editLinksMatrix', () => {
       expect(matrixEditor).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Configured Skills → Agent Assignment',
         rows: ['llmfusion', 'orphaned-link'],
-        columns: ['claude', 'cursor'],
+        columns: ['agents', 'claude', 'cursor'],
         selected: {
           llmfusion: [],
           'orphaned-link': ['claude']
+        }
+      }));
+    } finally {
+      vi.doUnmock('../../src/config/matrix-editor.js');
+      vi.resetModules();
+    }
+  });
+
+  it('includes shared agents in matrix columns and selected targets', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-ui-matrix-'));
+    tempDirs.push(homeDir);
+
+    const config = createDefaultConfig(homeDir, {
+      claude: join(homeDir, '.claude', 'skills')
+    });
+    config.links['shared-link'] = ['agents'];
+
+    vi.resetModules();
+    const matrixEditor = vi.fn().mockResolvedValue({ cancelled: false, selected: {} });
+    vi.doMock('../../src/config/matrix-editor.js', () => ({ createMatrixEditor: () => matrixEditor }));
+
+    try {
+      const { editLinksMatrix: mockedEditLinksMatrix } = await import('../../src/config/config-ui.js');
+      await mockedEditLinksMatrix(config, homeDir);
+
+      expect(matrixEditor).toHaveBeenCalledWith(expect.objectContaining({
+        columns: ['agents', 'claude'],
+        selected: {
+          'shared-link': ['agents']
         }
       }));
     } finally {

@@ -41,6 +41,33 @@ describe('linker', () => {
     expect(statuses).toEqual([{ skill: 'demo-skill', agent: 'claude', state: 'linked' }]);
   });
 
+  it('creates links in the shared agents directory even when config.agents omits the shared target', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
+    tempDirs.push(homeDir);
+
+    const sourceDir = join(homeDir, '.syncskill', 'skills', 'demo-skill');
+    const targetDir = join(homeDir, '.agents', 'skills', 'demo-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'SKILL.md'), '# demo', 'utf8');
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: { 'demo-skill': ['agents'] },
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    const statuses = await linkConfiguredSkills(homeDir, { all: false, skillName: 'demo-skill' });
+
+    await expect(readlink(targetDir)).resolves.toBe(sourceDir);
+    expect(statuses).toEqual([{ skill: 'demo-skill', agent: 'agents', state: 'linked' }]);
+  });
+
   it('rejects before modifying the target when the source skill directory is missing', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
     tempDirs.push(homeDir);
@@ -611,6 +638,97 @@ describe('reconcileStaleLinks', () => {
     expect(result.removed.length).toBe(2);
     expect(result.skipped).toEqual([]);
     expect(result.errors).toEqual([]);
+  });
+
+  it('removes stale symlinks from the shared agents directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const sharedDir = join(homeDir, '.agents', 'skills');
+    const sourceDir = join(skillsDir, 'shared-stale');
+    const targetDir = join(sharedDir, 'shared-stale');
+
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(sharedDir, { recursive: true });
+    await symlink(sourceDir, targetDir);
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const result = await reconcileStaleLinks(homeDir, [], config);
+
+    expect(result.removed).toEqual([targetDir]);
+    expect(result.skipped).toEqual([]);
+    expect(result.errors).toEqual([]);
+    await expect(access(targetDir)).rejects.toThrow();
+  });
+
+  it('reports shared agents links as missing or linked in collectLinkStatus', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const sourceDir = join(homeDir, '.syncskill', 'skills', 'shared-skill');
+    const sharedTarget = join(homeDir, '.agents', 'skills', 'shared-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: { 'shared-skill': ['agents'] },
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    const missingStatuses = await collectLinkStatus(homeDir);
+    expect(missingStatuses).toEqual([
+      { skill: 'shared-skill', agent: 'agents', state: 'missing' }
+    ]);
+
+    await mkdir(join(homeDir, '.agents', 'skills'), { recursive: true });
+    await symlink(sourceDir, sharedTarget);
+
+    const linkedStatuses = await collectLinkStatus(homeDir);
+    expect(linkedStatuses).toEqual([
+      { skill: 'shared-skill', agent: 'agents', state: 'linked' }
+    ]);
+  });
+
+  it('removes shared agents links with unlinkSkillFromAgent', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const sourceDir = join(homeDir, '.syncskill', 'skills', 'shared-unlink');
+    const targetDir = join(homeDir, '.agents', 'skills', 'shared-unlink');
+
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(join(homeDir, '.agents', 'skills'), { recursive: true });
+    await symlink(sourceDir, targetDir);
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: { 'shared-unlink': ['agents'] },
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    await unlinkSkillFromAgent(homeDir, 'shared-unlink', 'agents');
+
+    await expect(access(targetDir)).rejects.toThrow();
   });
 
   it('reports errors when symlink removal fails', async () => {

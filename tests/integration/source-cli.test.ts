@@ -204,6 +204,53 @@ describe('source CLI', () => {
       ]
     });
   });
+
+  it('link build includes shared agents symlinks in JSON summary', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-build-shared-json-'));
+    tempDirs.push(homeDir);
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const sharedDir = join(homeDir, '.agents', 'skills');
+
+    await mkdir(join(skillsDir, 'skill-a'), { recursive: true });
+    await writeFile(join(skillsDir, 'skill-a', 'SKILL.md'), '# skill-a');
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: { 'skill-a': ['agents'] },
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', 'link', 'build', '-y'], { from: 'node' });
+
+    const events = consoleLog.mock.calls.map((call) => JSON.parse(call[0] as string));
+    const resultEvent = events.find((event) => event.type === 'result');
+    expect(resultEvent.command).toBe('link build');
+    expect(resultEvent.ok).toBe(true);
+    expect(resultEvent.summary).toEqual({
+      changes: [
+        {
+          skill: 'skill-a',
+          config_before: ['agents'],
+          config_after: ['agents'],
+          symlinks_created: [
+            {
+              agent: 'agents',
+              path: join(sharedDir, 'skill-a'),
+              plan_ref: 'a1'
+            }
+          ],
+          symlinks_removed: []
+        }
+      ]
+    });
+  });
 });
 
 describe('source add compatibility removal', () => {

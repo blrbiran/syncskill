@@ -53,6 +53,56 @@ describe('config CLI', () => {
     expect(loggedOutput).not.toContain('Legend:'); // no legend in verbose mode
   });
 
+  it('link list shows the shared agents column when a skill targets agents', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
+    tempDirs.push(homeDir);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'shared-skill'), { recursive: true });
+    await writeFile(join(homeDir, '.syncskill', 'skills', 'shared-skill', 'SKILL.md'), '# test', 'utf8');
+
+    const config = await loadConfig(homeDir);
+    config.links['shared-skill'] = ['agents'];
+    await saveConfig(config, homeDir);
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'build'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'list'], { from: 'node' });
+
+    const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
+    expect(loggedOutput).toContain('agents');
+    expect(loggedOutput).toContain('shared-skill');
+    expect(loggedOutput).toContain('✓');
+  });
+
+  it('link remove can remove the shared agents target', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
+    tempDirs.push(homeDir);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'init', '--skip-scan'], { from: 'node' });
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'shared-remove'), { recursive: true });
+    await writeFile(join(homeDir, '.syncskill', 'skills', 'shared-remove', 'SKILL.md'), '# test', 'utf8');
+
+    const config = await loadConfig(homeDir);
+    config.links['shared-remove'] = ['agents'];
+    await saveConfig(config, homeDir);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'build'], { from: 'node' });
+    await expect(readlink(join(homeDir, '.agents', 'skills', 'shared-remove'))).resolves.toBeDefined();
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'remove', 'shared-remove', 'agents'], { from: 'node' });
+
+    const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
+    expect(loggedOutput).toContain('✓ Removed agents from shared-remove');
+    await expect(readlink(join(homeDir, '.agents', 'skills', 'shared-remove'))).rejects.toThrow();
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({
+      links: {
+        'shared-remove': []
+      }
+    });
+  });
+
   it('link build --dry-run previews without linking', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);

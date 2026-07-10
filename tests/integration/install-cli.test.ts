@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readlink, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -328,7 +328,7 @@ describe('install CLI command', () => {
     );
 
     expect(stdout).toContain('Installed 1 skill(s)');
-    expect(stdout).toContain('Linked to: claude');
+    expect(stdout).toContain('Linked to: agents, claude');
 
     const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
     expect(config.sources['local-source']).toEqual({
@@ -337,8 +337,48 @@ describe('install CLI command', () => {
       path: '.'
     });
     expect(config.links.alpha).toEqual(['agents', 'claude']);
-    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha');
+    await expect(readFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha');
   });
+
+  it('installs git tree skills with only the shared agents target without crashing result summary', async () => {
+    const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
+
+    await mkdir(join(workRepoDir, 'skills', 'research', 'arxiv'), { recursive: true });
+    await writeFile(join(workRepoDir, 'skills', 'research', 'arxiv', 'SKILL.md'), '# arxiv');
+    await commitAll(workRepoDir, 'Add arxiv skill');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+
+    await writeFile(
+      join(homeDir, '.syncskill', 'config.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          agents: {},
+          links: {},
+          servers: {},
+          sources: {},
+          private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
+        },
+        null,
+        2
+      )
+    );
+
+    const { stdout } = await execFileAsync(
+      'npx',
+      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
+      {
+        cwd: join(import.meta.dirname, '../..'),
+        env: { ...process.env, HOME: homeDir }
+      }
+    );
+
+    expect(stdout).toContain('Installed 1 skill(s)');
+    expect(stdout).toContain('Linked to: agents');
+    await expect(readlink(join(homeDir, '.agents', 'skills', 'arxiv'))).resolves.toBe(
+      join(homeDir, '.syncskill', 'skills', 'arxiv')
+    );
+  }, 15000);
 
   it('outputs plan JSON with --plan install local directory source', async () => {
     const sourceRoot = join(homeDir, 'planned-local-source');
@@ -413,10 +453,11 @@ describe('install CLI command', () => {
     expect(resultEvent.summary.data.skills.ignored).toEqual([]);
     expect(resultEvent.summary.data.skills.already_installed).toEqual([]);
     expect(resultEvent.summary.data.links_created).toEqual([
+      expect.objectContaining({ skill: 'alpha', agent: 'agents' }),
       expect.objectContaining({ skill: 'alpha', agent: 'claude' })
     ]);
 
-    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha');
+    await expect(readFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha');
   });
 
   it('rejects planned local directory install apply without resolutions', async () => {
@@ -489,7 +530,7 @@ describe('install CLI command', () => {
     );
 
     expect(stdout).toContain('Installed 1 skill(s)');
-    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'retry-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# retry');
+    await expect(readFile(join(sourceRoot, 'skills', 'retry-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# retry');
   });
 
   it('reports already-installed skills when reinstalling the same git subdir skill', async () => {
@@ -581,7 +622,7 @@ describe('install CLI command', () => {
       commonOptions
     );
     expect(second.stdout).toContain('Installed 1 skill(s)');
-    expect(second.stdout).toContain('Linked to: claude');
+    expect(second.stdout).toContain('Linked to: agents, claude');
 
     const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
     expect(Object.keys(config.sources)).toHaveLength(1);
