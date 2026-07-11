@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, readdir, readFile, readlink, rm, stat, symlink } from 'node:fs/promises';
+import { cp, lstat, mkdir, readdir, readFile, readlink, realpath, rm, stat, symlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
 import { expandMaterializedTargetAgents, expandTargetAgents, getSyncPaths, KNOWN_AGENT_DIRS, loadConfig, resolveAgentPath, saveConfig, type SyncSkillConfig } from './config/config.js';
@@ -295,6 +295,82 @@ function resolveMaterializedAgentPath(config: SyncSkillConfig, agent: string, ho
   return resolveAgentPath(config.agents[agent], homeDir);
 }
 
+interface MaterializedAgentDirectory {
+  representativeAgent: string;
+  logicalAgents: string[];
+  scanPath: string;
+  canonicalPath: string;
+}
+
+async function canonicalizeAgentPath(agentPath: string): Promise<string> {
+  try {
+    return await realpath(agentPath);
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return resolve(agentPath);
+    }
+
+    throw error;
+  }
+}
+
+function listMaterializedAgentNames(config: SyncSkillConfig): string[] {
+  return [...new Set([...Object.keys(config.agents), 'agents'])];
+}
+
+async function buildMaterializedAgentDirectoryIndex(
+  config: SyncSkillConfig,
+  homeDir: string
+): Promise<{
+  agentCanonicalPaths: Map<string, string>;
+  directories: MaterializedAgentDirectory[];
+}> {
+  const agentCanonicalPaths = new Map<string, string>();
+  const groupedDirectories = new Map<string, Array<{ agent: string; path: string }>>();
+
+  for (const agent of listMaterializedAgentNames(config)) {
+    const path = resolveMaterializedAgentPath(config, agent, homeDir);
+    const canonicalPath = await canonicalizeAgentPath(path);
+    agentCanonicalPaths.set(agent, canonicalPath);
+
+    const entries = groupedDirectories.get(canonicalPath) ?? [];
+    entries.push({ agent, path });
+    groupedDirectories.set(canonicalPath, entries);
+  }
+
+  const directories = [...groupedDirectories.entries()].map(([canonicalPath, entries]) => {
+    const representative = entries.find((entry) => resolve(entry.path) === canonicalPath) ?? entries[0];
+
+    return {
+      representativeAgent: representative.agent,
+      logicalAgents: entries.map((entry) => entry.agent),
+      scanPath: representative.path,
+      canonicalPath
+    };
+  });
+
+  return { agentCanonicalPaths, directories };
+}
+
+function buildValidDirectoryPairs(
+  config: SyncSkillConfig,
+  agentCanonicalPaths: Map<string, string>
+): Set<string> {
+  const validPairs = new Set<string>();
+
+  for (const [skill, targets] of Object.entries(config.links)) {
+    const agents = expandMaterializedTargetAgents(config, targets);
+    for (const agent of agents) {
+      const canonicalPath = agentCanonicalPaths.get(agent);
+      if (canonicalPath) {
+        validPairs.add(`${skill}:${canonicalPath}`);
+      }
+    }
+  }
+
+  return validPairs;
+}
+
 export async function linkConfiguredSkills(homeDir: string, request: LinkRequest): Promise<LinkStatus[]> {
   const config = await loadConfig(homeDir);
   const skillNames = request.all
@@ -498,49 +574,38 @@ export async function findStaleLinks(
 ): Promise<StaleLinksBySkill> {
   const config = await loadConfig(homeDir);
   const staleBySkill: StaleLinksBySkill = {};
+  const { agentCanonicalPaths, directories } = await buildMaterializedAgentDirectoryIndex(config, homeDir);
+  const validPairs = buildValidDirectoryPairs(config, agentCanonicalPaths);
 
-  // If specific skills provided, only check those; otherwise check all configured links
-  const skillsToCheck = skillNames ?? Object.keys(config.links);
-
-  const agentEntries: Array<[string, string]> = [
-    ...Object.entries(config.agents),
-    ['agents', join(homeDir, '.agents', 'skills')]
-  ];
-
-  for (const [agentName, rawAgentPath] of agentEntries) {
-    const agentPath = resolveMaterializedAgentPath(config, agentName, homeDir);
-
+  for (const directory of directories) {
     try {
-      const entries = await readdir(agentPath, { withFileTypes: true });
+      const entries = await readdir(directory.scanPath, { withFileTypes: true });
 
       for (const entry of entries) {
-        const skillPath = join(agentPath, entry.name);
+        const skillPath = join(directory.scanPath, entry.name);
         const skillName = entry.name;
 
-        // Only check skills we're interested in
         if (skillNames && !skillNames.includes(skillName)) {
           continue;
         }
 
-        // Check if it's a symlink managed by syncskill
         try {
           if (!(await isManagedSkillLink(homeDir, skillName, skillPath))) {
             continue;
           }
 
-          // Check if this skill-agent combination is still in config
-          const configuredAgents = expandMaterializedTargetAgents(config, config.links[skillName] ?? []);
-          if (!configuredAgents.includes(agentName)) {
-            // This link is stale - skill exists in agent but not configured
-            if (!staleBySkill[skillName]) {
-              staleBySkill[skillName] = [];
-            }
-            staleBySkill[skillName].push({
-              skill: skillName,
-              agent: agentName,
-              path: skillPath
-            });
+          if (validPairs.has(`${skillName}:${directory.canonicalPath}`)) {
+            continue;
           }
+
+          if (!staleBySkill[skillName]) {
+            staleBySkill[skillName] = [];
+          }
+          staleBySkill[skillName].push({
+            skill: skillName,
+            agent: directory.representativeAgent,
+            path: skillPath
+          });
         } catch {
           // Not a symlink or error reading, skip
         }
@@ -584,42 +649,26 @@ async function reconcileStaleLinksImpl(
     errors: []
   };
 
-  // Build a set of valid (skill, agent) pairs from config
-  const validPairs = new Set<string>();
-  for (const [skill, targets] of Object.entries(config.links)) {
-    const agents = expandMaterializedTargetAgents(config, targets);
-    for (const agent of agents) {
-      validPairs.add(`${skill}:${agent}`);
-    }
-  }
+  const { agentCanonicalPaths, directories } = await buildMaterializedAgentDirectoryIndex(config, homeDir);
+  const validPairs = buildValidDirectoryPairs(config, agentCanonicalPaths);
 
-  const agentEntries: Array<[string, string]> = [
-    ...Object.entries(config.agents),
-    ['agents', join(homeDir, '.agents', 'skills')]
-  ];
-
-  // Check each agent directory for stale links
-  for (const [agentName, rawAgentPath] of agentEntries) {
-    const agentPath = resolveMaterializedAgentPath(config, agentName, homeDir);
+  for (const directory of directories) {
     let entries: import('node:fs').Dirent[];
     try {
-      entries = await readdir(agentPath, { withFileTypes: true });
+      entries = await readdir(directory.scanPath, { withFileTypes: true });
     } catch {
-      // Agent directory doesn't exist, skip
       continue;
     }
 
     for (const entry of entries) {
       const skillName = entry.name;
 
-      // In single-skill mode, only check the specified skills
       if (skillNames.length > 0 && !skillNames.includes(skillName)) {
         continue;
       }
 
-      const targetPath = join(agentPath, skillName);
+      const targetPath = join(directory.scanPath, skillName);
 
-      // Skip if not a symlink (real directories should not be touched)
       let lstats: import('node:fs').Stats;
       try {
         lstats = await lstat(targetPath);
@@ -632,20 +681,16 @@ async function reconcileStaleLinksImpl(
         continue;
       }
 
-      // Only manage symlinks owned by syncskill
       if (!(await isManagedSkillLink(homeDir, skillName, targetPath))) {
         result.skipped.push(targetPath);
         continue;
       }
 
-      // Check if this (skill, agent) pair is still valid
-      const pairKey = `${skillName}:${agentName}`;
+      const pairKey = `${skillName}:${directory.canonicalPath}`;
       if (validPairs.has(pairKey)) {
-        // Still valid, skip
         continue;
       }
 
-      // Stale link detected - remove it
       try {
         await rm(targetPath, { force: true });
         result.removed.push(targetPath);

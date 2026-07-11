@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -25,6 +25,7 @@ describe('DiagnosticCode', () => {
   it('exports all expected diagnostic codes', () => {
     expect(DiagnosticCode.NO_VALID_AGENTS).toBe('NO_VALID_AGENTS');
     expect(DiagnosticCode.AGENT_PATH_INVALID).toBe('AGENT_PATH_INVALID');
+    expect(DiagnosticCode.AGENT_PATH_DUPLICATE).toBe('AGENT_PATH_DUPLICATE');
     expect(DiagnosticCode.SKILL_NOT_FOUND).toBe('SKILL_NOT_FOUND');
     expect(DiagnosticCode.AGENT_NOT_CONFIGURED).toBe('AGENT_NOT_CONFIGURED');
     expect(DiagnosticCode.SOURCE_PATH_INVALID).toBe('SOURCE_PATH_INVALID');
@@ -69,6 +70,27 @@ describe('checkAgentPaths', () => {
       severity: 'warning',
       path: 'agents.hermes'
     });
+  });
+
+  it('returns warning when multiple agents resolve to the same directory', async () => {
+    const claudeDir = join(testDir, 'claude-skills');
+    const codexRoot = join(testDir, 'codex');
+    const codexDir = join(codexRoot, 'skills');
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(codexRoot, { recursive: true });
+    await symlink(claudeDir, codexDir);
+
+    const items = await checkAgentPaths({
+      claude: claudeDir,
+      codex: codexDir
+    });
+
+    expect(items).toContainEqual(expect.objectContaining({
+      code: 'AGENT_PATH_DUPLICATE',
+      severity: 'warning',
+      path: 'agents.codex'
+    }));
+    expect(items.some((item) => item.message.includes('same underlying directory'))).toBe(true);
   });
 
   it('returns error when all agent paths are invalid', async () => {
@@ -542,6 +564,43 @@ describe('repairConfig', () => {
     const repaired = repairConfig(config, report, options);
 
     expect(repaired.agents).toEqual({ claude: '/valid' });
+  });
+
+  it('does not remove duplicate-path agent warnings during invalid-agent repair', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '/valid', codex: '/same-as-claude' },
+      links: { demo: ['codex'] },
+      servers: {},
+      sources: {}
+    };
+
+    const report: DiagnosticReport = {
+      errors: [],
+      warnings: [
+        {
+          code: DiagnosticCode.AGENT_PATH_DUPLICATE,
+          severity: 'warning',
+          message: 'Duplicate underlying directory',
+          path: 'agents.codex'
+        }
+      ],
+      isHealthy: false,
+      canProceed: true
+    };
+
+    const options: RepairOptions = {
+      removeInvalidSkillLinks: false,
+      removeInvalidAgentLinks: false,
+      removeInvalidAgents: true,
+      removeInvalidSources: false
+    };
+
+    const repaired = repairConfig(config, report, options);
+
+    expect(repaired.agents).toEqual({ claude: '/valid', codex: '/same-as-claude' });
+    expect(repaired.links).toEqual({ demo: ['codex'] });
   });
 
   it('removes invalid source from sources', () => {

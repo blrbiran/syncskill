@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig, type SyncSkillConfig } from '../../src/config/config.js';
-import { collectLinkStatus, ensureLinkedDirectory, formatLinkStatusMatrix, linkConfiguredSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent } from '../../src/linker.js';
+import { collectLinkStatus, ensureLinkedDirectory, findStaleLinks, formatLinkStatusMatrix, linkConfiguredSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent } from '../../src/linker.js';
 import type { LinkStatus } from '../../src/linker.js';
 import { materializeSource } from '../../src/source.js';
 
@@ -602,6 +602,44 @@ describe('reconcileStaleLinks', () => {
     await expect(readlink(claudeTarget)).resolves.toBe(sourceDir);
     // Verify hermes link was removed
     await expect(access(hermesTarget)).rejects.toThrow();
+  });
+
+  it('does not remove a valid claude link when codex resolves to the same directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconcile-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const codexRoot = join(homeDir, '.codex');
+    const codexDir = join(codexRoot, 'skills');
+    const sourceDir = join(skillsDir, 'aliased-skill');
+    const claudeTarget = join(claudeDir, 'aliased-skill');
+
+    await mkdir(sourceDir, { recursive: true });
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(codexRoot, { recursive: true });
+    await symlink(claudeDir, codexDir);
+    await symlink(sourceDir, claudeTarget);
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: claudeDir, codex: codexDir },
+      links: { 'aliased-skill': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+    await saveConfig(config, homeDir);
+
+    await expect(findStaleLinks(homeDir)).resolves.toEqual({});
+
+    const result = await reconcileStaleLinks(homeDir, [], config);
+
+    expect(result.removed).toEqual([]);
+    expect(result.skipped).toEqual([]);
+    expect(result.errors).toEqual([]);
+    await expect(readlink(claudeTarget)).resolves.toBe(sourceDir);
+    await expect(readlink(join(codexDir, 'aliased-skill'))).resolves.toBe(sourceDir);
   });
 
   it('detects skill completely removed from config.links', async () => {

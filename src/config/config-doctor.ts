@@ -1,4 +1,4 @@
-import { access, copyFile, readFile, readdir } from 'node:fs/promises';
+import { access, copyFile, readFile, readdir, realpath } from 'node:fs/promises';
 
 import type { SyncSkillConfig } from './config.js';
 import { rebuildRegistryV2 } from '../core/registry-builder.js';
@@ -139,6 +139,7 @@ async function checkRegistryIntegrity(
 export const DiagnosticCode = {
   NO_VALID_AGENTS: 'NO_VALID_AGENTS',
   AGENT_PATH_INVALID: 'AGENT_PATH_INVALID',
+  AGENT_PATH_DUPLICATE: 'AGENT_PATH_DUPLICATE',
   SKILL_NOT_FOUND: 'SKILL_NOT_FOUND',
   AGENT_NOT_CONFIGURED: 'AGENT_NOT_CONFIGURED',
   SOURCE_PATH_INVALID: 'SOURCE_PATH_INVALID',
@@ -204,13 +205,39 @@ export async function checkAgentPaths(
     }];
   }
 
-  return invalidResults.map((result) => ({
-    code: DiagnosticCode.AGENT_PATH_INVALID,
-    severity: 'warning' as const,
-    message: `Path does not exist: ${result.path}`,
-    path: `agents.${result.name}`,
-    suggestion: `Remove "${result.name}" from agents`
-  }));
+  const duplicateWarnings: DiagnosticItem[] = [];
+  const canonicalOwners = new Map<string, string>();
+  for (const result of results) {
+    if (!result.valid) {
+      continue;
+    }
+
+    const canonicalPath = await realpath(result.path).catch(() => result.path);
+    const firstOwner = canonicalOwners.get(canonicalPath);
+    if (!firstOwner) {
+      canonicalOwners.set(canonicalPath, result.name);
+      continue;
+    }
+
+    duplicateWarnings.push({
+      code: DiagnosticCode.AGENT_PATH_DUPLICATE,
+      severity: 'warning',
+      message: `Agent "${result.name}" resolves to the same underlying directory as "${firstOwner}": ${canonicalPath}`,
+      path: `agents.${result.name}`,
+      suggestion: `Keep only one agent mapping for ${canonicalPath}`
+    });
+  }
+
+  return [
+    ...invalidResults.map((result) => ({
+      code: DiagnosticCode.AGENT_PATH_INVALID,
+      severity: 'warning' as const,
+      message: `Path does not exist: ${result.path}`,
+      path: `agents.${result.name}`,
+      suggestion: `Remove "${result.name}" from agents`
+    })),
+    ...duplicateWarnings
+  ];
 }
 
 export function checkSkillReferences(
