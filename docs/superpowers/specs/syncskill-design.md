@@ -1088,6 +1088,9 @@ Already installed: skill-a
 
 清理规则：
 1. 遍历所有显式 agent 目录以及 shared `~/.agents/skills/` 目录，检查指定 skill（或所有 skill）是否存在需要清理的 stale 链接
+   - `link build` / stale cleanup groups materialized agent directories by canonical `realpath` before deciding which managed symlinks are stale.
+   - This grouping applies to all local materialized link targets, including the shared target `agents` (`~/.agents/skills/`).
+   - If multiple logical agent names resolve to the same underlying directory, syncskill treats that directory as one cleanup domain and will not remove a still-valid managed symlink just because one alias name is no longer in `config.links`.
 2. **仅清理 syncskill 管理的软链接**：symlink target 能被 `resolveSkillPath()` 解析到（指向 `~/.syncskill/skills/` 或 `config.sources` 中的路径）
 3. **不清理实体目录**：非 symlink 的真实目录不动，可能是用户手动放置的
 4. **不清理非 syncskill 管理的链接**：symlink target 不在 syncskill 管理范围内的不动
@@ -2586,14 +2589,20 @@ function formatDiagnosticSummary(report: DiagnosticReport): string;
 
 | Code | Severity | 触发条件 | 修复动作 |
 |------|----------|---------|---------|
-| `E_NO_VALID_AGENTS` | error | `agents` 中所有路径都不存在 | 阻断，提示运行 `doctor --fix` |
-| `W_AGENT_PATH_INVALID` | warning | 单个 agent 路径不存在 | 从 `agents` 中移除 |
-| `W_SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 在 `~/.syncskill/skills/` 和 sources 中都不存在 | 从 `links` 中移除该 skill |
-| `W_AGENT_NOT_CONFIGURED` | warning | `links[skill]` 中引用的 agent 不在 `agents` 中 | 从该 skill 的 targets 中移除该 agent |
-| `W_SOURCE_PATH_INVALID` | warning | `sources` 中 local 类型的 `path` 不存在 | 从 `sources` 中移除 |
-| `W_REGISTRY_CORRUPT` | warning | `skills-registry.json` 解析失败或 schema 不合法 | 备份损坏文件后重建 `http_baselines` 字段（ignore 状态由 `config.sources[].ignore[]` 持有）。若 `--fix` 模式下重建仍失败 → 升级为 `E_REGISTRY_CORRUPT` exit 3 |
+| `NO_VALID_AGENTS` | error | `agents` 中所有路径都不存在 | 阻断，提示运行 `doctor --fix` |
+| `AGENT_PATH_INVALID` | warning | 单个 agent 路径不存在 | `doctor --fix` 可移除对应 `agents.<name>` |
+| `AGENT_PATH_DUPLICATE` | warning | 两个显式 `config.agents` 条目 resolve 到同一个 canonical underlying directory | 不自动修复；需手动判断保留哪个映射 |
+| `SKILL_NOT_FOUND` | warning | `links` 中引用的 skill 在 `~/.syncskill/skills/` 和 sources 中都不存在 | 从 `links` 中移除该 skill |
+| `AGENT_NOT_CONFIGURED` | warning | `links[skill]` 中引用的 agent 不在 `agents` 中 | 从该 skill 的 targets 中移除该 agent |
+| `SOURCE_PATH_INVALID` | warning | `sources` 中 local 类型的 `path` 不存在 | 从 `sources` 中移除 |
+| `REGISTRY_CORRUPT` | warning | `skills-registry.json` 解析失败或 schema 不合法 | 备份损坏文件后重建 `http_baselines` 字段（ignore 状态由 `config.sources[].ignore[]` 持有）。若 `--fix` 模式下重建仍失败 → 升级为 `E_REGISTRY_CORRUPT` exit 3 |
 
-**code 命名规则**：`E_*` = 阻断错误（伴随非 0 exit），`W_*` = 非阻断警告（exit 0）。本节诊断码与 §11.4 的错误码注册表一致 — 同一 logical 问题在 doctor 模式与运行时模式应使用相同的 code 字符串。
+- `AGENT_PATH_INVALID`: the configured path does not exist or is not accessible.
+- `AGENT_PATH_DUPLICATE`: two explicit `config.agents` entries resolve to the same canonical underlying directory.
+- Duplicate-directory detection only considers explicit `config.agents` entries; the synthetic shared target `agents` is not a participant in this diagnostic.
+- `doctor --fix` may remove `AGENT_PATH_INVALID` entries, but does not auto-fix `AGENT_PATH_DUPLICATE`; duplicate-directory warnings require manual user judgment.
+
+**code / severity 约定**：诊断项使用稳定 code 字符串（如 `NO_VALID_AGENTS`、`AGENT_PATH_INVALID`）；是否阻断由 `severity` 决定：`error` = 阻断并伴随非 0 exit，`warning` = 非阻断（exit 0）。本节诊断码与 §11.4 的错误码注册表一致 — 同一 logical 问题在 doctor 模式与运行时模式应使用相同的 code 字符串。
 
 **检查顺序**：
 1. 检查 `agents` 路径有效性（决定是否 error）
@@ -2656,7 +2665,7 @@ Run `syncskill doctor --fix` to repair.
 ```
 $ syncskill doctor --fix
 
-Found 3 issues to fix:
+Found 3 auto-fixable issues to fix:
 
 ? Remove "old-skill" from links? (skill not found) (Y/n) y
 ✓ Removed links.old-skill
@@ -2670,6 +2679,8 @@ Found 3 issues to fix:
 ────────────────────────────────────────
 Fixed 2 of 3 issues. Config saved.
 ```
+
+`AGENT_PATH_DUPLICATE` 会继续出现在诊断报告中，但 `doctor --fix` 不会自动移除重复目录映射；用户需要手动修改 `config.agents`。
 
 ### 10.5 自动检查集成
 
@@ -2813,7 +2824,7 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 | `E_REMOTE_NOT_FOUND` | error | remote (`config.servers[<name>]`) 不存在 (v2.7.4 PR 5b：由 `E_SERVER_NOT_FOUND` rename 而来，与 `server → remote` CLI 命令族 rename 同步；config 字段名 `servers:` 不变) | 2 |
 | `E_CONFIG_NOT_FOUND` | error | `~/.syncskill/config.json` 与 `config.yaml` 均不存在 | 3 |
 | `E_NEEDS_INPUT` | error | `--no-interactive` 下需要输入 | 4 |
-| `E_NO_VALID_AGENTS` | error | doctor: 所有 agent 路径都失效 | 3 |
+| `NO_VALID_AGENTS` | error | doctor: 所有 agent 路径都失效 | 3 |
 | `E_REGISTRY_CORRUPT` | error | doctor: `--fix` 模式下重建仍失败 | 3 |
 | `E_NETWORK` | error | 网络/SSH 失败 | 5 |
 | `E_TIMEOUT` | error | 操作超时 | 5 |
@@ -2822,7 +2833,8 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 | `E_TAKEOVER_FAILED` | error | `remote takeover` 执行 SSH rm/ln 失败 | 5 |
 | `E_RECEIVER_DEPLOY` | error | receiver 部署失败 | 8 |
 | `E_RECEIVER_NODE_TOO_OLD` | error | 远端 Node 版本低于 18（receiver 运行时 guard；理由见 §3.13） | 8 |
-| `W_AGENT_PATH_INVALID` | warning | doctor warning（agent 路径不存在） | — |
+| `AGENT_PATH_INVALID` | warning | doctor warning（agent 路径不存在） | — |
+| `AGENT_PATH_DUPLICATE` | warning | doctor warning（显式 agent 路径 canonical 后重复） | — |
 | `W_AGENT_NOT_CONFIGURED` | warning | doctor warning（links 引用未配置的 agent） | — |
 | `W_SKILL_NOT_FOUND` | warning | doctor warning（links 引用不存在的 skill） | — |
 | `W_SOURCE_PATH_INVALID` | warning | doctor warning（local source 路径不存在） | — |
