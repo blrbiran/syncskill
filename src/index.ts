@@ -101,6 +101,7 @@ import {
   repairConfig,
   repairRegistry,
   isRegistryDiagnostic,
+  DiagnosticCode,
   type RepairOptions
 } from './config/config-doctor.js';
 import { buildExternalInstallPlan, executeExternalInstallPlan, installSyncskillSkill } from './install.js';
@@ -3078,14 +3079,30 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      console.log(`Found ${report.errors.length + report.warnings.length} issues to fix:\n`);
-
       const allItems = [...report.errors, ...report.warnings];
+      const autoFixableItems = allItems.filter((item) =>
+        isRegistryDiagnostic(item.code)
+        || item.code === DiagnosticCode.SKILL_NOT_FOUND
+        || item.code === DiagnosticCode.AGENT_NOT_CONFIGURED
+        || item.code === DiagnosticCode.AGENT_PATH_INVALID
+        || item.code === DiagnosticCode.SOURCE_PATH_INVALID
+      );
+
+      console.log(`Found ${autoFixableItems.length} auto-fixable issue${autoFixableItems.length !== 1 ? 's' : ''}.\n`);
+
+      if (autoFixableItems.length === 0) {
+        if (options.dryRun) {
+          console.log('[dry-run] No auto-fixable issues would be applied.');
+        } else {
+          console.log('No auto-fixable issues were applied.');
+        }
+        return;
+      }
 
       let configChanged = false;
       let registryChanged = false;
 
-      for (const item of allItems) {
+      for (const item of autoFixableItems) {
         const shouldFix = options.yes || (await (async () => {
           if (isNoInteractive(program)) {
             return failForNoInteractive();
@@ -3135,6 +3152,8 @@ export function createProgram(homeDir?: string): Command {
         }
         if (configChanged || registryChanged) {
           console.log('\nChanges saved.');
+        } else {
+          console.log('\nNo auto-fixable issues were applied.');
         }
       } else {
         console.log('\n[dry-run] No changes written.');

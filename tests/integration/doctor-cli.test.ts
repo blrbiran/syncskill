@@ -1,6 +1,6 @@
 // tests/integration/doctor-cli.test.ts
 import { execFile } from 'node:child_process';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -87,6 +87,35 @@ describe('syncskill doctor', () => {
 
     expect(code).not.toBe(0);
     expect(stderr).toContain("unknown option '--rebuild-registry'");
+  });
+
+  it('does not treat duplicate agent directories as auto-fixable under --fix -y', async () => {
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const codexRoot = join(homeDir, '.codex');
+    const codexDir = join(codexRoot, 'skills');
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(codexRoot, { recursive: true });
+    await symlink(claudeDir, codexDir);
+
+    const config = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: claudeDir, codex: codexDir },
+      links: {},
+      servers: {},
+      sources: {}
+    };
+    await writeFile(configFile, JSON.stringify(config, null, 2));
+
+    const before = await readFile(configFile, 'utf8');
+    const { stdout, code } = await runDoctor(['--fix', '-y']);
+    const after = await readFile(configFile, 'utf8');
+
+    expect(code).toBe(0);
+    expect(stdout).toContain('Found 0 auto-fixable issues');
+    expect(stdout).toContain('No auto-fixable issues were applied.');
+    expect(stdout).not.toContain('✓ Fixed agents.codex');
+    expect(after).toBe(before);
   });
 
   describe('auto-check integration', () => {
