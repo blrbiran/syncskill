@@ -133,6 +133,9 @@ In v2, `server probe` is removed.
 | `doctor` | Diagnose config issues (agents, links, sources, registry) |
 | `doctor --fix [-y]` | Interactive repair of config issues |
 
+If multiple configured agents resolve to the same underlying directory, syncskill warns with `AGENT_PATH_DUPLICATE` and does not auto-fix it.
+Do not assume every configured agent skills path is a distinct physical directory.
+
 **Config format**: v2 is JSON-only. Runtime state lives under `~/.syncskill/`, and the main config file is `~/.syncskill/config.json`. Older `config.yaml` files are legacy format and are migrated on config writes.
 
 **`private_agents`**: agents that need dedicated per-agent links instead of the shared `~/.agents/skills/` target. Current defaults are `claude`, `codex`, `gemini`, `cursor`, `kiro`, `augment`, `cline`, and `hermes`. Setting `private_agents` in config fully overrides the default list.

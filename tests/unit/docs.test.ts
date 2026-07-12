@@ -52,7 +52,8 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('The shared local target `agents` maps to `~/.agents/skills/`.');
     expect(readme).toContain('Default local linking may use `agents` plus detected `private_agents`, so output can look like `Linked to: agents, claude`.');
     expect(readme).toContain('syncskill link remove welcome agents');
-
+    expect(readme).toContain('If multiple configured agents resolve to the same underlying skills directory, `syncskill doctor` warns instead of assuming they are independent.');
+    expect(readme).toContain('`syncskill doctor --fix` does not auto-remove duplicate-directory agent mappings.');
 
     expect(docsReadme).toContain('syncskill link build');
     expect(docsReadme).toContain('remove stale symlinks');
@@ -65,7 +66,7 @@ describe('ship-readiness docs', () => {
     expect(docsReadme).toContain('restore <skill>');
     expect(docsReadme).toContain('pre-restore');
     expect(docsReadme).toContain('The shared local target `agents` resolves to `~/.agents/skills/` and appears in realized link status output');
-
+    expect(docsReadme).toContain('Duplicate underlying agent directories are warned by `syncskill doctor` and are not auto-fixed.');
 
     expect(configGuide).toContain('# Configuration Guide');
     expect(configGuide).toContain('version');
@@ -144,6 +145,8 @@ describe('ship-readiness docs', () => {
     expect(skillDoc).toContain('If requested skills already exist locally, syncskill reports them as already installed.');
     expect(skillDoc).toContain('`agents` is a valid local target name for the shared `~/.agents/skills/` directory.');
     expect(skillDoc).toContain('Use `link remove <skill> agents` to drop only the shared link.');
+    expect(skillDoc).toContain('If multiple configured agents resolve to the same underlying directory, syncskill warns with `AGENT_PATH_DUPLICATE` and does not auto-fix it.');
+    expect(skillDoc).toContain('Do not assume every configured agent skills path is a distinct physical directory.');
 
     expect(designGuide).toContain('# Design Guide');
     expect(designGuide).toContain('src/index.ts');
