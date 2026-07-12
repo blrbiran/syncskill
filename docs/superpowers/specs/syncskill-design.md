@@ -2862,7 +2862,7 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 | `E_REMOTE_NOT_INITIALIZED` | error | `remote takeover` / `remote show` 等需要 receiver backup 但 `receivers/<server>.json` 不存在 | 3 |
 | `I_FORCE_PROMPT_HINT` | info | `--force` 下任何 prompt 真正调用 promptConfirm/promptSelect 时,每个 ctx 一次性 info 提示 ``--force` only bypasses dirty protection; use `-y` to auto-confirm prompts``。dirty-related prompt 在 callsite 已被 `if (!force)` 守卫（不会调用 prompt 函数），因此自然不发；详见 §3.0.3 "架构不变量" | — |
 
-**前缀约定**：`E_*` = error 级别（伴随非 0 exit code），`W_*` = warning 级别（exit 0，但事件流里出现），`I_*` = informational（exit 0,不阻断流程,纯纠偏/迁移提示,例:`I_FORCE_PROMPT_HINT`）。同一逻辑问题可能在不同上下文用不同 severity（例：dirty source 默认 `W_SOURCE_DIRTY` warning + skip + exit 6；`--strict` 下仍走同一 `W_SOURCE_DIRTY` warning + exit 6，行为不变只是 exit code 由 skip-aware 升级）。
+**命名约定（非强制前缀）**：很多运行时/plan code 仍沿用 `E_*` / `W_*` / `I_*` 作为常见命名模式，但公共 `code` API 不要求所有已发布 code 都遵循此前缀。尤其 doctor 诊断可使用稳定字符串（如 `NO_VALID_AGENTS`、`AGENT_PATH_INVALID`、`AGENT_PATH_DUPLICATE`）；是否阻断由 `severity` 决定，调用方应基于 `severity` 判断行为、基于 `code` 识别具体问题，而不是从前缀推断。
 
 **已删除的 deprecated flag / command 名**（一律不再接受，不再发警告）：
 
