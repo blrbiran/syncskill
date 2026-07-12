@@ -54,6 +54,7 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('syncskill link remove welcome agents');
     expect(readme).toContain('If multiple configured agents resolve to the same underlying skills directory, `syncskill doctor` warns instead of assuming they are independent.');
     expect(readme).toContain('`syncskill doctor --fix` does not auto-remove duplicate-directory agent mappings.');
+    expect(readme).toContain('Auto-repair all auto-fixable issues');
 
     expect(docsReadme).toContain('syncskill link build');
     expect(docsReadme).toContain('remove stale symlinks');

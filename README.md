@@ -145,7 +145,7 @@ Repeated installs from the same git or HTTP source reuse the existing source ent
 |---------|-------------|
 | `syncskill doctor` | Diagnose config issues |
 | `syncskill doctor --fix` | Interactive repair |
-| `syncskill doctor --fix -y` | Auto-repair all issues |
+| `syncskill doctor --fix -y` | Auto-repair all auto-fixable issues |
 
 If multiple configured agents resolve to the same underlying skills directory, `syncskill doctor` warns instead of assuming they are independent.
 `syncskill doctor --fix` does not auto-remove duplicate-directory agent mappings.

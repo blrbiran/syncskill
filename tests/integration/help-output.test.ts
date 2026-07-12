@@ -168,6 +168,7 @@ describe('help output', () => {
     expect(restoreCmd?.options.map(o => o.long)).toContain('--dry-run');
     expect(doctorCmd?.description()).toContain('duplicate underlying agent directories');
     expect(doctorCmd?.description()).toContain('not auto-fixed');
+    expect(doctorCmd?.options.find(o => o.long === '--yes')?.description).toContain('auto-fixable issues');
     expect(installCmd?.options.find(o => o.long === '--path')?.description).toBe('Repo-relative subdirectory within source containing skills');
     expect(installCmd?.options.find(o => o.long === '--skill-subdir')?.description).toBe('Alias for --path');
     expect(installCmd?.options.find(o => o.long === '--type')?.description).toBe('Source type: git, http, or local');

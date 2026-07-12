@@ -3054,7 +3054,7 @@ export function createProgram(homeDir?: string): Command {
     .description('Diagnose and repair config issues; duplicate underlying agent directories are warned, not auto-fixed')
     .option('--fix', 'Interactively fix issues')
     .option('--dry-run', 'Preview fixes without applying')
-    .option('-y, --yes', 'Auto-fix all issues without prompting')
+    .option('-y, --yes', 'Auto-fix all auto-fixable issues without prompting')
     .action(async (options: { fix?: boolean; dryRun?: boolean; yes?: boolean }) => {
       const { skillsDir } = getSyncPaths(resolvedHomeDir);
 
