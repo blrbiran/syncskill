@@ -109,6 +109,15 @@ describe('help output', () => {
     expect(options).not.toContain('--list');
   });
 
+  it('doctor help warns that duplicate underlying agent directories are not auto-fixed', () => {
+    const program = createProgram('/tmp');
+    const doctorCmd = program.commands.find(c => c.name() === 'doctor');
+
+    expect(doctorCmd?.description()).toBe(
+      'Diagnose and repair config issues; duplicate underlying agent directories are warned, not auto-fixed'
+    );
+  });
+
   it('should show subcommands: edit, set, add, remove, clear, build, list', async () => {
     const { stdout } = await execAsync('node', ['dist/index.js', 'link', '--help'], {
       cwd: '/Users/biran/code/skills/syncskill'
@@ -158,7 +167,9 @@ describe('help output', () => {
     expect(restoreCmd?.options.map(o => o.long)).toContain('--server');
     expect(restoreCmd?.options.map(o => o.long)).toContain('--all-servers');
     expect(restoreCmd?.options.map(o => o.long)).toContain('--dry-run');
-    expect(doctorCmd?.description()).toBe('Diagnose and repair config issues');
+    expect(doctorCmd?.description()).toBe(
+      'Diagnose and repair config issues; duplicate underlying agent directories are warned, not auto-fixed'
+    );
     expect(installCmd?.options.find(o => o.long === '--path')?.description).toBe('Repo-relative subdirectory within source containing skills');
     expect(installCmd?.options.find(o => o.long === '--skill-subdir')?.description).toBe('Alias for --path');
     expect(installCmd?.options.find(o => o.long === '--type')?.description).toBe('Source type: git, http, or local');
