@@ -3087,10 +3087,20 @@ export function createProgram(homeDir?: string): Command {
         || item.code === DiagnosticCode.AGENT_PATH_INVALID
         || item.code === DiagnosticCode.SOURCE_PATH_INVALID
       );
+      const manualItems = allItems.filter((item) => !autoFixableItems.includes(item));
 
       console.log(`Found ${autoFixableItems.length} auto-fixable issue${autoFixableItems.length !== 1 ? 's' : ''}.\n`);
 
       if (autoFixableItems.length === 0) {
+        if (manualItems.length > 0) {
+          console.log('Remaining manual issues:');
+          for (const item of manualItems) {
+            console.log(`⚠ ${item.path}`);
+            console.log(`  ${item.message}`);
+          }
+          console.log('');
+        }
+
         if (options.dryRun) {
           console.log('[dry-run] No auto-fixable issues would be applied.');
         } else {
@@ -3098,6 +3108,16 @@ export function createProgram(homeDir?: string): Command {
         }
         return;
       }
+
+      if (manualItems.length > 0) {
+        console.log('Manual issues requiring user attention:');
+        for (const item of manualItems) {
+          console.log(`⚠ ${item.path}`);
+          console.log(`  ${item.message}`);
+        }
+        console.log('');
+      }
+
 
       let configChanged = false;
       let registryChanged = false;

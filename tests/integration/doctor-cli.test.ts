@@ -113,6 +113,9 @@ describe('syncskill doctor', () => {
 
     expect(code).toBe(0);
     expect(stdout).toContain('Found 0 auto-fixable issues');
+    expect(stdout).toContain('Remaining manual issues:');
+    expect(stdout).toContain('agents.codex');
+    expect(stdout).toContain('same underlying directory');
     expect(stdout).toContain('No auto-fixable issues were applied.');
     expect(stdout).not.toContain('✓ Fixed agents.codex');
     expect(after).toBe(before);

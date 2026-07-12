@@ -2767,7 +2767,7 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 ```jsonl
 {"type":"progress","phase":"refresh","message":"Refreshing manifests"}
 {"type":"change","op":"push","entity":"skill","name":"skill-a","before":"abc123","after":"def456"}
-{"type":"warning","code":"W_SKILL_NOT_FOUND","message":"Skill 'old-tool' missing from disk","path":"links.old-tool"}
+{"type":"warning","code":"SKILL_NOT_FOUND","message":"Skill 'old-tool' missing from disk","path":"links.old-tool"}
 {"type":"result","command":"push","ok":true,"data_schema_version":1,"summary":{"pushed":1,"skipped":0,"conflicts":0,"warnings":1}}
 ```
 
