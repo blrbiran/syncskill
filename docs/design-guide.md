@@ -103,6 +103,8 @@ interface ReconcileResult {
 
 **Safety Guarantees:**
 
+Stale link cleanup groups materialized agent directories by canonical `realpath` before deciding which managed links are stale. This prevents one logical agent alias from deleting a valid managed symlink from another alias that resolves to the same underlying directory. Duplicate-directory diagnostics only inspect explicit `config.agents` entries, not the synthetic shared target `agents`.
+
 1. **Only touches syncskill-managed symlinks** - A symlink is considered "managed" only if it points to a path under `~/.syncskill/skills/`. External symlinks are never modified.
 
 2. **Never deletes real directories** - Uses `lstatSync()` to distinguish symlinks from directories. Real directories are always skipped, even if they have the same name as a skill.

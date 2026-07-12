@@ -185,6 +185,9 @@ Link reconciliation options:
 | `-y, --yes` | Auto-confirm stale link removal |
 | `--dry-run` | Preview what would be linked and removed |
 
+`syncskill link build` deduplicates materialized agent directories by canonical `realpath` before removing stale links.
+If `claude` and `codex` resolve to the same underlying directory, syncskill treats that directory as one cleanup domain and will not remove a still-valid managed link only because one alias is no longer targeted.
+
 Link status symbols:
 
 | Symbol | Status | Meaning |
@@ -487,6 +490,8 @@ The doctor command checks for:
 - Agents in links that aren't configured
 - Invalid source paths
 - Stale or corrupt skills-registry.json entries
+
+`syncskill doctor --fix` leaves `AGENT_PATH_DUPLICATE` warnings for manual resolution.
 
 ## Global Options
 

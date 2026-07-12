@@ -96,6 +96,8 @@ describe('ship-readiness docs', () => {
     expect(configGuide).toContain('Unlike named entries under `config.agents`, `"agents"` does not need its own `config.agents.agents` mapping.');
     expect(configGuide).toContain('`private_agents` lists agents that still need dedicated per-agent links in addition to the shared target.');
     expect(configGuide).toContain('For example, `"welcome": ["agents", "claude"]` links the skill into the shared directory and also into Claude\'s private skills directory.');
+    expect(configGuide).toContain('If two entries under `config.agents` resolve to the same canonical directory, `syncskill doctor` reports `AGENT_PATH_DUPLICATE`.');
+    expect(configGuide).toContain('`syncskill doctor --fix` does not automatically remove duplicate-directory agent mappings.');
 
     expect(usageGuide).toContain('# Usage Guide');
     expect(usageGuide).toContain('syncskill init');
@@ -126,6 +128,8 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('--type <type>');
     expect(usageGuide).toContain('syncskill restore welcome');
     expect(usageGuide).toContain('pre-restore');
+    expect(usageGuide).toContain('`syncskill link build` deduplicates materialized agent directories by canonical `realpath` before removing stale links.');
+    expect(usageGuide).toContain('`syncskill doctor --fix` leaves `AGENT_PATH_DUPLICATE` warnings for manual resolution.');
 
     expect(skillDoc).toContain('repo-relative subdirectory containing skills');
     expect(skillDoc).toContain('install <url-or-path> [--name] [--path <dir>] [--branch] [--type <type>] [-y]');
@@ -157,5 +161,7 @@ describe('ship-readiness docs', () => {
     expect(designGuide).toContain('SYNCSKILL_PULL_BACKUP');
     expect(designGuide).toContain('pre-restore');
     expect(designGuide).toContain('forced_conflict');
+    expect(designGuide).toContain('Stale link cleanup groups materialized agent directories by canonical `realpath` before deciding which managed links are stale.');
+    expect(designGuide).toContain('Duplicate-directory diagnostics only inspect explicit `config.agents` entries, not the synthetic shared target `agents`.');
   });
 });

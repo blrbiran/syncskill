@@ -243,6 +243,11 @@ The `link build` command performs reconciliation:
 1. **Creates missing links** — symlinks defined in config but not present on disk
 2. **Removes stale links** — symlinks on disk that are no longer in config
 
+If two entries under `config.agents` resolve to the same canonical directory, `syncskill doctor` reports `AGENT_PATH_DUPLICATE`.
+This warning means the paths are aliases of the same underlying skills directory, not that either path is missing.
+`syncskill doctor --fix` does not automatically remove duplicate-directory agent mappings.
+Resolving them requires manual judgment because `links.*` may still intentionally reference one of the aliased agent names.
+
 Stale link removal requires confirmation by default. Use flags to control this:
 
 ```bash
