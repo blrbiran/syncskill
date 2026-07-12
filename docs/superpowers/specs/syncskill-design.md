@@ -2809,7 +2809,7 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 
 ### 11.4 错误码（error codes）
 
-每条 `error` / `warning` 事件都带 `code` 字段（`E_*` 前缀的稳定字符串），调用方可以基于 code 路由处理逻辑而不依赖 `message` 文本。code 一旦发布即视为 API 表面，**不破坏性变更**。
+每条 `error` / `warning` 事件都带 `code` 字段（稳定字符串）；是否阻断由 `severity` 决定：`error` = 阻断并伴随非 0 exit，`warning` = 非阻断（通常 exit 0）。调用方可以基于 code 路由处理逻辑而不依赖 `message` 文本。code 一旦发布即视为 API 表面，**不破坏性变更**。
 
 核心错误码（非穷举，命令章节可定义子集）：
 
@@ -2835,10 +2835,10 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 | `E_RECEIVER_NODE_TOO_OLD` | error | 远端 Node 版本低于 18（receiver 运行时 guard；理由见 §3.13） | 8 |
 | `AGENT_PATH_INVALID` | warning | doctor warning（agent 路径不存在） | — |
 | `AGENT_PATH_DUPLICATE` | warning | doctor warning（显式 agent 路径 canonical 后重复） | — |
-| `W_AGENT_NOT_CONFIGURED` | warning | doctor warning（links 引用未配置的 agent） | — |
-| `W_SKILL_NOT_FOUND` | warning | doctor warning（links 引用不存在的 skill） | — |
-| `W_SOURCE_PATH_INVALID` | warning | doctor warning（local source 路径不存在） | — |
-| `W_REGISTRY_CORRUPT` | warning | doctor warning（registry 损坏，会自动备份重建） | — |
+| `AGENT_NOT_CONFIGURED` | warning | doctor warning（links 引用未配置的 agent） | — |
+| `SKILL_NOT_FOUND` | warning | doctor warning（links 引用不存在的 skill） | — |
+| `SOURCE_PATH_INVALID` | warning | doctor warning（local source 路径不存在） | — |
+| `REGISTRY_CORRUPT` | warning | doctor warning（registry 损坏，会自动备份重建） | — |
 | `W_SOURCE_DIRTY` | warning | update 跳过 dirty source（无 `--force` 时） | — |
 | `W_INSTALL_SELF_AMBIGUOUS` | warning | `install self` 执行时 cwd 含 `./self/` 目录 | — |
 | `W_TAKEOVER_NEEDED` | warning | push 检测到远端 agent 目录中存在非 symlink 真目录，已 skip；hint 指向 `remote takeover <server> <skill>`（§3.18） | — |
