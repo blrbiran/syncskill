@@ -34,6 +34,7 @@
 - **[2026-07-09]** GitHub tree/subdir source 若 `source.path` 指向的目录自身含 `SKILL.md`，root skill 名必须取 `basename(source.path)`；`relativePath='.'` 表示“请求子目录的根”，不是仓库根，也不能回退成 repo 名。
 - **[2026-07-09]** external install 的 same-repo / duplicate-skill 路径也要显式保留 `alreadyInstalledSkills`；否则 text CLI 会误报 `No skills installed.`，即使 JSON summary 已经有 `data.skills.already_installed` 语义。
 - **[2026-07-10]** 共享 target `agents` 是本地 link/build/install 结果层的一级语义，不只是 `config.links` 中的占位值；凡是会“落盘 symlink”或“汇总已创建 links”的代码路径，都必须用支持 `agents -> ~/.agents/skills` 的 materialized-target 解析，而不能只按 `config.agents` 过滤。
+- **[2026-07-11]** link/stale-cleanup 不能只按逻辑 agent 名处理目录；agent 目录若是 symlink 或多个 agent realpath 相同，必须按 canonical path 去重/判权，否则像 `~/.codex/skills -> ~/.claude/skills` 这类别名会让“删除 codex stale link”实际删到 Claude 目录。
 
 ## Do-Not-Repeat
 
