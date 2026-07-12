@@ -516,7 +516,7 @@ Run `syncskill --help` for all commands.
 
 `link set <skill> '*'` 写入 `["*"]`：**通配符语义**——将来新增的 agent 自动包含。希望"当前快照"用显式列表。
 
-**参数校验**：所有 `<agent>` 参数必须在 `config.agents` 中存在（除 `'*'`），否则报 `E_AGENT_NOT_CONFIGURED` + exit 2。
+**参数校验**：除通配符 `'*'` 与 shared target `agents` 外，其他 `<agent>` 参数都必须在 `config.agents` 中存在；否则报 `E_AGENT_NOT_CONFIGURED` + exit 2。
 
 **`link list` 与同名 skill 歧义**：保留子命令名（`list`/`ls`/`edit`/`add`/`remove`/`clear`/`build`/`set`）始终优先匹配子命令。同名 skill 通过 `link edit <skill>` 操作。注：`unlink` 是顶级命令（等价 `link clear`），不在 link 子命令命名空间，因此 skill 名为 `unlink` 时不冲突——`syncskill unlink unlink` 即"unlink 名为 unlink 的 skill"。
 
@@ -685,11 +685,11 @@ Use --no-refresh to skip, then run `syncskill refresh` manually.
 | `qoder` | `~/.qoder/` | `~/.qoder/skills` |
 | `aone_copilot` | `~/.aone_copilot/` | `~/.aone_copilot/skills` |
 
-`agents` 与其它 agent 走相同检测逻辑，无特殊分支：检测 `~/.agents/` 是否存在，存在即注册，链接路径是 `~/.agents/skills`。
+`agents` 是 special shared target，解析到 `~/.agents/skills`，但不需要也不会通过 `config.agents.agents` 持久化为显式 agent 映射。
 
-- **链接时 mkdir**：`linker.createLink()` 创建链接前，若 `<agent_link_path>` 父目录（如 `~/.claude/skills/`）不存在，自动 `mkdirSync({ recursive: true })`。这样首次链接到任意 agent 都不会因为缺少 `skills/` 子目录失败。
+- **链接时 mkdir**：`linker.createLink()` 创建链接前，若 `<agent_link_path>` 父目录（如 `~/.claude/skills/`）不存在，自动 `mkdirSync({ recursive: true })`。这样首次链接到任意 agent 或 shared target 都不会因为缺少 `skills/` 子目录失败。
 - **Default Link Targets 计算**：`install`、`init` 迁移、`scan` 等场景自动为新 skill 计算默认 link target。
-  - **`ensureDefaultLinkTargets(config)`**：统一入口。先保证 `~/.agents/skills/` 存在（必要时创建目录、写入 `config.agents.agents` 字段并 `saveConfig()`，首次创建时打印提示），再计算默认 link target 数组。规则：
+  - **`ensureDefaultLinkTargets(config)`**：统一入口。先保证 `~/.agents/skills/` 存在（必要时创建目录并首次打印提示），再计算默认 link target 数组。规则：
     1. 默认 target 为 `["agents"]`（即 `~/.agents/skills/`，跨客户端标准目录）
     2. 遍历已检测到的 agent，若该 agent 属于 `private_agents`（不读取共享目录），则追加到 target 列表
     3. 返回最终 target 数组，如 `["agents", "cursor", "kiro"]`
