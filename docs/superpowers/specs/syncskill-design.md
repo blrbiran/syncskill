@@ -2824,7 +2824,7 @@ syncskill 管的是 AI agent 的 skill 文件，本身也必须能被 AI agent /
 | `E_REMOTE_NOT_FOUND` | error | remote (`config.servers[<name>]`) 不存在 (v2.7.4 PR 5b：由 `E_SERVER_NOT_FOUND` rename 而来，与 `server → remote` CLI 命令族 rename 同步；config 字段名 `servers:` 不变) | 2 |
 | `E_CONFIG_NOT_FOUND` | error | `~/.syncskill/config.json` 与 `config.yaml` 均不存在 | 3 |
 | `E_NEEDS_INPUT` | error | `--no-interactive` 下需要输入 | 4 |
-| `NO_VALID_AGENTS` | error | doctor: 所有 agent 路径都失效 | 3 |
+| `NO_VALID_AGENTS` | error | doctor: 所有 agent 路径都失效 | 1 |
 | `E_REGISTRY_CORRUPT` | error | doctor: `--fix` 模式下重建仍失败 | 3 |
 | `E_NETWORK` | error | 网络/SSH 失败 | 5 |
 | `E_TIMEOUT` | error | 操作超时 | 5 |
