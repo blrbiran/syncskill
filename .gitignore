@@ -155,8 +155,11 @@ vite.config.ts.timestamp-*
 
 .claude/settings.local.json
 
-# omc
-.omc/
+.omc
+.omo
+.omx
+.ccmem
+.codegraph
 
 docs/issue.md
 
