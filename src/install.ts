@@ -19,6 +19,7 @@ import {
   type DiscoveredSkill,
   type ExistingSourceMatch,
   type SourceDefinition,
+  type SkippedSkillConflict,
 } from './source.js';
 import { isNotFoundError, pathExists, resolveHomePath } from './utils/utils.js';
 
@@ -87,6 +88,7 @@ export interface InstallFromSourceResult {
   sourceName: string;
   installedSkills: string[];
   alreadyInstalledSkills: string[];
+  skippedConflicts: SkippedSkillConflict[];
   linkedAgents: string[];
   linkStatuses: LinkStatus[];
 }
@@ -94,6 +96,7 @@ export interface InstallFromSourceResult {
 interface ResolvedInstallSkills {
   installedSkills: string[];
   alreadyInstalledSkills: string[];
+  skippedConflicts: SkippedSkillConflict[];
 }
 
 export interface ExternalInstallPlanOptions {
@@ -277,10 +280,15 @@ async function installNewSourceSkills(
   existingSkills: Set<string>,
   options: InstallFromSourceOptions
 ): Promise<ResolvedInstallSkills> {
-  await materializeSource(homeDir, sourceName, source);
+  const syncResult = await materializeSource(homeDir, sourceName, source);
+  const skippedConflicts = syncResult.skipped_conflicts ?? [];
+  const conflictNames = new Set(skippedConflicts.map((conflict) => conflict.skill));
 
   const materializedRoot = getMaterializedRootPath(homeDir, sourceName, source);
-  const discoveredSkills = await scanSkillsForInstallRoot(sourceName, source, materializedRoot);
+  // Exclude skills the sync skipped (owned by another source) so they are never
+  // selected, linked, or reported as ignored — they surface only as conflicts.
+  const discoveredSkills = (await scanSkillsForInstallRoot(sourceName, source, materializedRoot))
+    .filter((skill) => !conflictNames.has(skill.name));
   const selectedNames = options.onSelectSkills
     ? await options.onSelectSkills(discoveredSkills, existingSkills)
     : discoveredSkills.filter((skill) => !existingSkills.has(skill.name)).map((skill) => skill.name);
@@ -310,7 +318,8 @@ async function installNewSourceSkills(
 
   return {
     installedSkills,
-    alreadyInstalledSkills
+    alreadyInstalledSkills,
+    skippedConflicts
   };
 }
 
@@ -325,7 +334,8 @@ async function resolveSameRepoInstalledSkills(
   if (!existingMatch) {
     return {
       installedSkills: [],
-      alreadyInstalledSkills: []
+      alreadyInstalledSkills: [],
+      skippedConflicts: []
     };
   }
 
@@ -334,7 +344,11 @@ async function resolveSameRepoInstalledSkills(
   const existingSubdir = normalizeSubdir(source.path);
   const requestedSubdir = getRequestedSubdir(urlOrPath, options);
 
-  await materializeSource(homeDir, sourceName, source);
+  const syncResult = await materializeSource(homeDir, sourceName, source);
+  const skippedByName = new Map<string, SkippedSkillConflict>();
+  for (const conflict of syncResult.skipped_conflicts ?? []) {
+    skippedByName.set(conflict.skill, conflict);
+  }
 
   const checkoutRoot = getCheckoutRootPath(homeDir, sourceName, source);
   const discoveredSkills = await scanSkillsForInstallRoot(sourceName, source, checkoutRoot);
@@ -387,14 +401,18 @@ async function resolveSameRepoInstalledSkills(
   setIgnoredSkills(sourceRecord, ignoredSkills);
 
   if (nextSourcePath !== existingSubdir) {
-    await materializeSource(homeDir, sourceName, { ...source, path: nextSourcePath });
+    const rematerialized = await materializeSource(homeDir, sourceName, { ...source, path: nextSourcePath });
+    for (const conflict of rematerialized.skipped_conflicts ?? []) {
+      skippedByName.set(conflict.skill, conflict);
+    }
   }
 
   await saveConfig(config, homeDir);
 
   return {
     installedSkills,
-    alreadyInstalledSkills
+    alreadyInstalledSkills,
+    skippedConflicts: [...skippedByName.values()]
   };
 }
 
@@ -408,7 +426,8 @@ async function resolveInstalledSkills(
   if (result.restoredFromIgnore && result.restoredSkill) {
     return {
       installedSkills: [result.restoredSkill],
-      alreadyInstalledSkills: []
+      alreadyInstalledSkills: [],
+      skippedConflicts: []
     };
   }
 
@@ -800,13 +819,14 @@ export async function installFromSource(
     onSelectSkills: options.onSelectSkills
   });
 
-  const { installedSkills, alreadyInstalledSkills } = await resolveInstalledSkills(homeDir, result, urlOrPath, existingSkills, options);
+  const { installedSkills, alreadyInstalledSkills, skippedConflicts } = await resolveInstalledSkills(homeDir, result, urlOrPath, existingSkills, options);
   const { linkedAgents, linkStatuses } = await linkInstalledSkills(homeDir, installedSkills);
 
   return {
     sourceName: result.name,
     installedSkills,
     alreadyInstalledSkills,
+    skippedConflicts,
     linkedAgents,
     linkStatuses,
   };

@@ -19,6 +19,8 @@
 - **[2026-06-02]** 运行时 source 布局是 `~/.syncskill/.sources/<name>/checkout/`。
 - **[2026-06-02]** 数据优先级原则：`file truth > config > registry`；registry 是派生缓存，不是独立 source of truth。
 - **[2026-06-03]** `config show` / `config.json` 展示 transport config；`remote show <name>` 展示本地 receiver backup（`updated_at`、`remote_agents`、`links`）；两类信息源不能混写。
+- **[2026-07-24]** 技能归属表在 `~/.syncskill/.sources/skills.json`（`owners: skill -> sourceName`，非 config.json）。一个技能名同一时刻只能属于一个 source。
+- **[2026-07-24]** 安装时技能名冲突有**两类**，都改成「跳过 + 报错」而非整体 throw（部分安装）：(1) `owned-by-other-source`——名字被别的 source 占用；(2) `path-occupied`——`~/.syncskill/skills/<skill>` 已有一个**无归属的孤儿目录**。两类都在 sync 两分支**之前**过滤掉。`assertMaterializationTargetsAvailable` 已改名为 `collectMaterializationConflicts()`，**返回**占用技能名的 Set 而不再 throw（保留 git/http 同 owner 的 reuse continue 逻辑；local in-place 用 pathExists 判定）。跳过项经瞬时字段 `SourceSyncResult.skipped_conflicts`（**不落盘**，`{skill,reason,owner?}`）→ `ResolvedInstallSkills`/`InstallFromSourceResult` → CLI `output.warning('E_SKILL_OWNED'|'E_SKILL_PATH_OCCUPIED', …)` + JSON `data.skills.skipped_conflicts`。孤儿目录**绝不覆盖**（data-safety）。教训：只修 owner 一类会让崩溃在 retest 时移动到 path-occupied 一类——两类要一起修。
 - **[2026-06-03]** 现有 end2end harness 不支持真实 SSH / remote transport；remote push/pull/receiver 类行为应优先放在 integration，e2e 最多保留显式 skipped stub，避免假覆盖。
 - **[2026-06-04]** docs/help 回归测试应锁稳定 contract：优先断言稳定子串与“已移除参数不再出现”，不要锁 markdown 表格转义后的整串命令，也不要把示例命令当帮助面必现文本。
 - **[2026-07-09]** install/help/docs 契约同步时，help 面改动用 `tests/integration/help-output.test.ts` 锁 CLI 文案，README / guides / bundled skill 改动用 `tests/unit/docs.test.ts` 锁稳定子串；两类回归都要一起跑，避免“help 正确但文档未同步”或反之。

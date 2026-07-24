@@ -1098,6 +1098,22 @@ async function executeInstallPlan(
     }
   }
 
+  for (const conflict of result.skippedConflicts) {
+    if (conflict.reason === 'owned-by-other-source') {
+      output.warning(
+        'E_SKILL_OWNED',
+        `Skipped ${conflict.skill} (already owned by source '${conflict.owner}')`,
+        { hint: `Run \`syncskill remove ${conflict.owner}\` then reinstall to take it over.` }
+      );
+    } else {
+      output.warning(
+        'E_SKILL_PATH_OCCUPIED',
+        `Skipped ${conflict.skill} (a directory already exists at ${join(skillsDir, conflict.skill)}, not tracked by any source)`,
+        { path: join(skillsDir, conflict.skill), hint: `Remove or rename that directory, then reinstall to take it over.` }
+      );
+    }
+  }
+
   if (result.linkedAgents.length > 0) {
     output.info(`Linked to: ${result.linkedAgents.join(', ')}`);
   }
@@ -1119,7 +1135,12 @@ async function executeInstallPlan(
           name: skill,
           reason: 'user-deselected'
         })),
-        already_installed: result.alreadyInstalledSkills
+        already_installed: result.alreadyInstalledSkills,
+        skipped_conflicts: result.skippedConflicts.map((conflict) => ({
+          name: conflict.skill,
+          reason: conflict.reason,
+          ...(conflict.owner !== undefined ? { owner: conflict.owner } : {})
+        }))
       },
       links_created: result.linkStatuses.map((status) => ({
         skill: status.skill,

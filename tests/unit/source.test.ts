@@ -931,27 +931,33 @@ sources:
     });
   });
 
-  it('materializeSource rejects a git source when a target skill path is occupied by an unmanaged directory', async () => {
+  it('materializeSource skips a git skill whose target path is occupied by an unmanaged directory (partial sync)', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
     tempDirs.push(homeDir);
 
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
     await mkdir(join(workRepoDir, 'source.path', 'alpha'), { recursive: true });
     await writeFile(join(workRepoDir, 'source.path', 'alpha', 'SKILL.md'), '# alpha v1\n', 'utf8');
+    await mkdir(join(workRepoDir, 'source.path', 'beta'), { recursive: true });
+    await writeFile(join(workRepoDir, 'source.path', 'beta', 'SKILL.md'), '# beta v1\n', 'utf8');
     await commitAll(workRepoDir, 'initial source');
     await git(['push', '-u', 'origin', 'main'], workRepoDir);
 
+    // An orphan directory (owned by no source) already occupies alpha's path.
     await mkdir(join(homeDir, '.syncskill', 'skills', 'alpha'), { recursive: true });
     await writeFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), '# occupied\n', 'utf8');
 
-    await expect(
-      materializeSource(
-        homeDir,
-        'git-source',
-        { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
-        '2026-05-01T02:00:00.000Z'
-      )
-    ).rejects.toThrow('Skill path is already occupied: alpha');
+    const result = await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    // beta installs; alpha is skipped as path-occupied and the orphan is left intact.
+    expect(result.materialized_skills).toEqual(['beta']);
+    expect(result.skipped_conflicts).toEqual([{ skill: 'alpha', reason: 'path-occupied' }]);
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# occupied\n');
   });
 
   it('updateSource refreshes a git source checkout, removes stale skills, and keeps new ones', async () => {
@@ -1002,7 +1008,7 @@ sources:
     });
   });
 
-  it('updateSource does not remove a colliding skill currently owned by another source', async () => {
+  it('materializeSource skips a skill owned by another source (partial sync) and leaves the owner untouched', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
     tempDirs.push(homeDir);
 
@@ -1038,14 +1044,19 @@ sources:
       homeDir
     );
 
-    await expect(
-      materializeSource(
-        homeDir,
-        'git-source',
-        { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
-        '2026-05-01T02:00:00.000Z'
-      )
-    ).rejects.toThrow('Skill path is already occupied: alpha');
+    const conflictResult = await materializeSource(
+      homeDir,
+      'git-source',
+      { type: 'git', url: bareRepoDir, path: 'source.path', branch: 'main' },
+      '2026-05-01T02:00:00.000Z'
+    );
+
+    // Cross-source ownership conflict: alpha is owned by local-source, so
+    // git-source skips it (partial install) instead of aborting the whole sync.
+    expect(conflictResult.materialized_skills).toEqual([]);
+    expect(conflictResult.skipped_conflicts).toEqual([{ skill: 'alpha', reason: 'owned-by-other-source', owner: 'local-source' }]);
+    // local-source keeps ownership of alpha, untouched.
+    await expect(resolveLinkedSkillSourcePath(homeDir, 'alpha')).resolves.toBe(join(sharedRoot, 'alpha'));
 
     await rm(join(workRepoDir, 'source.path', 'alpha'), { recursive: true, force: true });
     await mkdir(join(workRepoDir, 'source.path', 'beta'), { recursive: true });
@@ -1058,6 +1069,82 @@ sources:
     expect(result.materialized_skills).toEqual(['beta']);
     await expect(resolveLinkedSkillSourcePath(homeDir, 'alpha')).resolves.toBe(join(sharedRoot, 'alpha'));
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'beta', 'SKILL.md'), 'utf8')).resolves.toBe('# git beta\n');
+  });
+
+  it('materializeSource installs the non-conflicting skills of a local bundle and skips the conflicting one', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    // Pre-existing standalone source owns "aifusion".
+    const standaloneRoot = join(homeDir, 'aifusion-src');
+    await mkdir(join(standaloneRoot, 'aifusion'), { recursive: true });
+    await writeFile(join(standaloneRoot, 'aifusion', 'SKILL.md'), '# standalone aifusion\n', 'utf8');
+    await materializeSource(
+      homeDir,
+      'aifusion',
+      { type: 'local', url: standaloneRoot, path: '.' },
+      '2026-05-01T00:00:00.000Z'
+    );
+
+    // A bundle that ships aifusion plus two brand-new skills.
+    const bundleRoot = join(homeDir, 'runskills', 'skills');
+    for (const skill of ['aifusion', 'systemd-service-optimize', 'tech-writer']) {
+      await mkdir(join(bundleRoot, skill), { recursive: true });
+      await writeFile(join(bundleRoot, skill, 'SKILL.md'), `# bundle ${skill}\n`, 'utf8');
+    }
+
+    const result = await materializeSource(
+      homeDir,
+      'runskills',
+      { type: 'local', url: join(homeDir, 'runskills'), path: '.' },
+      '2026-05-01T01:00:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['systemd-service-optimize', 'tech-writer']);
+    expect(result.skipped_conflicts).toEqual([{ skill: 'aifusion', reason: 'owned-by-other-source', owner: 'aifusion' }]);
+
+    // Ownership is unchanged for aifusion; new skills belong to runskills.
+    const ownership = await loadSkillOwnershipState(homeDir);
+    expect(ownership.owners.aifusion).toBe('aifusion');
+    expect(ownership.owners['systemd-service-optimize']).toBe('runskills');
+    expect(ownership.owners['tech-writer']).toBe('runskills');
+
+    // Persisted state never carries the transient skipped_conflicts field.
+    await expect(loadSourceState(homeDir, 'runskills')).resolves.toEqual({
+      materialized_skills: ['systemd-service-optimize', 'tech-writer'],
+      updated_at: '2026-05-01T01:00:00.000Z'
+    });
+  });
+
+  it('materializeSource skips a local-bundle skill whose managed path is an untracked orphan directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-'));
+    tempDirs.push(homeDir);
+
+    // Orphan managed directory: exists on disk but owned by no source.
+    await mkdir(join(homeDir, '.syncskill', 'skills', 'systemd-service-optimize'), { recursive: true });
+    await writeFile(join(homeDir, '.syncskill', 'skills', 'systemd-service-optimize', 'SKILL.md'), '# orphan\n', 'utf8');
+
+    const bundleRoot = join(homeDir, 'runskills', 'skills');
+    for (const skill of ['systemd-service-optimize', 'tech-writer']) {
+      await mkdir(join(bundleRoot, skill), { recursive: true });
+      await writeFile(join(bundleRoot, skill, 'SKILL.md'), `# bundle ${skill}\n`, 'utf8');
+    }
+
+    const result = await materializeSource(
+      homeDir,
+      'runskills',
+      { type: 'local', url: join(homeDir, 'runskills'), path: '.' },
+      '2026-05-01T01:00:00.000Z'
+    );
+
+    expect(result.materialized_skills).toEqual(['tech-writer']);
+    expect(result.skipped_conflicts).toEqual([{ skill: 'systemd-service-optimize', reason: 'path-occupied' }]);
+
+    // Orphan directory is left untouched; ownership unchanged for it.
+    await expect(readFile(join(homeDir, '.syncskill', 'skills', 'systemd-service-optimize', 'SKILL.md'), 'utf8')).resolves.toBe('# orphan\n');
+    const ownership = await loadSkillOwnershipState(homeDir);
+    expect(ownership.owners['systemd-service-optimize']).toBeUndefined();
+    expect(ownership.owners['tech-writer']).toBe('runskills');
   });
 
   it('detectGitDefaultBranch returns the default branch from a bare repo', async () => {

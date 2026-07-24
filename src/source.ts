@@ -318,6 +318,29 @@ export interface SourceState {
   updated_at: string;
 }
 
+/**
+ * A skill discovered in a source that was skipped because its name is already
+ * taken. Surfaced so install/update can report a partial result instead of
+ * aborting the whole operation. Two kinds:
+ *  - 'owned-by-other-source': the name is owned by a different source (`owner` set).
+ *  - 'path-occupied': a directory already sits at the managed path but no source
+ *    owns it (an untracked/orphan skill dir); `owner` is undefined.
+ */
+export interface SkippedSkillConflict {
+  skill: string;
+  reason: 'owned-by-other-source' | 'path-occupied';
+  owner?: string;
+}
+
+/**
+ * Result of syncing a source: the persisted state plus any cross-source
+ * ownership conflicts that were skipped. `skipped_conflicts` is never persisted
+ * to disk — it is a transient channel for reporting.
+ */
+export interface SourceSyncResult extends SourceState {
+  skipped_conflicts?: SkippedSkillConflict[];
+}
+
 export interface SkillOwnershipState {
   owners: Record<string, string>; // skill name -> source name
 }
@@ -447,7 +470,7 @@ export async function materializeSource(
   source: SourceDefinition,
   updatedAt = new Date().toISOString(),
   options: UpdateSourceOptions = {}
-): Promise<SourceState> {
+): Promise<SourceSyncResult> {
   return syncSource(homeDir, name, source, updatedAt, options);
 }
 
@@ -462,7 +485,7 @@ export async function updateSource(
   name: string,
   options: UpdateSourceOptions = {},
   updatedAt = new Date().toISOString()
-): Promise<SourceState> {
+): Promise<SourceSyncResult> {
   const config = await loadConfig(homeDir);
   const source = normalizeSourceEntry(name, config.sources[name])[0];
 
@@ -1192,7 +1215,7 @@ async function syncSource(
   source: SourceDefinition,
   updatedAt: string,
   options: UpdateSourceOptions = {}
-): Promise<SourceState> {
+): Promise<SourceSyncResult> {
   if (options.dryRun) {
     const previousState = await loadSourceState(homeDir, name);
     return previousState ?? { materialized_skills: [], updated_at: updatedAt };
@@ -1266,17 +1289,53 @@ async function syncSource(
 
   const materializedRoot = await prepareMaterializedRoot(homeDir, name, source);
   const ownershipState = await loadSkillOwnershipState(homeDir);
-  const discoveredSkills = await discoverMaterializedSkillEntries(name, source, materializedRoot);
-  const materializedSkills = listDiscoveredSkillNames(discoveredSkills);
-  const materializedSkillPaths = mapSkillAbsolutePaths(discoveredSkills);
+  const allDiscoveredSkills = await discoverMaterializedSkillEntries(name, source, materializedRoot);
+
+  // Skip skills whose name is already owned by a *different* source. Instead of
+  // aborting the whole sync (which blocked every other skill in the source), we
+  // drop the conflicting entries here and report them so callers can surface a
+  // partial-install result with an actionable hint.
+  const skippedConflicts: SkippedSkillConflict[] = [];
+  const ownerFilteredSkills = allDiscoveredSkills.filter((entry) => {
+    const owner = ownershipState.owners[entry.name];
+    if (owner !== undefined && owner !== name) {
+      skippedConflicts.push({ skill: entry.name, reason: 'owned-by-other-source', owner });
+      return false;
+    }
+    return true;
+  });
 
   const nextOwnership = structuredClone(ownershipState) as SkillOwnershipState;
   const usesManagedSkillsDir = source.type !== 'local' || Boolean(source.archive_path);
 
   if (usesManagedSkillsDir) {
     await mkdir(skillsDir, { recursive: true });
-    await assertMaterializationTargetsAvailable(skillsDir, previousSkills, discoveredSkills, source.type, name, ownershipState);
+  }
 
+  // Second pass: skip skills whose managed path is already occupied by an
+  // untracked directory (orphan not owned by any source). Legitimate reuse of a
+  // path this source already owns is not a conflict (handled inside the helper).
+  const pathOccupied = await collectMaterializationConflicts(
+    skillsDir,
+    previousSkills,
+    ownerFilteredSkills,
+    source.type,
+    name,
+    ownershipState,
+    usesManagedSkillsDir
+  );
+  const discoveredSkills = ownerFilteredSkills.filter((entry) => {
+    if (pathOccupied.has(entry.name)) {
+      skippedConflicts.push({ skill: entry.name, reason: 'path-occupied' });
+      return false;
+    }
+    return true;
+  });
+
+  const materializedSkills = listDiscoveredSkillNames(discoveredSkills);
+  const materializedSkillPaths = mapSkillAbsolutePaths(discoveredSkills);
+
+  if (usesManagedSkillsDir) {
     // Identify removed skills and ask user what to do
     const removedSkills = previousSkills.filter(
       skill => !materializedSkills.includes(skill) && ownershipState.owners[skill] === name
@@ -1312,14 +1371,9 @@ async function syncSource(
       }
     }
 
+    // Ownership/path conflicts were already filtered out into skippedConflicts
+    // above, so every remaining skill is safe to claim for this source.
     for (const skill of materializedSkills) {
-      const managedPath = join(skillsDir, skill);
-      if (ownershipState.owners[skill] !== undefined && ownershipState.owners[skill] !== name) {
-        throw new Error(`Skill path is already occupied: ${skill}`);
-      }
-      if (ownershipState.owners[skill] !== name && (await pathExists(managedPath))) {
-        throw new Error(`Skill path is already occupied: ${skill}`);
-      }
       nextOwnership.owners[skill] = name;
     }
   }
@@ -1346,7 +1400,9 @@ async function syncSource(
   if (source.type === 'http' && !options.force) {
   }
 
-  return nextState;
+  return skippedConflicts.length > 0
+    ? { ...nextState, skipped_conflicts: skippedConflicts }
+    : nextState;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1837,17 +1893,44 @@ async function recreateSymlink(sourceDir: string, targetDir: string): Promise<vo
   await symlink(sourceDir, targetDir, 'dir');
 }
 
-async function assertMaterializationTargetsAvailable(
+/**
+ * Determine which discovered skills cannot be materialized because a directory
+ * already occupies their managed target path (and it is not a legitimate reuse
+ * of a path this source already owns). Owner-based conflicts (name owned by a
+ * different source) are handled by the caller before this runs; here we only
+ * flag path occupation so the caller can skip those skills and report them.
+ * Returns the set of conflicting skill names instead of throwing, so the caller
+ * can perform a partial install.
+ */
+async function collectMaterializationConflicts(
   skillsDir: string,
   previousSkills: string[],
   discoveredSkills: DiscoveredSkill[],
   sourceType: SourceType,
   sourceName: string,
-  ownershipState: SkillOwnershipState
-): Promise<void> {
+  ownershipState: SkillOwnershipState,
+  usesManagedSkillsDir: boolean
+): Promise<Set<string>> {
+  const conflicts = new Set<string>();
+
   for (const skill of discoveredSkills) {
     const skillName = skill.name;
     const targetDir = join(skillsDir, skillName);
+
+    // A skill this source already owns is always safe to re-claim.
+    if (ownershipState.owners[skillName] === sourceName) {
+      continue;
+    }
+
+    if (!usesManagedSkillsDir) {
+      // Local in-place source: it never writes into skillsDir, so any existing
+      // path there belongs to something else — treat as occupied.
+      if (await pathExists(targetDir)) {
+        conflicts.add(skillName);
+      }
+      continue;
+    }
+
     const expectedTarget = skill.absolutePath;
     const currentTarget = await readlinkIfMatches(targetDir);
 
@@ -1858,20 +1941,17 @@ async function assertMaterializationTargetsAvailable(
     if (
       (sourceType === 'git' || sourceType === 'http') &&
       previousSkills.includes(skillName) &&
-      ownershipState.owners[skillName] === sourceName &&
       (await isReusableManagedCopiedTarget(targetDir))
     ) {
       continue;
     }
 
-    if (ownershipState.owners[skillName] !== undefined && ownershipState.owners[skillName] !== sourceName) {
-      throw new Error(`Skill path is already occupied: ${skillName}`);
-    }
-
     if (currentTarget !== null || (await pathExists(targetDir))) {
-      throw new Error(`Skill path is already occupied: ${skillName}`);
+      conflicts.add(skillName);
     }
   }
+
+  return conflicts;
 }
 
 async function isReusableManagedCopiedTarget(targetPath: string): Promise<boolean> {
