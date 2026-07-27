@@ -121,6 +121,31 @@ describe('syncskill doctor', () => {
     expect(after).toBe(before);
   });
 
+  it('removes hidden non-skill link entries under --fix -y', async () => {
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    await mkdir(join(claudeDir, '.curator_backups'), { recursive: true });
+    await mkdir(join(skillsDir, '.curator_backups'), { recursive: true });
+    await mkdir(join(skillsDir, 'real-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'real-skill', 'SKILL.md'), '# real');
+
+    const config = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: claudeDir },
+      links: { '.curator_backups': ['claude'], 'real-skill': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+    await writeFile(configFile, JSON.stringify(config, null, 2));
+
+    const { stdout, code } = await runDoctor(['--fix', '-y']);
+    const after = JSON.parse(await readFile(configFile, 'utf8')) as { links: Record<string, string[]> };
+
+    expect(code).toBe(0);
+    expect(stdout).toContain('✓ Fixed links..curator_backups');
+    expect(after.links).toEqual({ 'real-skill': ['claude'] });
+  });
+
   describe('auto-check integration', () => {
     it('warns when running link with config issues', async () => {
       const agentDir = join(homeDir, '.claude', 'skills');

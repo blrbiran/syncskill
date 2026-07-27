@@ -30,6 +30,7 @@ describe('DiagnosticCode', () => {
     expect(DiagnosticCode.AGENT_NOT_CONFIGURED).toBe('AGENT_NOT_CONFIGURED');
     expect(DiagnosticCode.SOURCE_PATH_INVALID).toBe('SOURCE_PATH_INVALID');
     expect(DiagnosticCode.REGISTRY_CORRUPT).toBe('REGISTRY_CORRUPT');
+    expect(DiagnosticCode.SKILL_NAME_INVALID).toBe('SKILL_NAME_INVALID');
   });
 });
 
@@ -136,6 +137,33 @@ describe('checkSkillReferences', () => {
     const items = checkSkillReferences(links, existingSkills);
 
     expect(items).toEqual([]);
+  });
+
+  it('flags hidden directory names that are not skills', () => {
+    const links = { '.curator_backups': ['claude'], 'skill-a': ['claude'] };
+    const existingSkills = new Set(['.curator_backups', 'skill-a']);
+    const items = checkSkillReferences(links, existingSkills);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      code: 'SKILL_NAME_INVALID',
+      severity: 'warning',
+      path: 'links..curator_backups'
+    });
+  });
+
+  it('flags hidden names even when no targets are configured', () => {
+    const items = checkSkillReferences({ '.system': [] }, new Set(['.system']));
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ code: 'SKILL_NAME_INVALID' });
+  });
+
+  it('reports a hidden name only once when the skill is also missing', () => {
+    const items = checkSkillReferences({ '.omc': ['claude'] }, new Set<string>());
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ code: 'SKILL_NAME_INVALID' });
   });
 });
 
@@ -476,6 +504,42 @@ describe('repairConfig', () => {
           severity: 'warning',
           message: 'Skill not found',
           path: 'links.invalid-skill'
+        }
+      ],
+      isHealthy: false,
+      canProceed: true
+    };
+
+    const options: RepairOptions = {
+      removeInvalidSkillLinks: true,
+      removeInvalidAgentLinks: false,
+      removeInvalidAgents: false,
+      removeInvalidSources: false
+    };
+
+    const repaired = repairConfig(config, report, options);
+
+    expect(repaired.links).toEqual({ 'valid-skill': ['claude'] });
+  });
+
+  it('removes hidden-name link entries', () => {
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '/valid' },
+      links: { 'valid-skill': ['claude'], '.curator_backups': ['claude'] },
+      servers: {},
+      sources: {}
+    };
+
+    const report: DiagnosticReport = {
+      errors: [],
+      warnings: [
+        {
+          code: DiagnosticCode.SKILL_NAME_INVALID,
+          severity: 'warning',
+          message: 'Not a skill directory',
+          path: 'links..curator_backups'
         }
       ],
       isHealthy: false,

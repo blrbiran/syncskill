@@ -143,7 +143,8 @@ export const DiagnosticCode = {
   SKILL_NOT_FOUND: 'SKILL_NOT_FOUND',
   AGENT_NOT_CONFIGURED: 'AGENT_NOT_CONFIGURED',
   SOURCE_PATH_INVALID: 'SOURCE_PATH_INVALID',
-  REGISTRY_CORRUPT: 'REGISTRY_CORRUPT'
+  REGISTRY_CORRUPT: 'REGISTRY_CORRUPT',
+  SKILL_NAME_INVALID: 'SKILL_NAME_INVALID'
 } as const;
 
 export type DiagnosticCodeType = (typeof DiagnosticCode)[keyof typeof DiagnosticCode];
@@ -247,6 +248,19 @@ export function checkSkillReferences(
   const items: DiagnosticItem[] = [];
 
   for (const [skill, targets] of Object.entries(links)) {
+    // Hidden directories (`.curator_backups`, `.omc`, ...) belong to other
+    // tools and are never skills; they only end up here through discovery bugs.
+    if (skill.startsWith('.')) {
+      items.push({
+        code: DiagnosticCode.SKILL_NAME_INVALID,
+        severity: 'warning',
+        message: `"${skill}" is a hidden directory, not a skill`,
+        path: `links.${skill}`,
+        suggestion: `Remove "${skill}" from links`
+      });
+      continue;
+    }
+
     if (targets.length === 0) {
       continue;
     }
@@ -365,7 +379,10 @@ export function repairConfig(
   const allItems = [...report.errors, ...report.warnings];
 
   for (const item of allItems) {
-    if (item.code === DiagnosticCode.SKILL_NOT_FOUND && options.removeInvalidSkillLinks) {
+    if (
+      (item.code === DiagnosticCode.SKILL_NOT_FOUND || item.code === DiagnosticCode.SKILL_NAME_INVALID)
+      && options.removeInvalidSkillLinks
+    ) {
       const skillName = item.path.replace('links.', '');
       delete result.links[skillName];
     }

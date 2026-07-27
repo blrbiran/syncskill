@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig, type SyncSkillConfig } from '../../src/config/config.js';
-import { collectLinkStatus, ensureLinkedDirectory, findStaleLinks, formatLinkStatusMatrix, linkConfiguredSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent } from '../../src/linker.js';
+import { collectLinkStatus, discoverSkills, ensureLinkedDirectory, findStaleLinks, formatLinkStatusMatrix, linkConfiguredSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent } from '../../src/linker.js';
 import type { LinkStatus } from '../../src/linker.js';
 import { materializeSource } from '../../src/source.js';
 
@@ -330,6 +330,110 @@ describe('linker', () => {
 
     vi.doUnmock('node:fs/promises');
     vi.resetModules();
+  });
+
+  it('skips skills whose target is occupied by a non-symlink and keeps linking the rest', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const agentDir = join(homeDir, '.claude', 'skills');
+
+    await mkdir(join(skillsDir, 'blocked-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'blocked-skill', 'SKILL.md'), '# blocked', 'utf8');
+    await mkdir(join(skillsDir, 'good-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'good-skill', 'SKILL.md'), '# good', 'utf8');
+
+    // A real directory (not a syncskill symlink) already sits at the target path.
+    await mkdir(join(agentDir, 'blocked-skill'), { recursive: true });
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: agentDir },
+        links: { 'blocked-skill': ['claude'], 'good-skill': ['claude'] },
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    const statuses = await linkConfiguredSkills(homeDir, { all: true });
+
+    expect(statuses).toContainEqual({ skill: 'good-skill', agent: 'claude', state: 'linked' });
+    expect(statuses).toContainEqual(
+      expect.objectContaining({ skill: 'blocked-skill', agent: 'claude', state: 'failed' })
+    );
+    await expect(readlink(join(agentDir, 'good-skill'))).resolves.toBe(join(skillsDir, 'good-skill'));
+    await expect(readlink(join(agentDir, 'blocked-skill'))).rejects.toThrow();
+  });
+
+  it('still throws when a single explicitly requested skill cannot be linked', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
+    tempDirs.push(homeDir);
+
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    const agentDir = join(homeDir, '.claude', 'skills');
+
+    await mkdir(join(skillsDir, 'blocked-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'blocked-skill', 'SKILL.md'), '# blocked', 'utf8');
+    await mkdir(join(agentDir, 'blocked-skill'), { recursive: true });
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: agentDir },
+        links: { 'blocked-skill': ['claude'] },
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    await expect(
+      linkConfiguredSkills(homeDir, { all: false, skillName: 'blocked-skill' })
+    ).rejects.toThrow(/non-symlink target/);
+  });
+});
+
+describe('discoverSkills', () => {
+  const tempDirs = useTempDirs();
+
+  it('does not adopt hidden directories or directories without SKILL.md from agent dirs', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-'));
+    tempDirs.push(homeDir);
+
+    const agentDir = join(homeDir, '.claude', 'skills');
+
+    await mkdir(join(agentDir, 'real-skill'), { recursive: true });
+    await writeFile(join(agentDir, 'real-skill', 'SKILL.md'), '# real', 'utf8');
+
+    // Hidden bookkeeping directory created by another tool.
+    await mkdir(join(agentDir, '.curator_backups', '2026-05-26T13-00-49Z'), { recursive: true });
+
+    // Plain directory that is not a skill.
+    await mkdir(join(agentDir, 'not-a-skill'), { recursive: true });
+    await writeFile(join(agentDir, 'not-a-skill', 'notes.txt'), 'scratch', 'utf8');
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: agentDir },
+        links: {},
+        servers: {},
+        sources: {}
+      },
+      homeDir
+    );
+
+    const added = await discoverSkills(homeDir, { allAgents: false });
+
+    expect(added).toEqual(['real-skill']);
+    await expect(access(join(homeDir, '.syncskill', 'skills', '.curator_backups'))).rejects.toThrow();
+    await expect(access(join(homeDir, '.syncskill', 'skills', 'not-a-skill'))).rejects.toThrow();
   });
 });
 

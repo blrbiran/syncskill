@@ -21,7 +21,8 @@ export interface LinkRequest {
 export interface LinkStatus {
   skill: string;
   agent: string;
-  state: 'linked' | 'missing' | 'copied' | 'broken' | 'unconfigured';
+  state: 'linked' | 'missing' | 'copied' | 'broken' | 'unconfigured' | 'failed';
+  error?: string;
 }
 
 const STATUS_SYMBOLS: Record<LinkStatus['state'], string> = {
@@ -30,6 +31,7 @@ const STATUS_SYMBOLS: Record<LinkStatus['state'], string> = {
   missing: '·',
   broken: '✗',
   unconfigured: '-',
+  failed: '!',
 };
 
 export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean, privateAgents: string[] = []): string {
@@ -173,13 +175,34 @@ async function migrateSkillsFromAgentDirs(homeDir: string, config: SyncSkillConf
   }
 }
 
+/**
+ * List real skill directories under an agent directory.
+ *
+ * Agent directories also hold bookkeeping directories from other tools
+ * (`.curator_backups`, `.omc`, `.system`, ...). Adopting those as skills
+ * pollutes config.links and later breaks `link build`, so require both a
+ * non-hidden name and a SKILL.md marker.
+ */
 async function listSkillDirectoriesFiltered(root: string): Promise<string[]> {
   try {
     const entries = await readdir(root, { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+    const candidates = entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) => entry.name)
+      .sort();
+
+    const checked = await Promise.all(
+      candidates.map(async (name) => (await isSkillDirectory(join(root, name))) ? name : null)
+    );
+
+    return checked.filter((name): name is string => name !== null);
   } catch {
     return [];
   }
+}
+
+async function isSkillDirectory(dir: string): Promise<boolean> {
+  return pathExists(join(dir, 'SKILL.md'));
 }
 
 async function resolveConfiguredSkillSourceDir(homeDir: string, skill: string): Promise<string> {
@@ -371,6 +394,10 @@ function buildValidDirectoryPairs(
   return validPairs;
 }
 
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function linkConfiguredSkills(homeDir: string, request: LinkRequest): Promise<LinkStatus[]> {
   const config = await loadConfig(homeDir);
   const skillNames = request.all
@@ -381,13 +408,34 @@ export async function linkConfiguredSkills(homeDir: string, request: LinkRequest
   const results: LinkStatus[] = [];
 
   for (const skill of skillNames) {
-    const sourceDir = await resolveConfiguredSkillSourceDir(homeDir, skill);
     const agents = expandMaterializedTargetAgents(config, config.links[skill] ?? []);
+
+    let sourceDir: string;
+    try {
+      sourceDir = await resolveConfiguredSkillSourceDir(homeDir, skill);
+    } catch (error) {
+      // A single unusable entry must not abort a whole `link build` run.
+      // Explicit single-skill requests still fail loudly.
+      if (!request.all) {
+        throw error;
+      }
+      for (const agent of agents) {
+        results.push({ skill, agent, state: 'failed', error: describeError(error) });
+      }
+      continue;
+    }
 
     for (const agent of agents) {
       const agentPath = resolveMaterializedAgentPath(config, agent, homeDir);
-      const state = await ensureLinkedDirectory(sourceDir, join(agentPath, skill));
-      results.push({ skill, agent, state });
+      try {
+        const state = await ensureLinkedDirectory(sourceDir, join(agentPath, skill));
+        results.push({ skill, agent, state });
+      } catch (error) {
+        if (!request.all) {
+          throw error;
+        }
+        results.push({ skill, agent, state: 'failed', error: describeError(error) });
+      }
     }
   }
 

@@ -2005,11 +2005,36 @@ export function createProgram(homeDir?: string): Command {
 
       const staleBySkill = await findStaleLinks(resolvedHomeDir);
       const plan = buildLinkBuildPlan(resolvedHomeDir, config, staleBySkill);
-      const results = await linkConfiguredSkills(resolvedHomeDir, { all: true });
+      const allResults = await linkConfiguredSkills(resolvedHomeDir, { all: true });
+      const results = allResults.filter((result) => result.state !== 'failed');
+      const failed = allResults.filter((result) => result.state === 'failed');
       const skillCount = new Set(results.map(r => r.skill)).size;
       output.info(`Linked ${skillCount} skill${skillCount !== 1 ? 's' : ''}`);
+
+      for (const failure of failed) {
+        output.warning(
+          'W_LINK_SKIPPED',
+          `Skipped "${failure.skill}" for agent "${failure.agent}": ${failure.error ?? 'unknown error'}`,
+          {
+            path: `links.${failure.skill}`,
+            hint: 'Run `syncskill doctor --fix` to drop stale entries, or move/remove the conflicting directory.'
+          }
+        );
+      }
+
       const cleanupSummary = await handleStaleLinksReconciliation(resolvedHomeDir, undefined, options);
-      output.result(true, summarizeLinkBuild(resolvedHomeDir, config, results, cleanupSummary.removed, plan));
+      output.result(true, {
+        ...summarizeLinkBuild(resolvedHomeDir, config, results, cleanupSummary.removed, plan),
+        ...(failed.length > 0
+          ? {
+            skipped: failed.map((failure) => ({
+              skill: failure.skill,
+              agent: failure.agent,
+              reason: failure.error ?? 'unknown error'
+            }))
+          }
+          : {})
+      });
     });
 
   async function displayStaleLinksPreview(staleBySkill: StaleLinksBySkill): Promise<void> {
@@ -3104,6 +3129,7 @@ export function createProgram(homeDir?: string): Command {
       const autoFixableItems = allItems.filter((item) =>
         isRegistryDiagnostic(item.code)
         || item.code === DiagnosticCode.SKILL_NOT_FOUND
+        || item.code === DiagnosticCode.SKILL_NAME_INVALID
         || item.code === DiagnosticCode.AGENT_NOT_CONFIGURED
         || item.code === DiagnosticCode.AGENT_PATH_INVALID
         || item.code === DiagnosticCode.SOURCE_PATH_INVALID
@@ -3170,7 +3196,7 @@ export function createProgram(homeDir?: string): Command {
           } else {
             // Handle config repairs
             const repairOpts: RepairOptions = {
-              removeInvalidSkillLinks: item.code === 'SKILL_NOT_FOUND',
+              removeInvalidSkillLinks: item.code === 'SKILL_NOT_FOUND' || item.code === 'SKILL_NAME_INVALID',
               removeInvalidAgentLinks: item.code === 'AGENT_NOT_CONFIGURED',
               removeInvalidAgents: item.code === 'AGENT_PATH_INVALID',
               removeInvalidSources: item.code === 'SOURCE_PATH_INVALID'

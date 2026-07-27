@@ -11,6 +11,9 @@
 
 ## Key Learnings
 
+- **[2026-07-27]** Agent skill 目录（`~/.claude/skills` 等）里混有其他工具的簿记目录（`.curator_backups`/`.omc`/`.system`）。任何扫描/迁移 agent 目录的代码都必须同时做两道过滤：跳过 `.` 开头的目录 + 要求存在 `SKILL.md`（`findUnmanagedSkills` 一直是对的，`listSkillDirectoriesFiltered` 之前只过滤了非目录）。
+- **[2026-07-27]** `config.links` 的 key 排序里 `.` 排在字母前，所以一个非法的点号条目会让 `link build` 在第一项就崩掉、后面所有 skill 都链接不上——批量命令必须逐条 try/catch。约定：`request.all` 降级为 `state:'failed'` 并告警继续，单 skill 显式请求仍然抛错。
+- **[2026-07-27]** 给 doctor 加新 DiagnosticCode 要改四处，少一处就会“报了修好了但没改”：`DiagnosticCode` 常量、`repairConfig` 的 code 判断、`index.ts` 的 `autoFixableItems` 过滤、以及 `index.ts` 里逐项构造的 `RepairOptions` 映射。
 - **[2026-05-21]** 项目主 spec 是 `docs/superpowers/specs/syncskill-design.md`；做较大实现前先对齐 spec，再决定实现缺口。
 - **[2026-05-21]** 本地 CLI 验证路径：`npm run build && npm link` 后执行 `syncskill <args>`。
 - **[2026-05-21]** `private_agents` 是完整覆盖语义；未配置时回退默认列表 `['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']`。
