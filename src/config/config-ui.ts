@@ -11,6 +11,7 @@ import { loadConfig, saveConfig } from './config.js';
 /** Threshold for showing auto-refresh warning */
 export const SLOW_REFRESH_SERVER_THRESHOLD = 3;
 import { listLocalSkills } from '../linker.js';
+import { listSelectableAgentNames } from '../core/private-agents.js';
 import { createMatrixEditor, type MatrixEditorResult } from './matrix-editor.js';
 import { probeServer } from '../core/server.js';
 import { discoverActiveSourceSkillNames, formatSourceListLines, listSources, removeSource, RemovalAction, updateAllSources, updateSource } from '../source.js';
@@ -162,7 +163,11 @@ export async function editLinksMatrix(config: SyncSkillConfig, homeDir: string):
   const localSkills = await listLocalSkills(homeDir);
   const sourceSkills = await discoverActiveSourceSkillNames(homeDir, config.sources);
   const skills = [...new Set([...localSkills, ...sourceSkills, ...Object.keys(config.links)])].sort();
-  const agents = [...new Set(['agents', ...Object.keys(config.agents)])].sort();
+  const agents = await listSelectableAgentNames(
+    homeDir,
+    config,
+    Object.values(config.links).flat()
+  );
 
   const selected: Record<string, string[]> = {};
   for (const skill of skills) {

@@ -93,7 +93,7 @@ async function prepareSyncTargetServers(
 }
 
 import { applyResolution, reconcileManifest } from './core/conflict.js';
-import { computeDefaultLinkTargets } from './core/private-agents.js';
+import { computeDefaultLinkTargets, listSelectableAgentNames } from './core/private-agents.js';
 import {
   autoDiagnoseConfig,
   diagnoseConfig,
@@ -1857,8 +1857,8 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      const allAgents = [...new Set(['agents', ...Object.keys(config.agents)])].sort();
       const currentTargets = config.links[skill] ?? [];
+      const allAgents = await listSelectableAgentNames(resolvedHomeDir, config, currentTargets);
       const selectedAgents = await checkbox({
         message: `${skill} is currently linked to:\n`,
         choices: allAgents.map((agent) => ({

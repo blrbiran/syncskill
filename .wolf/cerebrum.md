@@ -11,6 +11,7 @@
 
 ## Key Learnings
 
+- **[2026-07-27]** 共享目标 `agents` 只在 `~/.agents/skills/` 真实存在时才应出现在 link 选择器里（用户明确规则）。统一走 `listSelectableAgentNames()`；额外保留“已被引用就仍然显示”的分支——`editLinksMatrix` 会用列表过滤已选目标再写回 config，隐藏正在使用的列会静默解链。
 - **[2026-07-27]** Agent skill 目录（`~/.claude/skills` 等）里混有其他工具的簿记目录（`.curator_backups`/`.omc`/`.system`）。任何扫描/迁移 agent 目录的代码都必须同时做两道过滤：跳过 `.` 开头的目录 + 要求存在 `SKILL.md`（`findUnmanagedSkills` 一直是对的，`listSkillDirectoriesFiltered` 之前只过滤了非目录）。
 - **[2026-07-27]** `config.links` 的 key 排序里 `.` 排在字母前，所以一个非法的点号条目会让 `link build` 在第一项就崩掉、后面所有 skill 都链接不上——批量命令必须逐条 try/catch。约定：`request.all` 降级为 `state:'failed'` 并告警继续，单 skill 显式请求仍然抛错。
 - **[2026-07-27]** 给 doctor 加新 DiagnosticCode 要改四处，少一处就会“报了修好了但没改”：`DiagnosticCode` 常量、`repairConfig` 的 code 判断、`index.ts` 的 `autoFixableItems` 过滤、以及 `index.ts` 里逐项构造的 `RepairOptions` 映射。

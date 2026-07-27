@@ -38,6 +38,28 @@ export async function computeDefaultLinkTargets(
   return { targets };
 }
 
+/**
+ * Agent names a link editor should offer as columns/choices.
+ *
+ * The shared `agents` target is only meaningful when ~/.agents/skills/ actually
+ * exists, so it is not offered otherwise. It is still offered when something
+ * already references it — dropping the choice would silently unlink the skill
+ * when the editor writes back the selection.
+ */
+export async function listSelectableAgentNames(
+  homeDir: string,
+  config: ComputeLinkTargetsConfig,
+  referencedTargets: Iterable<string> = []
+): Promise<string[]> {
+  const names = new Set(Object.keys(config.agents));
+
+  if ([...referencedTargets].includes('agents') || await pathExists(join(homeDir, '.agents', 'skills'))) {
+    names.add('agents');
+  }
+
+  return [...names].sort();
+}
+
 export interface EnsureSharedDirResult {
   created: boolean;
   path: string;

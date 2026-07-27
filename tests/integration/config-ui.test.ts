@@ -196,11 +196,40 @@ describe('editLinksMatrix', () => {
       expect(matrixEditor).toHaveBeenCalledWith(expect.objectContaining({
         title: 'Configured Skills → Agent Assignment',
         rows: ['llmfusion', 'orphaned-link'],
-        columns: ['agents', 'claude', 'cursor'],
+        // No ~/.agents/skills/ and nothing references it, so it is not offered.
+        columns: ['claude', 'cursor'],
         selected: {
           llmfusion: [],
           'orphaned-link': ['claude']
         }
+      }));
+    } finally {
+      vi.doUnmock('../../src/config/matrix-editor.js');
+      vi.resetModules();
+    }
+  });
+
+  it('includes shared agents in matrix columns when ~/.agents/skills exists', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-ui-matrix-'));
+    tempDirs.push(homeDir);
+
+    await mkdir(join(homeDir, '.agents', 'skills'), { recursive: true });
+
+    const config = createDefaultConfig(homeDir, {
+      claude: join(homeDir, '.claude', 'skills')
+    });
+    config.links['solo-link'] = ['claude'];
+
+    vi.resetModules();
+    const matrixEditor = vi.fn().mockResolvedValue({ cancelled: false, selected: {} });
+    vi.doMock('../../src/config/matrix-editor.js', () => ({ createMatrixEditor: () => matrixEditor }));
+
+    try {
+      const { editLinksMatrix: mockedEditLinksMatrix } = await import('../../src/config/config-ui.js');
+      await mockedEditLinksMatrix(config, homeDir);
+
+      expect(matrixEditor).toHaveBeenCalledWith(expect.objectContaining({
+        columns: ['agents', 'claude']
       }));
     } finally {
       vi.doUnmock('../../src/config/matrix-editor.js');

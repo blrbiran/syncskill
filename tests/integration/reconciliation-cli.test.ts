@@ -1257,6 +1257,96 @@ describe('reconciliation CLI', () => {
     expect(consoleLog).toHaveBeenCalledWith('✓ Updated my-skill: linked to cursor, unlinked from hermes');
   });
 
+  it('link edit <skill> offers the shared agents target when ~/.agents/skills exists', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-editor-'));
+    tempDirs.push(homeDir);
+
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'my-skill');
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# my-skill\n', 'utf8');
+    await mkdir(join(homeDir, '.agents', 'skills'), { recursive: true });
+    await mkdir(claudeDir, { recursive: true });
+
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, { claude: claudeDir }),
+        private_agents: [],
+        links: { 'my-skill': ['claude'] }
+      },
+      homeDir
+    );
+
+    mockCheckbox.mockResolvedValue(['claude']);
+    mockConfirm.mockResolvedValue(true);
+
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const originalIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, writable: true });
+
+    try {
+      await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'edit', 'my-skill'], { from: 'node' });
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+    }
+
+    expect(mockCheckbox).toHaveBeenCalledWith({
+      message: 'my-skill is currently linked to:\n',
+      choices: [
+        { name: 'agents', value: 'agents', checked: false },
+        { name: 'claude', value: 'claude', checked: true }
+      ]
+    });
+  });
+
+  it('link edit <skill> keeps offering an already-linked shared agents target', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-editor-'));
+    tempDirs.push(homeDir);
+
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'my-skill');
+
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# my-skill\n', 'utf8');
+    await mkdir(claudeDir, { recursive: true });
+
+    // Linked to the shared target even though ~/.agents/skills is gone:
+    // hiding the choice here would silently drop the link on save.
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, { claude: claudeDir }),
+        private_agents: [],
+        links: { 'my-skill': ['agents', 'claude'] }
+      },
+      homeDir
+    );
+
+    mockCheckbox.mockResolvedValue(['agents', 'claude']);
+    mockConfirm.mockResolvedValue(true);
+
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const originalIsTTY = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, writable: true });
+
+    try {
+      await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'edit', 'my-skill'], { from: 'node' });
+    } finally {
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+    }
+
+    expect(mockCheckbox).toHaveBeenCalledWith({
+      message: 'my-skill is currently linked to:\n',
+      choices: [
+        { name: 'agents', value: 'agents', checked: true },
+        { name: 'claude', value: 'claude', checked: true }
+      ]
+    });
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({
+      links: { 'my-skill': ['agents', 'claude'] }
+    });
+  });
+
   it('link add <skill> <agent>... appends multiple agents and creates symlinks', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-append-'));
     tempDirs.push(homeDir);
