@@ -79,3 +79,7 @@
 **排查这类「配置对了但 symlink 没建」时，先看 `.sources/skills.json` 的 owners，而不是 `config.json` 的 links。** 用户侧解法是 `syncskill update <source>`，不是 `scan`，也不是 `doctor --fix`。
 
 **修复（2026-08-13）**：`resolveLinkedSkillSourcePath` 在 owners 未命中时改为遍历所有 local 非 archive source 实时查找，ownership 缓存不再承重；`link build` 有失败项时 `ok:false` + 退出码 1；hint 按失败原因分流。**`ss scan` 对 local source 失明的问题仍未修**——修的是 build 侧的解析，不是 scan 侧的发现。
+
+### 2026-08-13 — 交互性判断以 stdout.isTTY 为准
+本仓库判断「能不能弹交互框」的既有约定是 `!process.stdout.isTTY`（见 `link`、`link edit`），测试也只 stub stdout。新增守卫要跟这条走，别扩到 `process.stdin.isTTY`——`reconciliation-cli.test.ts` 的 `link edit` 用例只 stub 了 stdout，加 stdin 检查会让它 `process.exit(4)` 打死 vitest worker。
+只看 `--no-interactive` 标志不够：管道下 inquirer 抛 `ExitPromptError`，输出重定向到文件时直接**永久挂起**，两种情况都还 exit 0。
