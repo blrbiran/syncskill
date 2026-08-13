@@ -68,3 +68,14 @@
 - **[2026-06-03]** 用户可见的 server 命令面向 `remote` 收口；文档、help、tests 都应优先暴露 `remote`。
 - **[2026-06-04]** `restore <skill>` 是本地 recovery：从最新 `pre-pull` backup 回放，并故意把 manifest 留在显式 `conflict`，直到用户 resolve。
 - **[2026-06-19]** step-4 e2e 审查结论：只保留真实用户可见 contract 的 e2e；same-repo install 继续放在 real-git integration 层；unsupported transport/stale 场景保留 skipped stub 直到 harness 真能覆盖。
+
+### 2026-08-13 — 「source 里能选到、build 时找不到」的双真相源
+`syncskill` 对「某个 source 里有哪些 skill」有两条互不同步的判断路径：
+- **实时扫描**：`discoverActiveSourceSkillNames` → `discoverMaterializedSkillEntries`。`link` 选择器、`doctor` 走这条，新加的目录立刻可见。
+- **缓存 ownership**：`~/.syncskill/.sources/skills.json`，只由 source 更新路径（`source.ts:1365/1377`）写入。`link build` 的 `resolveLinkedSkillSourcePath` 走这条。
+
+`ss scan` 只枚举 `~/.syncskill/skills/`（`listLocalSkills`），而 `type: local` 且无 `archive_path` 的 source 其 `usesManagedSkillsDir === false`，skill 根本不会落到那个目录 —— 所以 scan 对本地 source 的新 skill 结构性失明，尽管 help 文案写着 "Scan for new skills in sources"。
+
+**排查这类「配置对了但 symlink 没建」时，先看 `.sources/skills.json` 的 owners，而不是 `config.json` 的 links。** 用户侧解法是 `syncskill update <source>`，不是 `scan`，也不是 `doctor --fix`。
+
+**修复（2026-08-13）**：`resolveLinkedSkillSourcePath` 在 owners 未命中时改为遍历所有 local 非 archive source 实时查找，ownership 缓存不再承重；`link build` 有失败项时 `ok:false` + 退出码 1；hint 按失败原因分流。**`ss scan` 对 local source 失明的问题仍未修**——修的是 build 侧的解析，不是 scan 侧的发现。
