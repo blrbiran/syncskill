@@ -2078,6 +2078,23 @@ export function createProgram(homeDir?: string): Command {
   /**
    * Handle stale links reconciliation after linking
    */
+  /**
+   * `--no-interactive` is an explicit flag, but a missing TTY blocks a prompt
+   * just as hard. Without this check the stale-link confirm crashed with
+   * ExitPromptError when stdout was a pipe, and hung forever when stdout was
+   * redirected to a file — in both cases still exiting 0.
+   *
+   * Interactivity is keyed on stdout to match `link` and `link edit`. A
+   * terminal session that closes only stdin (`link build < /dev/null`) is not
+   * covered.
+   */
+  function cannotPromptInteractively(): boolean {
+    return isNoInteractive(program) || !process.stdout.isTTY;
+  }
+
+  const STALE_LINK_INPUT_HINT =
+    'Re-run with `-y` to remove the stale links, or run `syncskill link build` from a terminal.';
+
   async function handleStaleLinksReconciliation(
     homeDir: string,
     skillNames: string[] | undefined,
@@ -2109,8 +2126,8 @@ export function createProgram(homeDir?: string): Command {
 
       let shouldRemove = options.yes;
       if (!shouldRemove) {
-        if (isNoInteractive(program)) {
-          return failForNoInteractive();
+        if (cannotPromptInteractively()) {
+          return failForNoInteractive(STALE_LINK_INPUT_HINT);
         }
 
         shouldRemove = await confirm({
@@ -2151,8 +2168,8 @@ export function createProgram(homeDir?: string): Command {
 
     let shouldRemove = options.yes;
     if (!shouldRemove) {
-      if (isNoInteractive(program)) {
-        return failForNoInteractive();
+      if (cannotPromptInteractively()) {
+        return failForNoInteractive(STALE_LINK_INPUT_HINT);
       }
 
       shouldRemove = await confirm({

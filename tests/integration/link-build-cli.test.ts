@@ -1,6 +1,6 @@
 // tests/integration/link-build-cli.test.ts
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readlink, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -99,6 +99,48 @@ describe('syncskill link build', () => {
 
     expect(warning?.hint).toContain('syncskill update');
   });
+
+  /**
+   * A stale link makes `link build` ask before removing it. execFile gives the
+   * child pipes rather than a TTY, so the prompt can never be answered: it used
+   * to either crash with ExitPromptError or hang forever waiting on stdin.
+   */
+  it('reports needs-input instead of prompting when no terminal is attached', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-build-'));
+    tempDirs.push(homeDir);
+
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const skillsDir = join(homeDir, '.syncskill', 'skills');
+    await mkdir(agentDir, { recursive: true });
+    await mkdir(join(skillsDir, 'orphan-skill'), { recursive: true });
+    await writeFile(join(skillsDir, 'orphan-skill', 'SKILL.md'), '# orphan', 'utf8');
+
+    // Linked on disk but absent from config.links, so `link build` wants to
+    // remove it and asks first.
+    await symlink(join(skillsDir, 'orphan-skill'), join(agentDir, 'orphan-skill'));
+
+    await writeFile(
+      join(homeDir, '.syncskill', 'config.json'),
+      JSON.stringify({
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: agentDir },
+        links: {},
+        servers: {},
+        sources: {}
+      }),
+      'utf8'
+    );
+
+    const run = await runCli(homeDir, ['--json', 'link', 'build']);
+
+    expect(run.code).toBe(4);
+    expect(run.stdout + run.stderr).toContain('E_NEEDS_INPUT');
+    // The link is left alone rather than removed without consent.
+    await expect(readlink(join(agentDir, 'orphan-skill'))).resolves.toBe(
+      join(skillsDir, 'orphan-skill')
+    );
+  }, 20000);
 
   it('exits zero when every configured link resolves', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-build-'));
