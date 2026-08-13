@@ -1474,18 +1474,12 @@ export async function loadSkillOwnershipState(homeDir: string): Promise<SkillOwn
   }
 }
 
-export async function resolveLinkedSkillSourcePath(
-  homeDir = homedir(),
+async function findSkillInLocalSource(
+  homeDir: string,
+  config: SyncSkillConfig,
+  sourceName: string,
   skillName: string
 ): Promise<string | null> {
-  const ownershipState = await loadSkillOwnershipState(homeDir);
-  const sourceName = ownershipState.owners[skillName];
-
-  if (!sourceName) {
-    return null;
-  }
-
-  const config = await loadConfig(homeDir);
   const source = normalizeSourceEntry(sourceName, config.sources[sourceName])[0];
 
   if (!source || source.type !== 'local' || source.archive_path) {
@@ -1499,6 +1493,44 @@ export async function resolveLinkedSkillSourcePath(
 
   const discoveredSkills = await discoverMaterializedSkillEntries(sourceName, source, materializedRoot);
   return discoveredSkills.find((skill) => skill.name === skillName)?.absolutePath ?? null;
+}
+
+export async function resolveLinkedSkillSourcePath(
+  homeDir = homedir(),
+  skillName: string
+): Promise<string | null> {
+  // Every caller reaches this after the CLI has already loaded the config, so
+  // an unreadable one here means there is no config at all — and therefore no
+  // source to resolve the skill from. Reporting that as "not source-backed"
+  // keeps link-status checks usable on a bare home directory.
+  const config = await loadConfig(homeDir).catch(() => null);
+  if (!config) {
+    return null;
+  }
+
+  const ownershipState = await loadSkillOwnershipState(homeDir);
+  const owner = ownershipState.owners[skillName];
+
+  if (owner) {
+    return findSkillInLocalSource(homeDir, config, owner, skillName);
+  }
+
+  // The ownership map is only rewritten by the source update path, so a skill
+  // added to a local source afterwards is missing from it. The link picker and
+  // doctor both resolve skills by scanning sources live; without the same
+  // fallback here they would offer skills that `link build` cannot resolve.
+  for (const sourceName of Object.keys(config.sources)) {
+    if (getConfiguredIgnoredSkills(config.sources[sourceName]).includes(skillName)) {
+      continue;
+    }
+
+    const sourcePath = await findSkillInLocalSource(homeDir, config, sourceName, skillName);
+    if (sourcePath) {
+      return sourcePath;
+    }
+  }
+
+  return null;
 }
 
 // Re-export registry functions for backward compatibility

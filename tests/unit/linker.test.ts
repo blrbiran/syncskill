@@ -396,6 +396,78 @@ describe('linker', () => {
       linkConfiguredSkills(homeDir, { all: false, skillName: 'blocked-skill' })
     ).rejects.toThrow(/non-symlink target/);
   });
+
+  it('links a local-source skill that the ownership cache has not registered yet', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'runskills');
+    const agentDir = join(homeDir, '.claude', 'skills');
+
+    for (const skill of ['registered-skill', 'new-skill']) {
+      await mkdir(join(sourceRoot, 'skills', skill), { recursive: true });
+      await writeFile(join(sourceRoot, 'skills', skill, 'SKILL.md'), `# ${skill}`, 'utf8');
+    }
+
+    // Ownership was written before "new-skill" was added to the source, which
+    // is the state a user lands in when they add a skill and run `scan`.
+    await mkdir(join(homeDir, '.syncskill', '.sources'), { recursive: true });
+    await writeFile(
+      join(homeDir, '.syncskill', '.sources', 'skills.json'),
+      JSON.stringify({ owners: { 'registered-skill': 'runskills' } }),
+      'utf8'
+    );
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: agentDir },
+        links: { 'registered-skill': ['claude'], 'new-skill': ['claude'] },
+        servers: {},
+        sources: { runskills: { type: 'local', url: sourceRoot, path: '.' } }
+      },
+      homeDir
+    );
+
+    const statuses = await linkConfiguredSkills(homeDir, { all: true });
+
+    expect(statuses).toContainEqual({ skill: 'new-skill', agent: 'claude', state: 'linked' });
+    await expect(readlink(join(agentDir, 'new-skill'))).resolves.toBe(
+      join(sourceRoot, 'skills', 'new-skill')
+    );
+  });
+
+  it('does not link a source skill the source config explicitly ignores', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-linker-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'runskills');
+    const agentDir = join(homeDir, '.claude', 'skills');
+
+    await mkdir(join(sourceRoot, 'skills', 'ignored-skill'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'ignored-skill', 'SKILL.md'), '# ignored', 'utf8');
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: agentDir },
+        links: { 'ignored-skill': ['claude'] },
+        servers: {},
+        sources: {
+          runskills: { type: 'local', url: sourceRoot, path: '.', ignore: ['ignored-skill'] }
+        }
+      } as unknown as SyncSkillConfig,
+      homeDir
+    );
+
+    const statuses = await linkConfiguredSkills(homeDir, { all: true });
+
+    expect(statuses).toContainEqual(
+      expect.objectContaining({ skill: 'ignored-skill', agent: 'claude', state: 'failed' })
+    );
+  });
 });
 
 describe('discoverSkills', () => {
