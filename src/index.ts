@@ -2017,13 +2017,19 @@ export function createProgram(homeDir?: string): Command {
           `Skipped "${failure.skill}" for agent "${failure.agent}": ${failure.error ?? 'unknown error'}`,
           {
             path: `links.${failure.skill}`,
-            hint: 'Run `syncskill doctor --fix` to drop stale entries, or move/remove the conflicting directory.'
+            hint: describeLinkFailureHint(failure.error)
           }
         );
       }
 
+      // A partially applied run is not a success: without a non-zero exit the
+      // skipped links are invisible to scripts and easy to miss interactively.
+      if (failed.length > 0) {
+        process.exitCode = ExitCode.GENERAL_ERROR;
+      }
+
       const cleanupSummary = await handleStaleLinksReconciliation(resolvedHomeDir, undefined, options);
-      output.result(true, {
+      output.result(failed.length === 0, {
         ...summarizeLinkBuild(resolvedHomeDir, config, results, cleanupSummary.removed, plan),
         ...(failed.length > 0
           ? {
@@ -2036,6 +2042,26 @@ export function createProgram(homeDir?: string): Command {
           : {})
       });
     });
+
+  /**
+   * Turn a link failure into an actionable next step.
+   *
+   * "Source directory not found" has two very different causes, and the old
+   * blanket `doctor --fix` hint only covered one of them: doctor resolves
+   * skills through live source discovery, so it stays silent for a skill whose
+   * source simply has not been refreshed — following that hint led nowhere.
+   */
+  function describeLinkFailureHint(error?: string): string {
+    if (error?.includes('Refusing to replace existing non-symlink target')) {
+      return 'Move or remove the conflicting directory, then run `syncskill link build` again.';
+    }
+
+    if (error?.includes('Skill source directory not found') || error?.includes('Skill source path is not a directory')) {
+      return 'Run `syncskill update <source>` to re-register skills from their source, or `syncskill doctor --fix` to drop the entry if the skill is gone.';
+    }
+
+    return 'Run `syncskill doctor` to inspect the config, then run `syncskill link build` again.';
+  }
 
   async function displayStaleLinksPreview(staleBySkill: StaleLinksBySkill): Promise<void> {
     const allStale = Object.values(staleBySkill).flat();
