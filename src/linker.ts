@@ -122,7 +122,15 @@ export async function discoverSkills(homeDir: string, { allAgents, dryRun }: Sca
     await migrateSkillsFromAgentDirs(homeDir, config, allAgents);
   }
 
-  const discoveredSkills = await listLocalSkills(homeDir);
+  // Git and http sources are copied into ~/.syncskill/skills/, but local ones
+  // stay where they are, so scanning that directory alone silently misses every
+  // skill a local source holds. Source discovery honours each source's `ignore`.
+  const discoveredSkills = [
+    ...new Set([
+      ...await listLocalSkills(homeDir),
+      ...await discoverActiveSourceSkillNames(homeDir, config.sources)
+    ])
+  ].sort();
   const addedSkills: string[] = [];
 
   for (const skill of discoveredSkills) {

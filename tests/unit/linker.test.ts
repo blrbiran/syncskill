@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { saveConfig, type SyncSkillConfig } from '../../src/config/config.js';
+import { loadConfig, saveConfig, type SyncSkillConfig } from '../../src/config/config.js';
 import { collectLinkStatus, discoverSkills, ensureLinkedDirectory, findStaleLinks, formatLinkStatusMatrix, linkConfiguredSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent } from '../../src/linker.js';
 import type { LinkStatus } from '../../src/linker.js';
 import { materializeSource } from '../../src/source.js';
@@ -506,6 +506,64 @@ describe('discoverSkills', () => {
     expect(added).toEqual(['real-skill']);
     await expect(access(join(homeDir, '.syncskill', 'skills', '.curator_backups'))).rejects.toThrow();
     await expect(access(join(homeDir, '.syncskill', 'skills', 'not-a-skill'))).rejects.toThrow();
+  });
+
+  /**
+   * Local sources are never materialized into ~/.syncskill/skills/, so scanning
+   * only that directory misses every skill they hold.
+   */
+  it('adopts skills that live in a local source', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'runskills');
+    await mkdir(join(sourceRoot, 'skills', 'source-skill'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'source-skill', 'SKILL.md'), '# source', 'utf8');
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: join(homeDir, '.claude', 'skills') },
+        links: {},
+        servers: {},
+        sources: { runskills: { type: 'local', url: sourceRoot, path: '.' } }
+      },
+      homeDir
+    );
+
+    const added = await discoverSkills(homeDir, { allAgents: true });
+
+    expect(added).toEqual(['source-skill']);
+    const config = await loadConfig(homeDir);
+    expect(Object.keys(config.links)).toContain('source-skill');
+  });
+
+  it('leaves a source skill alone once it is already in links', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-discover-'));
+    tempDirs.push(homeDir);
+
+    const sourceRoot = join(homeDir, 'runskills');
+    await mkdir(join(sourceRoot, 'skills', 'source-skill'), { recursive: true });
+    await writeFile(join(sourceRoot, 'skills', 'source-skill', 'SKILL.md'), '# source', 'utf8');
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: { claude: join(homeDir, '.claude', 'skills') },
+        links: { 'source-skill': ['claude'] },
+        servers: {},
+        sources: { runskills: { type: 'local', url: sourceRoot, path: '.' } }
+      },
+      homeDir
+    );
+
+    const added = await discoverSkills(homeDir, { allAgents: true });
+
+    expect(added).toEqual([]);
+    const config = await loadConfig(homeDir);
+    expect(config.links['source-skill']).toEqual(['claude']);
   });
 });
 
