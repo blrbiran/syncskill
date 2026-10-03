@@ -23,6 +23,7 @@
 - 按锁文件重放旧版本。
 - profile 的交互式编辑器。
 - 为 profile 单独做 remote 同步。profile 是 `config.json` 的一个字段，跟着 `config.json` 现有的同步方式走。
+- doctor 检查「profile 引用了已不存在的 skill」。这种情况在 `inject` 时会以 `E_SKILL_NOT_FOUND` 报出来，不需要另一个入口（讨论方案时提过 doctor 检查，写 spec 时去掉）。
 - 新的退出码或 JSONL 事件类型。
 
 ## 2. 现状（开工前现读，2026-10-03）
@@ -32,7 +33,7 @@
 - **`--sync-dir`／`SYNCSKILL_DIR` 不生效**：`getSyncDir` 只看 `homeDir`（`src/config/config.ts`），`createProgram` 解析出来的 `mergedConfig.syncDir` 在 `src/` 里没有任何地方读它。现有测试一律靠改 HOME 隔离。本设计的判据也只改 HOME。这个缺陷本轮不修，见 §8。
 - **`validateConfig` 会丢掉不认识的 key**：它返回一个只含已知 key 的新对象，`saveConfig` 再把这个对象写回。手工加在 `config.json` 里的新 key，下一次任何保存都会抹掉。
 - **`normalizeSourceState` 同样会丢掉不认识的字段**：只保留 `materialized_skills` 和 `updated_at`。
-- skill 的取源逻辑是 `resolveConfiguredSkillSourceDir`（`src/linker.ts`，未导出），顺序为 manual 托管目录 `~/.syncskill/skills/<skill>` > local 源直链 > 报错。git 和 http 源的 skill 会复制进托管目录，所以走第一档。
+- skill 的取源逻辑是 `resolveConfiguredSkillSourceDir`（`src/linker.ts`，未导出），顺序为 manual 托管目录 `~/.syncskill/skills/<skill>` > local 源直链 > 报错。git 和 http 源的 skill 会复制进托管目录（`copySkillDirectory`）；local 归档源在托管目录里放的是指向 checkout 的**符号链接**（`recreateSymlink`，`src/source.ts` 同一处分支）。两者都走第一档，返回的路径可能是符号链接，所以复制必须解开链接（§5）。
 - 归属表：`.sources/skills.json` 的 `owners: skill → sourceName`。
 - 内容 hash 用 `hashSkillDirectory`（`src/core/manifest.ts`）：对排好序的相对路径和文件内容做 MD5，跳过符号链接。
 
@@ -73,7 +74,7 @@
 }
 ```
 
-- `profile` 用 `--skills` 时为 `null`。
+- `profile` 用 `--skills` 时为 `null`。`--skills` 的清单先排序、去重。
 - `skills` 按 `name` 排序。
 - `source` 为 `null` 表示没有归属源的手工 skill，此时 `resolved_commit` 也是 `null`。
 - `source` 取自 `owners` 加 `config.sources`；`branch` 没配置时省略这个键。
@@ -99,9 +100,10 @@
 4. **复制**：
    - 创建 target（`recursive`），然后把每个 skill 用 `cp(src, <staging>/<skill>, { recursive: true, dereference: true })` 复制进 `<target>/.syncskill-inject-<pid>/`；
    - 全部复制完以后，逐个 `rename` 到 `<target>/<skill>`；
-   - 对每个 `<target>/<skill>` 现算 `content_md5`，组装锁文件，先写到 staging 目录，再 `rename` 到 `<target>/syncskill-lock.json`；
+   - 对每个 `<target>/<skill>` 现算 `content_md5`，组装锁文件，先写到 staging 目录，再用 `link(staging/lock, <target>/syncskill-lock.json)` 放到位。`link` 遇到已存在的文件会报 `EEXIST`，此时按 `E_TARGET_OCCUPIED` 处理（`rename` 会静默覆盖，不能用）。
    - 删除 staging 目录；
    - 任何一步失败：删除 staging 目录和本次已 rename 过去的 skill 目录，然后报错。
+   - **并发与残留**：同一个 target 只支持一个写者。第 3 步的检查与 rename 之间有竞态，`rename` 到一个**空**的已存在目录会把它替换掉；锁文件靠 `link` 做到排他，skill 目录不做。进程被 `SIGKILL` 时，`.syncskill-inject-<pid>/` 会留在 target 里；第 3 步的占用检查不看它，之后的 inject（pid 不同）不受影响，清理由调用方负责。
 5. **输出**：每个 skill 一条 `change` 事件（`op: "add"`、`entity: "skill"`、`name`、`target` 为复制后的路径）；最后一条 `result`，`summary` 含 `target`、`lock`（锁文件路径）、`skills`（与锁文件同形）。
 6. **不碰**：`config.json`、`config.links`、registry、manifest、`~` 下各 agent 的 skill 目录。
 
@@ -130,11 +132,13 @@ target 放在哪里由调用方决定。放进 git worktree 的话，锁文件�
 
 **integration**（经 `dist/index.js` 真跑，HOME 和 `USERPROFILE` 改道到临时目录）：
 1. `profile set`／`ls`／`rm` 往返；`set` 之后再跑一个会保存 config 的现有命令（如 `link set`），确认 profile 还在；
-2. 用本地 git 仓库做 git 源：`install` 之后 state.json 里的 `resolved_commit` 等于该仓库 `rev-parse HEAD`；源仓库再提交一笔并 `update` 之后，该字段跟着变；
-3. 两个 target 各用一个 profile 注入：每个 target 里恰好是自己清单里的 skill；锁文件里的 `content_md5` 等于对目标目录现算的值；`resolved_commit` 等于源仓库的 HEAD；
-4. 注入之后修改源中的 skill，target 内容的 hash 不变（快照语义）；
+2. 用本地裸仓库做 git 源（`install <bare 路径> --type git`；不给 `--type`，以 `/` 开头的路径会被 `detectSourceType` 判成 local）：`install` 之后 state.json 里的 `resolved_commit` 等于该仓库 `rev-parse HEAD`；源仓库再提交一笔并 `update` 之后，该字段跟着变；
+3. 两个 target 各用一个 profile 注入：每个 target 里恰好是自己清单里的 skill；锁文件里的 `content_md5` 等于对目标目录现算的值；`resolved_commit` 等于源仓库的 HEAD。再用 `--skills b,a,a` 注入第三个 target：锁文件的 `profile` 为 `null`，`skills` 为 `[a, b]`；
+4. 注入之后修改 inject 读取的那份源，即托管目录 `~/.syncskill/skills/<skill>/SKILL.md`（改道后的 HOME 下），target 内容的 hash 不变（快照语义）；
 5. target 已被占用 ⇒ 退出码 7；缺 skill ⇒ 退出码 2。两种情况下 target 的目录列表都和调用前相同；
-6. `--profile` 与 `--skills` 同时给 ⇒ 退出码 2。
+6. `--profile` 与 `--skills` 同时给 ⇒ 退出码 2；
+7. 一个 skill 里含有指向 skill 外部文件的符号链接：target 里对应的是普通文件，内容与链接目标相同；
+8. target 里已有 `syncskill-lock.json` 而没有任何同名 skill 目录 ⇒ 退出码 7，锁文件字节不变。
 
 **真实用户数据**：integration 测试只在改道后的 HOME 下运行。另加一条判据：测试文件运行前后，对真实 `~/.syncskill` 做「条目名加 stat 加 sha256」快照比对（真实目录不存在时比对「不存在」这个事实本身）。
 
@@ -147,6 +151,11 @@ target 放在哪里由调用方决定。放进 git worktree 的话，锁文件�
 | 复制改成符号链接 | integration 4 |
 | 去掉占用检查 | integration 5 |
 | 去掉「先全部解析」 | integration 5 的缺 skill 分支 |
+| `dereference: true` 改成 `false` | integration 7 |
+| 锁文件的 `link` 改成 `rename`，并去掉第 3 步对锁文件的检查 | integration 8 |
+| `--skills` 不去重 | integration 3 的 `--skills` 分支 |
+
+**按设计红不了的**：`content_md5` 对复制后的目录算还是对源目录算，在没有并发修改时两者相同，任何判据都分不出来。这一点只登记，不写判据。
 
 **门**：每个 task 跑 `npm run test:unit` 加 `npm run build`；收尾前跑 `npm run test:integration`。
 
