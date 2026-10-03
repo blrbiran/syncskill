@@ -34,8 +34,15 @@ export const KNOWN_AGENT_DIRS = {
 
 export const DEFAULT_PRIVATE_AGENTS = ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes'];
 
+let syncDirOverride: string | undefined;
+
+// Set once per CLI invocation from --sync-dir / SYNCSKILL_DIR; library callers never read the environment.
+export function setSyncDirOverride(dir: string | undefined): void {
+  syncDirOverride = dir;
+}
+
 export function getSyncDir(homeDir = homedir()): string {
-  return join(homeDir, '.syncskill');
+  return syncDirOverride ?? join(homeDir, '.syncskill');
 }
 
 export function getSyncPaths(homeDir = homedir()): SyncPaths {

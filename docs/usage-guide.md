@@ -12,7 +12,7 @@ syncskill scan
 syncskill link build
 ```
 
-After `init`, local state lives under `~/.syncskill/` by default, including the managed skill tree, manifests, and `config.json`. Set `SYNCSKILL_DIR` to relocate the runtime directory, or `SYNCSKILL_CONFIG` to point at a specific config file.
+After `init`, local state lives under `~/.syncskill/` by default, including the managed skill tree, manifests, and `config.json`. Set `SYNCSKILL_DIR` (or `--sync-dir`) to an absolute path to relocate the whole runtime directory; agent skill directories still resolve under `HOME`. `SYNCSKILL_CONFIG` / `--config` are not supported and fail with exit code 2.
 
 ## AI Agent Integration
 
@@ -523,8 +523,8 @@ Global environment variable equivalents:
 
 | Variable | Description |
 |----------|-------------|
-| `SYNCSKILL_DIR` | Override the default `~/.syncskill` runtime directory |
-| `SYNCSKILL_CONFIG` | Override the config file path |
+| `SYNCSKILL_DIR` | Override the default `~/.syncskill` runtime directory (absolute path; `--sync-dir` wins) |
+| `SYNCSKILL_CONFIG` | Not supported: any value fails with `E_USAGE_CONFIG_PATH` |
 | `SYNCSKILL_JSON` | Enable JSON mode (same as `--json`) |
 | `SYNCSKILL_NO_INTERACTIVE` | Disable interactive prompts |
 | `SYNCSKILL_STRICT` | Exit with code 6 on partial skip results when set to `1` |

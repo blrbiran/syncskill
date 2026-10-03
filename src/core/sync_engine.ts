@@ -1,7 +1,7 @@
 import { access, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { getConfiguredServer, loadConfig, type ConfiguredServer, type ConflictResolution } from '../config/config.js';
+import { getConfiguredServer, getSyncPaths, loadConfig, type ConfiguredServer, type ConflictResolution } from '../config/config.js';
 import type { SyncSkillConfig } from '../config/types.js';
 import { buildSkillsRegistry } from '../source.js';
 import { applyResolution, reconcileManifest } from './conflict.js';
@@ -1158,7 +1158,7 @@ function getIncludedServerSkills(config: SyncSkillConfig, serverName: string): s
 }
 
 function getSkillsDir(homeDir: string): string {
-  return join(homeDir, '.syncskill', 'skills');
+  return getSyncPaths(homeDir).skillsDir;
 }
 
 function finalizeDeletedSkills(manifest: ServerManifest, skills: string[], updatedAt: string): ServerManifest {

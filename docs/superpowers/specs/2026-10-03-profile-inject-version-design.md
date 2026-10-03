@@ -170,3 +170,11 @@ target 放在哪里由调用方决定。放进 git worktree 的话，锁文件�
 ## 9. 实施期更正
 
 - §5 步骤 4 与并发段落里的 staging 目录名 `.syncskill-inject-<pid>` 已改为 `.syncskill-inject-<随机串>`，由 `mkdtemp` 在 `try` 之前创建（保留 `.syncskill-inject-` 前缀）。原因：pid 命名在不同 PID 命名空间（容器、bind mount 的 target）里会撞名，`mkdir` 的 `EEXIST` 会让回滚删掉别人的 staging；现在回滚只会删本次调用自己创建的目录。SIGKILL 后残留的目录同样带这个前缀，清理仍由调用方负责。原 §5 文字保留不改。
+
+## 10. 后续修复：`--sync-dir`／`SYNCSKILL_DIR` 生效（2026-10-03，Orca 会话 `08b1007d`，人授权）
+
+§2、§8 里「解析了但不生效」那条，本节之后不再成立（§2、§8 原文保留）：
+- `--sync-dir`／`SYNCSKILL_DIR` 现在生效，只接受绝对路径（否则 `E_USAGE_SYNC_DIR`，退 2），flag 优先于环境变量。它只改道 syncskill 自己的目录；agent 目录仍按 HOME 解析。库函数不读环境变量。
+- `--config`／`SYNCSKILL_CONFIG` 不实现，一用就报 `E_USAGE_CONFIG_PATH`（退 2），不再静默忽略。
+- `src/receiver/sync_receiver.mjs` 跑在远端，用远端的 HOME，不受影响。
+- 证据在台账 `.superpowers/sdd/2026-10-03-profile-inject-version/progress.md` 的 "Follow-up: --sync-dir" 一节。

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { cp, readFile, stat, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 
 import { checkbox, select, confirm } from '@inquirer/prompts';
 import { Command, InvalidArgumentError, Option } from 'commander';
@@ -106,7 +106,7 @@ import {
 } from './config/config-doctor.js';
 import { injectSkills, InjectError, isSafeSkillName, normalizeSkillList } from './inject.js';
 import { buildExternalInstallPlan, executeExternalInstallPlan, installSyncskillSkill } from './install.js';
-import { PROFILE_NAME_PATTERN, expandMaterializedTargetAgents, expandTargetAgents, getConfigPaths, getConfiguredServer, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
+import { PROFILE_NAME_PATTERN, expandMaterializedTargetAgents, expandTargetAgents, getConfigPaths, getConfiguredServer, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, setSyncDirOverride, type SyncSkillConfig } from './config/config.js';
 import { createPromptApi, runConfigUi } from './config/config-ui.js';
 import { collectLinkStatus, discoverSkills, resolveConfiguredSkillSourceDir, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
 import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './core/manifest.js';
@@ -1384,7 +1384,7 @@ export function createProgram(homeDir?: string): Command {
     .option('--resolutions <path|->', 'Provide resolutions file or read resolutions from stdin')
     .addOption(new Option('--resolutions-stdin').hideHelp())
     .option('--sync-dir <path>', 'Override ~/.syncskill directory')
-    .option('--config <path>', 'Override config file path')
+    .option('--config <path>', 'Not supported: fails with E_USAGE_CONFIG_PATH (use --sync-dir)')
     .option('--no-refresh', 'Skip automatic manifest refresh before commands')
     .configureHelp({
       formatHelp: (cmd, helper) => {
@@ -1419,6 +1419,14 @@ export function createProgram(homeDir?: string): Command {
       });
       output.setCommand(getCommandPath(actionCommand) || actionCommand.name());
       setGlobalOutput(output);
+
+      if (mergedConfig.configPath !== undefined) {
+        return failWithOutputError('E_USAGE_CONFIG_PATH', '--config / SYNCSKILL_CONFIG is not supported', 'Use --sync-dir or SYNCSKILL_DIR to relocate the whole directory');
+      }
+      if (mergedConfig.syncDir !== undefined && !isAbsolute(mergedConfig.syncDir)) {
+        return failWithOutputError('E_USAGE_SYNC_DIR', `--sync-dir / SYNCSKILL_DIR must be an absolute path: ${JSON.stringify(mergedConfig.syncDir)}`);
+      }
+      setSyncDirOverride(mergedConfig.syncDir === undefined ? undefined : resolve(mergedConfig.syncDir));
 
       if (shouldSkipCommandPreflight(actionCommand) || shouldSkipInstallPreflight(actionCommand)) {
         return;

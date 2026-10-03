@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
-import { saveConfig } from '../../src/config/config.js';
+import { saveConfig, setSyncDirOverride } from '../../src/config/config.js';
 import { loadManifestHistory, loadServerManifest } from '../../src/core/manifest.js';
 import { saveReceiverBackup } from '../../src/core/server.js';
 import { pullFromServer, pushToServers } from '../../src/core/sync_engine.js';
@@ -279,6 +279,45 @@ describe('sync engine orchestration', () => {
     expect(manifest.skills.welcome.status).toBe('in-sync');
     expect(manifest.skills.welcome.local_hash).toBe(manifest.skills.welcome.remote_hash);
     expect(manifest.skills.welcome.recorded_hash).toBe(manifest.skills.welcome.remote_hash);
+  });
+
+  it('pullFromServer writes pulled skills under a relocated sync dir, not HOME', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    const syncDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-root-'));
+    tempDirs.push(homeDir, syncDir);
+    setSyncDirOverride(syncDir);
+    try {
+      await saveConfig(
+        {
+          version: 1,
+          conflict_resolution: 'manual',
+          agents: {},
+          links: {},
+          servers: { alpha: { host: 'alpha.example.com', remote_agents: {} } },
+          sources: {}
+        },
+        homeDir
+      );
+      const runtime = createRuntime({
+        remoteManifest: JSON.stringify({
+          version: 1,
+          server: 'alpha',
+          updated_at: '2026-05-01T00:00:00.000Z',
+          skills: {
+            welcome: { local_hash: null, remote_hash: 'remote-hash', recorded_hash: null, direction: 'skip', status: 'in-sync' }
+          }
+        }),
+        exportedSkills: { welcome: { 'SKILL.md': '# welcome\n' } }
+      });
+
+      await pullFromServer(homeDir, 'alpha', { runtime, now: '2026-05-01T02:00:00.000Z' });
+
+      const rsyncTargets = runtime.calls.filter((call) => call.file === 'rsync').map((call) => call.args.at(-1));
+      expect(rsyncTargets).toEqual([`${join(syncDir, 'skills', 'welcome')}/`]);
+      await expect(access(join(homeDir, '.syncskill'))).rejects.toThrow();
+    } finally {
+      setSyncDirOverride(undefined);
+    }
   });
 
   it('pushToServers deletes remote-only leftovers without uploading missing local directories', async () => {
