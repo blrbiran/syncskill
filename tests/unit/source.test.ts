@@ -235,7 +235,8 @@ sources:
     await expect(resolveLinkedSkillSourcePath(homeDir, 'alpha')).resolves.toBe(join(sourceRoot, 'alpha'));
     await expect(loadSourceState(homeDir, 'shared')).resolves.toEqual({
       materialized_skills: ['alpha', 'beta'],
-      updated_at: '2026-05-01T00:00:00.000Z'
+      updated_at: '2026-05-01T00:00:00.000Z',
+      resolved_commit: null
     });
   });
 
@@ -265,7 +266,8 @@ sources:
     await expect(resolveLinkedSkillSourcePath(homeDir, 'alpha')).resolves.toBe(join(sourceRoot, 'skills', 'alpha'));
     await expect(loadSourceState(homeDir, 'shared')).resolves.toEqual({
       materialized_skills: ['alpha'],
-      updated_at: '2026-05-01T00:00:00.000Z'
+      updated_at: '2026-05-01T00:00:00.000Z',
+      resolved_commit: null
     });
   });
 
@@ -304,7 +306,8 @@ sources:
     expect(result.materialized_skills).toEqual(['gamma']);
     await expect(loadSourceState(homeDir, 'shared')).resolves.toEqual({
       materialized_skills: ['gamma'],
-      updated_at: '2026-05-01T01:00:00.000Z'
+      updated_at: '2026-05-01T01:00:00.000Z',
+      resolved_commit: null
     });
     await expect(loadSkillOwnershipState(homeDir)).resolves.toEqual({
       owners: {
@@ -349,7 +352,8 @@ sources:
     await expect(readlink(join(homeDir, '.syncskill', 'skills', 'alpha'))).resolves.toBe(foreignRoot);
     await expect(loadSourceState(homeDir, 'shared')).resolves.toEqual({
       materialized_skills: [],
-      updated_at: '2026-05-01T01:00:00.000Z'
+      updated_at: '2026-05-01T01:00:00.000Z',
+      resolved_commit: null
     });
   });
 
@@ -388,7 +392,8 @@ sources:
     await expect(readlink(join(skillsDir, 'alpha'))).resolves.toBe('../../foreign');
     await expect(loadSourceState(homeDir, 'shared')).resolves.toEqual({
       materialized_skills: [],
-      updated_at: '2026-05-01T01:00:00.000Z'
+      updated_at: '2026-05-01T01:00:00.000Z',
+      resolved_commit: null
     });
   });
 
@@ -434,7 +439,8 @@ sources:
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'beta', 'SKILL.md'), 'utf8')).resolves.toBe('# Local archive beta\n');
     await expect(loadSourceState(homeDir, 'my-skills')).resolves.toEqual({
       materialized_skills: ['alpha', 'beta'],
-      updated_at: '2026-05-01T00:00:00.000Z'
+      updated_at: '2026-05-01T00:00:00.000Z',
+      resolved_commit: null
     });
   });
 
@@ -460,7 +466,8 @@ sources:
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v1\n');
     await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
       materialized_skills: ['alpha'],
-      updated_at: '2026-05-01T02:00:00.000Z'
+      updated_at: '2026-05-01T02:00:00.000Z',
+      resolved_commit: expect.stringMatching(/^[0-9a-f]{40}$/)
     });
   });
 
@@ -667,7 +674,8 @@ sources:
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha http\n');
     await expect(loadSourceState(homeDir, 'http-source')).resolves.toEqual({
       materialized_skills: ['alpha'],
-      updated_at: '2026-05-01T02:30:00.000Z'
+      updated_at: '2026-05-01T02:30:00.000Z',
+      resolved_commit: null
     });
   });
 
@@ -709,7 +717,8 @@ sources:
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha http\n');
     await expect(loadSourceState(homeDir, 'http-source')).resolves.toEqual({
       materialized_skills: ['alpha'],
-      updated_at: '2026-05-01T02:30:00.000Z'
+      updated_at: '2026-05-01T02:30:00.000Z',
+      resolved_commit: null
     });
   });
 
@@ -770,7 +779,8 @@ sources:
     await expect(access(join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout', '.git', 'refs', 'stash'))).rejects.toThrow();
     await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
       materialized_skills: ['alpha'],
-      updated_at: '2026-05-01T02:00:00.000Z'
+      updated_at: '2026-05-01T02:00:00.000Z',
+      resolved_commit: expect.stringMatching(/^[0-9a-f]{40}$/)
     });
   });
 
@@ -832,7 +842,8 @@ sources:
     await expect(access(join(homeDir, '.syncskill', '.sources', 'git-source', 'checkout', '.git', 'refs', 'stash'))).rejects.toThrow();
     await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
       materialized_skills: ['alpha'],
-      updated_at: '2026-05-01T02:00:00.000Z'
+      updated_at: '2026-05-01T02:00:00.000Z',
+      resolved_commit: expect.stringMatching(/^[0-9a-f]{40}$/)
     });
   });
 
@@ -877,7 +888,8 @@ sources:
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha v2\n');
     await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
       materialized_skills: ['alpha'],
-      updated_at: '2026-05-01T03:00:00.000Z'
+      updated_at: '2026-05-01T03:00:00.000Z',
+      resolved_commit: expect.stringMatching(/^[0-9a-f]{40}$/)
     });
   });
 
@@ -927,7 +939,8 @@ sources:
     await expect(access(join(homeDir, '.syncskill', 'skills', 'alpha.prev'))).rejects.toThrow();
     await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
       materialized_skills: ['alpha'],
-      updated_at: '2026-05-01T02:00:00.000Z'
+      updated_at: '2026-05-01T02:00:00.000Z',
+      resolved_commit: expect.stringMatching(/^[0-9a-f]{40}$/)
     });
   });
 
@@ -1004,7 +1017,8 @@ sources:
     await expect(readFile(join(homeDir, '.syncskill', 'skills', 'beta', 'SKILL.md'), 'utf8')).resolves.toBe('# beta v2\n');
     await expect(loadSourceState(homeDir, 'git-source')).resolves.toEqual({
       materialized_skills: ['beta'],
-      updated_at: '2026-05-01T03:00:00.000Z'
+      updated_at: '2026-05-01T03:00:00.000Z',
+      resolved_commit: expect.stringMatching(/^[0-9a-f]{40}$/)
     });
   });
 
@@ -1112,7 +1126,8 @@ sources:
     // Persisted state never carries the transient skipped_conflicts field.
     await expect(loadSourceState(homeDir, 'runskills')).resolves.toEqual({
       materialized_skills: ['systemd-service-optimize', 'tech-writer'],
-      updated_at: '2026-05-01T01:00:00.000Z'
+      updated_at: '2026-05-01T01:00:00.000Z',
+      resolved_commit: null
     });
   });
 

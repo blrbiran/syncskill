@@ -316,6 +316,7 @@ export interface SourceEntry extends SourceDefinition {
 export interface SourceState {
   materialized_skills: string[];
   updated_at: string;
+  resolved_commit: string | null;
 }
 
 /**
@@ -1218,7 +1219,7 @@ async function syncSource(
 ): Promise<SourceSyncResult> {
   if (options.dryRun) {
     const previousState = await loadSourceState(homeDir, name);
-    return previousState ?? { materialized_skills: [], updated_at: updatedAt };
+    return previousState ?? { materialized_skills: [], updated_at: updatedAt, resolved_commit: null };
   }
 
   const { skillsDir, syncDir } = getSyncPaths(homeDir);
@@ -1249,7 +1250,7 @@ async function syncSource(
         });
 
           if (decision === 'skip') {
-          return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt };
+          return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt, resolved_commit: null };
         }
         if (decision === 'quit') {
           throw new DirtySourceQuitError();
@@ -1278,7 +1279,7 @@ async function syncSource(
       });
 
       if (decision === 'skip') {
-        return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt };
+        return previousState ?? { materialized_skills: previousSkills, updated_at: updatedAt, resolved_commit: null };
       }
       if (decision === 'quit') {
         throw new DirtySourceQuitError();
@@ -1386,7 +1387,8 @@ async function syncSource(
 
   const nextState: SourceState = {
     materialized_skills: materializedSkills,
-    updated_at: updatedAt
+    updated_at: updatedAt,
+    resolved_commit: source.type === 'git' ? await readGitHead(getGitCheckoutDir(homeDir, name)) : null
   };
 
   await saveSourceState(homeDir, name, nextState);
@@ -1439,7 +1441,7 @@ function normalizeSourceEntry(name: string, value: unknown): SourceEntry[] {
   return [{ name, type: value.type, url: value.url, path: pathValue }];
 }
 
-function normalizeSourceState(value: unknown): SourceState {
+export function normalizeSourceState(value: unknown): SourceState {
   if (!isRecord(value) || typeof value.updated_at !== 'string') {
     throw new Error('Source state is invalid');
   }
@@ -1448,8 +1450,17 @@ function normalizeSourceState(value: unknown): SourceState {
     materialized_skills: Array.isArray(value.materialized_skills)
       ? value.materialized_skills.filter((skill): skill is string => typeof skill === 'string').sort()
       : [],
-    updated_at: value.updated_at
+    updated_at: value.updated_at,
+    resolved_commit:
+      typeof value.resolved_commit === 'string' && /^[0-9a-f]{40}$/.test(value.resolved_commit)
+        ? value.resolved_commit
+        : null
   };
+}
+
+async function readGitHead(checkoutDir: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', ['-C', checkoutDir, 'rev-parse', 'HEAD']);
+  return stdout.trim();
 }
 
 function getSourceStateFile(homeDir: string, name: string): string {
