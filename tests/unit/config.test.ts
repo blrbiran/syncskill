@@ -89,6 +89,7 @@ describe('config persistence', () => {
           path: '/tmp/source'
         }
       },
+      profiles: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     };
 
@@ -208,6 +209,7 @@ describe('validateConfig', () => {
       links: {},
       servers: {},
       sources: {},
+      profiles: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });
@@ -224,6 +226,7 @@ describe('validateConfig', () => {
       links: {},
       servers: {},
       sources: {},
+      profiles: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
     });
   });

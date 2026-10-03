@@ -10,6 +10,8 @@ import { isNotFoundError } from '../utils/utils.js';
 export type { SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer, SourceConfig } from './types.js';
 import type { SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer } from './types.js';
 
+export const PROFILE_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
 export const KNOWN_AGENT_DIRS = {
   claude: '.claude/skills',
   agents: '.agents/skills',
@@ -75,6 +77,7 @@ export function createDefaultConfig(homeDir = homedir(), agents: Record<string, 
     conflict_resolution: 'manual',
     agents,
     links: {},
+    profiles: {},
     servers: {},
     sources: {},
     private_agents: DEFAULT_PRIVATE_AGENTS
@@ -105,6 +108,7 @@ export function validateConfig(value: unknown): SyncSkillConfig {
       : 'manual',
     agents: normalizeAgents(value.agents),
     links: normalizeLinks(value.links),
+    profiles: normalizeProfiles(value.profiles),
     servers: isRecord(value.servers) ? value.servers : {},
     sources: isRecord(value.sources) ? value.sources : {},
     private_agents: Array.isArray(value.private_agents)
@@ -290,6 +294,19 @@ function normalizeLinks(value: unknown): Record<string, string[]> {
 
   return Object.fromEntries(
     Object.entries(value).map(([key, targets]) => [key, normalizeStringArray(targets)])
+  );
+}
+
+function normalizeProfiles(value: unknown): Record<string, string[]> {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([name, skills]) => [
+      name,
+      [...new Set(Array.isArray(skills) ? skills.filter((skill): skill is string => typeof skill === 'string') : [])].sort()
+    ])
   );
 }
 

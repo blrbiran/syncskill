@@ -19,6 +19,7 @@ export interface SyncSkillConfig {
   conflict_resolution: ConflictResolution;
   agents: Record<string, string>;
   links: Record<string, string[]>;
+  profiles: Record<string, string[]>;
   servers: Record<string, unknown>;
   sources: Record<string, unknown>;
   private_agents: string[];
