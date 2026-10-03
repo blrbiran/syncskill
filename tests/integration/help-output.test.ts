@@ -20,6 +20,18 @@ describe('help output', () => {
     expect(help).toContain('unlink');
     expect(help).toContain('remote');
     expect(help).toContain('restore');
+    expect(help).toContain('profile');
+    expect(help).toContain('inject');
+  });
+
+  it('inject help exposes its selector and target options', async () => {
+    const { stdout } = await execAsync('node', ['dist/index.js', 'inject', '--help'], {
+      cwd: '/Users/biran/code/skills/syncskill'
+    });
+
+    expect(stdout).toContain('--target');
+    expect(stdout).toContain('--profile');
+    expect(stdout).toContain('--skills');
   });
 
   it('includes dashboard-oriented wording for the root command', () => {

@@ -96,6 +96,17 @@ syncskill link remove welcome agents
 | `syncskill link list -v` | Show realized link status with verbose text |
 | `syncskill unlink <skill>` | Alias for `syncskill link clear <skill>` |
 
+### Profiles & Injection
+
+| Command | Description |
+|---------|-------------|
+| `syncskill profile set <name> <skills...>` | Define or replace a named skill profile |
+| `syncskill profile ls [name]` | List profiles, or show one profile's skills |
+| `syncskill profile rm <name>` | Remove a profile |
+| `syncskill inject --profile <name> --target <dir>` | Copy a profile's skills into `<dir>` as a snapshot with a lock file (use `--skills a,b` instead of `--profile` for an ad-hoc list) |
+
+`inject` copies a snapshot of the selected skills into `<dir>` (symlinks are dereferenced), refuses a target that is already occupied (exit 7), and writes `syncskill-lock.json` in the target recording each skill's source, `resolved_commit` and `content_md5`. It never touches agent skill directories or `config.links`. Unsafe skill names, unknown profiles, and invalid selector combinations exit 2.
+
 ### Source Management
 
 | Command | Description |

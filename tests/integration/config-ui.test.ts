@@ -60,6 +60,7 @@ describe('runConfigUi', () => {
         local: '/tmp/local-skills'
       },
       links: {},
+      profiles: {},
       servers: {},
       sources: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
@@ -90,6 +91,7 @@ describe('runConfigUi', () => {
       links: {
         welcome: ['*', 'qoder']
       },
+      profiles: {},
       servers: {},
       sources: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
@@ -109,6 +111,7 @@ describe('runConfigUi', () => {
       conflict_resolution: 'keep-local',
       agents: {},
       links: {},
+      profiles: {},
       servers: {},
       sources: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']

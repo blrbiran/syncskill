@@ -277,6 +277,18 @@ Repeated installs from the same git or HTTP source reuse the existing source ent
 
 For v2 plan-then-execute workflows, both `install self` and `install <url-or-path>` support the global `--plan`, `--apply`, and `--resolutions` flags. Save the generated plan with shell redirection when needed. This is the supported way to preview or hand off built-in and external installs before making changes.
 
+### Profiles and Injection
+
+```bash
+syncskill profile set review alpha beta
+syncskill profile ls [name]
+syncskill profile rm review
+syncskill inject --profile review --target ./out
+syncskill inject --skills alpha,beta --target ./out
+```
+
+`inject` copies a snapshot of the selected skills into `<dir>` (symlinks are dereferenced), refuses a target that is already occupied (exit 7), and writes `syncskill-lock.json` in the target recording each skill's source, `resolved_commit` and `content_md5`. It never touches agent skill directories or `config.links`. Unsafe skill names, unknown profiles, and invalid selector combinations exit 2.
+
 ### Typical Loop
 
 1. Add or edit a skill under `~/.syncskill/skills/`

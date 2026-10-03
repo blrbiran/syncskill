@@ -44,6 +44,7 @@ describe('initializeRepo', () => {
         claude: join(homeDir, '.claude', 'skills')
       },
       links: {},
+      profiles: {},
       servers: {},
       sources: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
@@ -85,6 +86,7 @@ describe('initializeRepo', () => {
         'shared-skill': ['agents', 'claude'],
         'agents-only': ['agents', 'claude']
       },
+      profiles: {},
       servers: {},
       sources: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
@@ -128,6 +130,7 @@ describe('initializeRepo', () => {
         agents: join(homeDir, '.agents', 'skills')
       },
       links: {},
+      profiles: {},
       servers: {},
       sources: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']

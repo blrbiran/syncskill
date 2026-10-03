@@ -48,6 +48,16 @@ function errorCodeOf(run: CliRun): unknown {
   return parseEvents(run).find((event) => event.type === 'error')?.code;
 }
 
+async function git(args: string[], cwd?: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', cwd === undefined ? args : ['-C', cwd, ...args]);
+  return stdout;
+}
+
+async function commitAll(repoDir: string, message: string): Promise<void> {
+  await git(['add', '.'], repoDir);
+  await git(['-c', 'user.name=Test User', '-c', 'user.email=test@example.com', 'commit', '-m', message], repoDir);
+}
+
 async function snapshotDir(root: string): Promise<string | string[]> {
   const entries: string[] = [];
   async function walk(dir: string): Promise<void> {
@@ -265,5 +275,39 @@ describe('syncskill profile and inject', () => {
     const run = await runCli(home, ['--json', 'inject', '--skills', 'alpha', '--target', 'rel/out'], cwd);
     expect(run.code).toBe(0);
     expect((await stat(join(cwd, 'rel', 'out', 'alpha'))).isDirectory()).toBe(true);
+  });
+
+  it('records source identity and the source repo HEAD for a git-sourced skill', async () => {
+    const home = await setup();
+    const bareRepoDir = join(home, 'remote.git');
+    const workRepoDir = join(home, 'work');
+    await git(['init', '--bare', bareRepoDir]);
+    await git(['clone', bareRepoDir, workRepoDir]);
+    await git(['branch', '-M', 'main'], workRepoDir);
+    await mkdir(join(workRepoDir, 'skills', 'delta'), { recursive: true });
+    await writeFile(join(workRepoDir, 'skills', 'delta', 'SKILL.md'), '# delta');
+    await commitAll(workRepoDir, 'v1');
+    await git(['push', '-u', 'origin', 'main'], workRepoDir);
+    const install = await runCli(home, ['install', bareRepoDir, '--name', 'demo', '--type', 'git', '--path', 'skills', '--yes']);
+    expect(install.code).toBe(0);
+
+    const target = join(home, 'runs', 'git');
+    expect((await runCli(home, ['--json', 'inject', '--skills', 'delta', '--target', target])).code).toBe(0);
+    const config = JSON.parse(await readFile(join(home, '.syncskill', 'config.json'), 'utf8')) as {
+      sources: Record<string, { url: string; branch?: string }>;
+    };
+    const stored = config.sources.demo!;
+    const lock = JSON.parse(await readFile(join(target, 'syncskill-lock.json'), 'utf8'));
+    expect(lock.skills).toHaveLength(1);
+    const entry = lock.skills[0];
+    expect(entry.name).toBe('delta');
+    expect(entry.source).toEqual({
+      name: 'demo',
+      type: 'git',
+      url: stored.url,
+      ...(stored.branch === undefined ? {} : { branch: stored.branch })
+    });
+    expect(entry.resolved_commit).toBe((await git(['rev-parse', 'HEAD'], workRepoDir)).trim());
+    expect(entry.content_md5).toBe(await hashSkillDirectory(join(target, 'delta')));
   });
 });

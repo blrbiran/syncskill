@@ -84,6 +84,17 @@ Use `link remove <skill> agents` to drop only the shared link.
 
 In v2, `source add`, `source update`, and `source restore` are removed. Use `install <url-or-path>` to add/register sources, and use top-level `update` to refresh them.
 
+### Profiles & Injection
+
+| Command | Description |
+|---------|-------------|
+| `profile set <name> <skills...>` | Define or replace a named skill profile |
+| `profile ls [name]` | List profiles, or show one profile's skills |
+| `profile rm <name>` | Remove a profile |
+| `inject --profile <name> --target <dir>` | Copy a profile's skills into `<dir>` as a snapshot with a lock file (use `--skills a,b` instead of `--profile` for an ad-hoc list) |
+
+`inject` copies a snapshot of the selected skills into `<dir>` (symlinks are dereferenced), refuses a target that is already occupied (exit 7), and writes `syncskill-lock.json` in the target recording each skill's source, `resolved_commit` and `content_md5`. It never touches agent skill directories or `config.links`. Unsafe skill names, unknown profiles, and invalid selector combinations exit 2.
+
 ### Scanning
 
 | Command | Description |

@@ -39,6 +39,7 @@ describe('discoverSkills', () => {
         alpha: [],
         zeta: []
       },
+      profiles: {},
       servers: {},
       sources: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
@@ -63,6 +64,7 @@ describe('discoverSkills', () => {
         alpha: ['agents'],
         beta: ['agents']
       },
+      profiles: {},
       servers: {},
       sources: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']

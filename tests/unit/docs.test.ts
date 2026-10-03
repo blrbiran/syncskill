@@ -55,6 +55,8 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('If multiple configured agents resolve to the same underlying skills directory, `syncskill doctor` warns instead of assuming they are independent.');
     expect(readme).toContain('`syncskill doctor --fix` does not auto-remove duplicate-directory agent mappings.');
     expect(readme).toContain('Auto-repair all auto-fixable issues');
+    expect(readme).toContain('syncskill inject --profile');
+    expect(readme).toContain('syncskill profile set');
 
     expect(docsReadme).toContain('syncskill link build');
     expect(docsReadme).toContain('remove stale symlinks');
@@ -132,6 +134,8 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('pre-restore');
     expect(usageGuide).toContain('`syncskill link build` deduplicates materialized agent directories by canonical `realpath` before removing stale links.');
     expect(usageGuide).toContain('`syncskill doctor --fix` leaves `AGENT_PATH_DUPLICATE` warnings for manual resolution.');
+    expect(usageGuide).toContain('syncskill inject --profile');
+    expect(usageGuide).toContain('syncskill profile set');
 
     expect(skillDoc).toContain('repo-relative subdirectory containing skills');
     expect(skillDoc).toContain('install <url-or-path> [--name] [--path <dir>] [--branch] [--type <type>] [-y]');

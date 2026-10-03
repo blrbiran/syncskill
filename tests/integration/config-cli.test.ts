@@ -357,6 +357,7 @@ describe('config CLI', () => {
       links: {
         welcome: ['claude', 'qoder']
       },
+      profiles: {},
       servers: {},
       sources: {},
       private_agents: ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'augment', 'cline', 'hermes']
