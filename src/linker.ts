@@ -213,7 +213,7 @@ async function isSkillDirectory(dir: string): Promise<boolean> {
   return pathExists(join(dir, 'SKILL.md'));
 }
 
-async function resolveConfiguredSkillSourceDir(homeDir: string, skill: string): Promise<string> {
+export async function resolveConfiguredSkillSourceDir(homeDir: string, skill: string): Promise<string> {
   const { skillsDir } = getSyncPaths(homeDir);
   const managedPath = join(skillsDir, skill);
 
