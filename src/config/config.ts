@@ -303,7 +303,7 @@ function normalizeProfiles(value: unknown): Record<string, string[]> {
   }
 
   return Object.fromEntries(
-    Object.entries(value).map(([name, skills]) => [
+    Object.entries(value).filter(([name]) => name !== '__proto__').map(([name, skills]) => [
       name,
       [...new Set(Array.isArray(skills) ? skills.filter((skill): skill is string => typeof skill === 'string') : [])].sort()
     ])

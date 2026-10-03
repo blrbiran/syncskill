@@ -310,4 +310,34 @@ describe('syncskill profile and inject', () => {
     expect(entry.resolved_commit).toBe((await git(['rev-parse', 'HEAD'], workRepoDir)).trim());
     expect(entry.content_md5).toBe(await hashSkillDirectory(join(target, 'delta')));
   });
+
+  it('9: prototype-chain profile names are not profiles (fix for review I1)', async () => {
+    const home = await setup();
+    let run = await runCli(home, ['--json', 'profile', 'set', '__proto__', 'alpha']);
+    expect(run.code).toBe(2);
+    expect(errorCodeOf(run)).toBe('E_USAGE_PROFILE_NAME');
+    run = await runCli(home, ['--json', 'profile', 'ls', 'constructor']);
+    expect(run.code).toBe(2);
+    expect(errorCodeOf(run)).toBe('E_PROFILE_NOT_FOUND');
+    run = await runCli(home, ['--json', 'profile', 'rm', 'constructor']);
+    expect(run.code).toBe(2);
+    expect(errorCodeOf(run)).toBe('E_PROFILE_NOT_FOUND');
+    run = await runCli(home, ['--json', 'inject', '--profile', 'toString', '--target', join(home, 'runs', 'proto')]);
+    expect(run.code).toBe(2);
+    expect(errorCodeOf(run)).toBe('E_PROFILE_NOT_FOUND');
+    // a legitimate own key with a prototype-looking name still works
+    expect((await runCli(home, ['--json', 'profile', 'set', 'constructor', 'alpha'])).code).toBe(0);
+    run = await runCli(home, ['--json', 'profile', 'ls', 'constructor']);
+    expect(run.code).toBe(0);
+    expect(resultOf(run).summary).toMatchObject({ profiles: { constructor: ['alpha'] } });
+  });
+
+  it('10: inject does not touch the stored manifests (spec 5.6)', async () => {
+    const home = await setup();
+    const manifests = join(home, '.syncskill', 'manifests');
+    const before = await snapshotDir(manifests);
+    const run = await runCli(home, ['--json', 'inject', '--skills', 'alpha', '--target', join(home, 'runs', 'm')]);
+    expect(run.code).toBe(0);
+    expect(await snapshotDir(manifests)).toEqual(before);
+  });
 });

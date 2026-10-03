@@ -1,4 +1,4 @@
-import { cp, link, lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { cp, link, lstat, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { hashSkillDirectory } from './core/manifest.js';
 import { resolveConfiguredSkillSourceDir } from './linker.js';
@@ -76,10 +76,10 @@ export async function injectSkills(
   const sources = new Map((await listSources(homeDir)).map((source) => [source.name, source]));
 
   await mkdir(target, { recursive: true });
-  const staging = join(target, `.syncskill-inject-${process.pid}`);
+  // Unique and created before the try: the catch below only ever removes a directory this call made.
+  const staging = await mkdtemp(join(target, '.syncskill-inject-'));
   const placed: string[] = [];
   try {
-    await mkdir(staging);
     for (const skill of skills) {
       await cp(sourceDirs.get(skill)!, join(staging, skill), { recursive: true, dereference: true });
     }

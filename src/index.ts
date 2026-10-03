@@ -1425,7 +1425,8 @@ export function createProgram(homeDir?: string): Command {
       }
 
       await runCommandPreflight(resolvedHomeDir);
-      await autoRefreshManifests(resolvedHomeDir, opts.refresh !== false);
+      // inject copies a snapshot and must not rewrite stored manifests (spec 5.6); many run in parallel.
+      await autoRefreshManifests(resolvedHomeDir, opts.refresh !== false && getCommandPath(actionCommand) !== 'inject');
     });
 
   program
@@ -2050,7 +2051,7 @@ export function createProgram(homeDir?: string): Command {
     .command('set <name> <skills...>')
     .description('Set a profile to exactly these skills')
     .action(async (name: string, skills: string[]) => {
-      if (!PROFILE_NAME_PATTERN.test(name)) {
+      if (!PROFILE_NAME_PATTERN.test(name) || name === '__proto__') {
         return failWithOutputError('E_USAGE_PROFILE_NAME', `Invalid profile name: ${name}`);
       }
       const config = await loadConfig(resolvedHomeDir);
@@ -2080,7 +2081,7 @@ export function createProgram(homeDir?: string): Command {
     .description('Show profiles')
     .action(async (name?: string) => {
       const config = await loadConfig(resolvedHomeDir);
-      if (name !== undefined && config.profiles[name] === undefined) {
+      if (name !== undefined && !Object.hasOwn(config.profiles, name)) {
         return failWithOutputError('E_PROFILE_NOT_FOUND', `Profile not found: ${name}`);
       }
       const profiles = name === undefined ? config.profiles : { [name]: config.profiles[name]! };
@@ -2094,7 +2095,7 @@ export function createProgram(homeDir?: string): Command {
     .description('Remove a profile')
     .action(async (name: string) => {
       const config = await loadConfig(resolvedHomeDir);
-      if (config.profiles[name] === undefined) {
+      if (!Object.hasOwn(config.profiles, name)) {
         return failWithOutputError('E_PROFILE_NOT_FOUND', `Profile not found: ${name}`);
       }
       delete config.profiles[name];
@@ -2117,7 +2118,7 @@ export function createProgram(homeDir?: string): Command {
       let skills: string[];
       if (options.profile !== undefined) {
         const config = await loadConfig(resolvedHomeDir);
-        const members = config.profiles[options.profile];
+        const members = Object.hasOwn(config.profiles, options.profile) ? config.profiles[options.profile] : undefined;
         if (members === undefined) {
           return failWithOutputError('E_PROFILE_NOT_FOUND', `Profile not found: ${options.profile}`);
         }

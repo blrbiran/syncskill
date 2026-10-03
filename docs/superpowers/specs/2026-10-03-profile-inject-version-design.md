@@ -166,3 +166,7 @@ target 放在哪里由调用方决定。放进 git worktree 的话，锁文件�
 - `--sync-dir`／`SYNCSKILL_DIR`／`--config`／`SYNCSKILL_CONFIG` 解析了但不生效（§2）。
 - `normalizeSourceEntry` 丢掉 `skill_subdir`、`ignore`、`archive_path`（子代理报告；本设计不依赖它，未逐行复核）。
 - 主 spec `syncskill-design.md` 描述了若干代码里没有的东西（如 `E_CONFIG_REGRESSION`，以及 `update` 输出里的 `before_commit`／`after_commit`）（子代理报告，未逐条复核）。
+
+## 9. 实施期更正
+
+- §5 步骤 4 与并发段落里的 staging 目录名 `.syncskill-inject-<pid>` 已改为 `.syncskill-inject-<随机串>`，由 `mkdtemp` 在 `try` 之前创建（保留 `.syncskill-inject-` 前缀）。原因：pid 命名在不同 PID 命名空间（容器、bind mount 的 target）里会撞名，`mkdir` 的 `EEXIST` 会让回滚删掉别人的 staging；现在回滚只会删本次调用自己创建的目录。SIGKILL 后残留的目录同样带这个前缀，清理仍由调用方负责。原 §5 文字保留不改。
