@@ -104,10 +104,11 @@ import {
   DiagnosticCode,
   type RepairOptions
 } from './config/config-doctor.js';
+import { injectSkills, InjectError, normalizeSkillList } from './inject.js';
 import { buildExternalInstallPlan, executeExternalInstallPlan, installSyncskillSkill } from './install.js';
-import { expandMaterializedTargetAgents, expandTargetAgents, getConfigPaths, getConfiguredServer, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
+import { PROFILE_NAME_PATTERN, expandMaterializedTargetAgents, expandTargetAgents, getConfigPaths, getConfiguredServer, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
 import { createPromptApi, runConfigUi } from './config/config-ui.js';
-import { collectLinkStatus, discoverSkills, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
+import { collectLinkStatus, discoverSkills, resolveConfiguredSkillSourceDir, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
 import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './core/manifest.js';
 import {
   expandReceiverLinkAgents,
@@ -2041,6 +2042,94 @@ export function createProgram(homeDir?: string): Command {
           }
           : {})
       });
+    });
+
+  const profileCommand = program.command('profile').description('Manage named skill profiles');
+
+  profileCommand
+    .command('set <name> <skills...>')
+    .description('Set a profile to exactly these skills')
+    .action(async (name: string, skills: string[]) => {
+      if (!PROFILE_NAME_PATTERN.test(name)) {
+        return failWithOutputError('E_USAGE_PROFILE_NAME', `Invalid profile name: ${name}`);
+      }
+      const config = await loadConfig(resolvedHomeDir);
+      const members = normalizeSkillList(skills);
+      for (const skill of members) {
+        try {
+          await resolveConfiguredSkillSourceDir(resolvedHomeDir, skill);
+        } catch {
+          return failWithOutputError('E_SKILL_NOT_FOUND', `Skill not found: ${skill}`);
+        }
+      }
+      config.profiles[name] = members;
+      await saveConfig(config, resolvedHomeDir);
+      const output = getGlobalOutput();
+      output.change('modify', 'skill', name, { after: members.join(',') });
+      output.result(true, { profile: name, skills: members });
+    });
+
+  profileCommand
+    .command('list [name]')
+    .alias('ls')
+    .description('Show profiles')
+    .action(async (name?: string) => {
+      const config = await loadConfig(resolvedHomeDir);
+      if (name !== undefined && config.profiles[name] === undefined) {
+        return failWithOutputError('E_PROFILE_NOT_FOUND', `Profile not found: ${name}`);
+      }
+      const profiles = name === undefined ? config.profiles : { [name]: config.profiles[name]! };
+      const output = getGlobalOutput();
+      for (const [profile, members] of Object.entries(profiles)) output.info(`${profile}: ${members.join(', ')}`);
+      output.result(true, { profiles });
+    });
+
+  profileCommand
+    .command('rm <name>')
+    .description('Remove a profile')
+    .action(async (name: string) => {
+      const config = await loadConfig(resolvedHomeDir);
+      if (config.profiles[name] === undefined) {
+        return failWithOutputError('E_PROFILE_NOT_FOUND', `Profile not found: ${name}`);
+      }
+      delete config.profiles[name];
+      await saveConfig(config, resolvedHomeDir);
+      const output = getGlobalOutput();
+      output.change('delete', 'skill', name);
+      output.result(true, { profile: name });
+    });
+
+  program
+    .command('inject')
+    .description('Copy a skill set into a directory as a snapshot, with a lock file')
+    .option('--profile <name>', 'Profile to inject')
+    .option('--skills <list>', 'Comma-separated skills to inject')
+    .requiredOption('--target <dir>', 'Directory to copy the skills into')
+    .action(async (options: { profile?: string; skills?: string; target: string }) => {
+      if ((options.profile === undefined) === (options.skills === undefined)) {
+        return failWithOutputError('E_USAGE_INJECT_SELECTION', 'Give exactly one of --profile or --skills');
+      }
+      let skills: string[];
+      if (options.profile !== undefined) {
+        const config = await loadConfig(resolvedHomeDir);
+        const members = config.profiles[options.profile];
+        if (members === undefined) {
+          return failWithOutputError('E_PROFILE_NOT_FOUND', `Profile not found: ${options.profile}`);
+        }
+        skills = members;
+      } else {
+        skills = options.skills!.split(',').map((skill) => skill.trim()).filter((skill) => skill.length > 0);
+      }
+      let injected: Awaited<ReturnType<typeof injectSkills>>;
+      try {
+        injected = await injectSkills(resolvedHomeDir, { skills, profile: options.profile ?? null, target: options.target });
+      } catch (error) {
+        if (error instanceof InjectError) return failWithOutputError(error.code, error.message);
+        throw error;
+      }
+      const output = getGlobalOutput();
+      for (const entry of injected.lock.skills) output.change('add', 'skill', entry.name, { target: join(injected.target, entry.name) });
+      output.result(true, { target: injected.target, lock: injected.lockPath, skills: injected.lock.skills });
     });
 
   /**

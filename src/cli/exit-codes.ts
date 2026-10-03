@@ -32,7 +32,7 @@ export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode];
  */
 export function errorCodeToExitCode(errorCode: string): ExitCodeValue {
   if (errorCode.startsWith('E_USAGE') || errorCode === 'E_AGENT_NOT_CONFIGURED' ||
-      errorCode === 'E_SKILL_NOT_FOUND' || errorCode === 'E_SOURCE_NOT_FOUND' ||
+      errorCode === 'E_SKILL_NOT_FOUND' || errorCode === 'E_PROFILE_NOT_FOUND' || errorCode === 'E_SOURCE_NOT_FOUND' ||
       errorCode === 'E_SERVER_NOT_FOUND' || errorCode === 'E_REMOTE_NOT_FOUND') {
     return ExitCode.USAGE_ERROR;
   }
@@ -50,7 +50,7 @@ export function errorCodeToExitCode(errorCode: string): ExitCodeValue {
   if (errorCode === 'E_SOURCE_DIRTY') {
     return ExitCode.DIRTY_SKIP;
   }
-  if (errorCode === 'E_CONFLICT') {
+  if (errorCode === 'E_CONFLICT' || errorCode === 'E_TARGET_OCCUPIED') {
     return ExitCode.CONFLICT_UNRESOLVED;
   }
   if (errorCode === 'E_RECEIVER_DEPLOY') {
