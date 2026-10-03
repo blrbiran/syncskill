@@ -104,3 +104,14 @@ M13 staging back to `.syncskill-inject-<pid>` with mkdir inside try → red unit
 M14 inject refreshes manifests → red int 10.
 Restore after each batch: git diff 0 bytes, --cached 0 bytes, rebuild 0.
 Not shown red by the controller: the normalizeProfiles own-`__proto__` drop (JSON-borne key) — covered only by the implementer's report.
+
+## Follow-up: --sync-dir (Orca session 08b1007d, 2026-10-03, human-authorized "按你的方案修")
+Commit c30d5bd `fix(cli): make --sync-dir / SYNCSKILL_DIR relocate the sync dir; reject --config` on main (base 521897f).
+Ruling: the override is a module-level value set by the CLI preAction (setSyncDirOverride), not an env read inside getSyncDir — unit tests and library callers that pass homeDir can never be redirected by a stray SYNCSKILL_DIR in the shell — cost if wrong: a future non-CLI entry point must call setSyncDirOverride itself.
+Ruling: only absolute paths (E_USAGE_SYNC_DIR otherwise) — avoids the unexpanded-`~` trap in cerebrum — cost if wrong: callers must resolve paths first.
+Ruling: --config / SYNCSKILL_CONFIG rejected (E_USAGE_CONFIG_PATH, exit 2), not implemented — cost if wrong: anyone with SYNCSKILL_CONFIG exported now gets exit 2 on every command.
+Ruling: src/receiver/sync_receiver.mjs untouched — it runs on the remote host under the remote HOME.
+New criteria: tests/integration/sync-dir-cli.test.ts (4 cases + real ~/.syncskill snapshot guard), sync-engine.test.ts "pullFromServer writes pulled skills under a relocated sync dir, not HOME" (measures the rsync destination; the fake runtime writes no files).
+Mutations (clone, rebuild per mutation, both test files): M1 getSyncDir ignores override → red engine case + cli cases 1,2. M2 engine skills dir back to HOME → red engine case only. M3 preAction never sets override → red cli 1,2. M4 no --config rejection → red cli 4. M5 no absolute check → red cli 3. M6 env beats flag → red cli 2. Restore: clone files byte-identical to main tree (cmp), rebuild 0.
+Gate (clone at the tree of c30d5bd minus spec/cerebrum text; HOME + 4 XDG roots redirected, TMPDIR mktemp -d /private/tmp/ss-XXXX; load 9.3 at end): build 0; tests/unit 526/526; tests/integration 285/285; 0 skipped.
+Known residue (not fixed): integration helpers elsewhere spread process.env into the CLI, so an exported SYNCSKILL_DIR in the test runner's shell would now redirect those runs (the new file deletes it). 
