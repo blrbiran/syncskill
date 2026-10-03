@@ -7,7 +7,7 @@ import { listSources, loadSkillOwnershipState, loadSourceState } from './source.
 export const LOCK_FILE_NAME = 'syncskill-lock.json';
 
 export class InjectError extends Error {
-  constructor(readonly code: 'E_SKILL_NOT_FOUND' | 'E_TARGET_OCCUPIED', message: string) {
+  constructor(readonly code: 'E_SKILL_NOT_FOUND' | 'E_TARGET_OCCUPIED' | 'E_USAGE_SKILL_NAME' | 'E_USAGE_INJECT_SELECTION', message: string) {
     super(message);
   }
 }
@@ -45,6 +45,12 @@ export async function injectSkills(
 ): Promise<{ target: string; lockPath: string; lock: SkillLock }> {
   const target = resolve(request.target);
   const skills = normalizeSkillList(request.skills);
+  for (const skill of skills) {
+    if (skill === '' || skill.startsWith('.') || /[/\\\0]/.test(skill)) {
+      throw new InjectError('E_USAGE_SKILL_NAME', `Invalid skill name: ${JSON.stringify(skill)}`);
+    }
+  }
+  if (skills.length === 0) throw new InjectError('E_USAGE_INJECT_SELECTION', 'No skills to inject');
 
   const sourceDirs = new Map<string, string>();
   for (const skill of skills) {
