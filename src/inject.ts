@@ -16,6 +16,10 @@ export interface LockSource { name: string; type: string; url: string; branch?: 
 export interface LockSkill { name: string; source: LockSource | null; resolved_commit: string | null; content_md5: string }
 export interface SkillLock { schema: 'syncskill-lock-v1'; created_at: string; profile: string | null; skills: LockSkill[] }
 
+export function isSafeSkillName(name: string): boolean {
+  return !(name === '' || name.startsWith('.') || /[/\\\0]/.test(name));
+}
+
 export function normalizeSkillList(skills: string[]): string[] {
   return [...new Set(skills)].sort();
 }
@@ -46,7 +50,7 @@ export async function injectSkills(
   const target = resolve(request.target);
   const skills = normalizeSkillList(request.skills);
   for (const skill of skills) {
-    if (skill === '' || skill.startsWith('.') || /[/\\\0]/.test(skill)) {
+    if (!isSafeSkillName(skill)) {
       throw new InjectError('E_USAGE_SKILL_NAME', `Invalid skill name: ${JSON.stringify(skill)}`);
     }
   }

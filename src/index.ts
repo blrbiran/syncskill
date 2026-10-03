@@ -104,7 +104,7 @@ import {
   DiagnosticCode,
   type RepairOptions
 } from './config/config-doctor.js';
-import { injectSkills, InjectError, normalizeSkillList } from './inject.js';
+import { injectSkills, InjectError, isSafeSkillName, normalizeSkillList } from './inject.js';
 import { buildExternalInstallPlan, executeExternalInstallPlan, installSyncskillSkill } from './install.js';
 import { PROFILE_NAME_PATTERN, expandMaterializedTargetAgents, expandTargetAgents, getConfigPaths, getConfiguredServer, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, type SyncSkillConfig } from './config/config.js';
 import { createPromptApi, runConfigUi } from './config/config-ui.js';
@@ -2056,10 +2056,15 @@ export function createProgram(homeDir?: string): Command {
       const config = await loadConfig(resolvedHomeDir);
       const members = normalizeSkillList(skills);
       for (const skill of members) {
+        if (!isSafeSkillName(skill)) {
+          return failWithOutputError('E_USAGE_SKILL_NAME', `Invalid skill name: ${JSON.stringify(skill)}`);
+        }
+      }
+      for (const skill of members) {
         try {
           await resolveConfiguredSkillSourceDir(resolvedHomeDir, skill);
-        } catch {
-          return failWithOutputError('E_SKILL_NOT_FOUND', `Skill not found: ${skill}`);
+        } catch (error) {
+          return failWithOutputError('E_SKILL_NOT_FOUND', `Skill not found: ${skill} (${(error as Error).message})`);
         }
       }
       config.profiles[name] = members;

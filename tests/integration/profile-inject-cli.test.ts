@@ -19,10 +19,11 @@ interface CliRun {
   code: number;
 }
 
-async function runCli(homeDir: string, args: string[]): Promise<CliRun> {
+async function runCli(homeDir: string, args: string[], cwd?: string): Promise<CliRun> {
   try {
     const result = await execFileAsync('node', [cliPath, ...args], {
-      env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir }
+      env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir },
+      ...(cwd === undefined ? {} : { cwd })
     });
     return { stdout: result.stdout, stderr: result.stderr, code: 0 };
   } catch (error: unknown) {
@@ -43,6 +44,10 @@ function resultOf(run: CliRun): { summary: Record<string, unknown> } {
   return event as { summary: Record<string, unknown> };
 }
 
+function errorCodeOf(run: CliRun): unknown {
+  return parseEvents(run).find((event) => event.type === 'error')?.code;
+}
+
 async function snapshotDir(root: string): Promise<string | string[]> {
   const entries: string[] = [];
   async function walk(dir: string): Promise<void> {
@@ -51,13 +56,13 @@ async function snapshotDir(root: string): Promise<string | string[]> {
       const info = await lstat(path);
       const rel = path.slice(root.length);
       if (info.isDirectory()) {
-        entries.push(`${rel}|dir|${info.mtimeMs}`);
+        entries.push(`${rel}|dir`);
         await walk(path);
       } else if (info.isFile()) {
         const digest = createHash('sha256').update(await readFile(path)).digest('hex');
-        entries.push(`${rel}|${info.size}|${info.mtimeMs}|${digest}`);
+        entries.push(`${rel}|file|${info.size}|${digest}`);
       } else {
-        entries.push(`${rel}|other|${info.mtimeMs}`);
+        entries.push(`${rel}|other`);
       }
     }
   }
@@ -119,7 +124,9 @@ describe('syncskill profile and inject', () => {
     expect(run.code).toBe(0);
     run = await runCli(home, ['--json', 'config', 'set', 'conflict_resolution', 'keep-local']);
     expect(run.code).toBe(0);
-    expect((await readConfig(home)).profiles).toEqual({ review: ['alpha', 'beta'] });
+    const saved = (await readConfig(home)) as { profiles: unknown; conflict_resolution: string };
+    expect(saved.conflict_resolution).toBe('keep-local');
+    expect(saved.profiles).toEqual({ review: ['alpha', 'beta'] });
     run = await runCli(home, ['--json', 'profile', 'ls', 'review']);
     expect(resultOf(run).summary).toMatchObject({ profiles: { review: ['alpha', 'beta'] } });
     run = await runCli(home, ['--json', 'profile', 'rm', 'review']);
@@ -167,8 +174,12 @@ describe('syncskill profile and inject', () => {
     const t1 = join(home, 'runs', 'one');
     expect((await runCli(home, ['--json', 'inject', '--skills', 'alpha', '--target', t1])).code).toBe(0);
     const listing = (await readdir(t1)).sort();
+    const lockBytes = await readFile(join(t1, 'syncskill-lock.json'), 'utf8');
+    const alphaHash = await hashSkillDirectory(join(t1, 'alpha'));
     expect((await runCli(home, ['--json', 'inject', '--skills', 'alpha', '--target', t1])).code).toBe(7);
     expect((await readdir(t1)).sort()).toEqual(listing);
+    expect(await readFile(join(t1, 'syncskill-lock.json'), 'utf8')).toBe(lockBytes);
+    expect(await hashSkillDirectory(join(t1, 'alpha'))).toBe(alphaHash);
     const t5 = join(home, 'runs', 'five');
     expect((await runCli(home, ['--json', 'inject', '--skills', 'alpha,ghost', '--target', t5])).code).toBe(2);
     await expect(readdir(t5)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -176,9 +187,10 @@ describe('syncskill profile and inject', () => {
 
   it('6: giving both selectors exits 2', async () => {
     const home = await setup();
-    await runCli(home, ['profile', 'set', 'p1', 'alpha']);
+    expect((await runCli(home, ['profile', 'set', 'p1', 'alpha'])).code).toBe(0);
     const run = await runCli(home, ['--json', 'inject', '--profile', 'p1', '--skills', 'alpha', '--target', join(home, 'runs', 'six')]);
     expect(run.code).toBe(2);
+    expect(errorCodeOf(run)).toBe('E_USAGE_INJECT_SELECTION');
   });
 
   it('7: a symlink inside a skill becomes a regular file in the target', async () => {
@@ -214,7 +226,44 @@ describe('syncskill profile and inject', () => {
     const changes = parseEvents(run).filter((event) => event.type === 'change');
     expect(changes).toHaveLength(2);
     for (const change of changes) {
-      expect(change).toMatchObject({ op: 'add', entity: 'skill' });
+      expect(change).toMatchObject({ op: 'add', entity: 'skill', target: join(target, String(change.name)) });
     }
+    expect(changes.map((change) => change.name).sort()).toEqual(['alpha', 'beta']);
+  });
+
+  it('rejects unsafe skill names in profile set before touching the config', async () => {
+    const home = await setup();
+    for (const [profile, skill] of [['p', '..'], ['q', '../skills/alpha']] as const) {
+      const run = await runCli(home, ['--json', 'profile', 'set', profile, skill]);
+      expect(run.code).toBe(2);
+      expect(errorCodeOf(run)).toBe('E_USAGE_SKILL_NAME');
+    }
+    const profiles = ((await readConfig(home)).profiles ?? {}) as Record<string, unknown>;
+    expect(profiles).not.toHaveProperty('p');
+    expect(profiles).not.toHaveProperty('q');
+  });
+
+  it('reports unknown profiles as E_PROFILE_NOT_FOUND and lists all profiles without a name', async () => {
+    const home = await setup();
+    let run = await runCli(home, ['--json', 'inject', '--profile', 'nope', '--target', join(home, 'runs', 'x')]);
+    expect(run.code).toBe(2);
+    expect(errorCodeOf(run)).toBe('E_PROFILE_NOT_FOUND');
+    run = await runCli(home, ['--json', 'profile', 'ls', 'nope']);
+    expect(run.code).toBe(2);
+    expect(errorCodeOf(run)).toBe('E_PROFILE_NOT_FOUND');
+    await runCli(home, ['profile', 'set', 'p1', 'alpha']);
+    await runCli(home, ['profile', 'set', 'p2', 'beta', 'gamma']);
+    run = await runCli(home, ['--json', 'profile', 'ls']);
+    expect(run.code).toBe(0);
+    expect(resultOf(run).summary.profiles).toEqual({ p1: ['alpha'], p2: ['beta', 'gamma'] });
+  });
+
+  it('resolves a relative --target against the working directory', async () => {
+    const home = await setup();
+    const cwd = await mkdtemp(join(tmpdir(), 'syncskill-inject-cwd-'));
+    tempDirs.push(cwd);
+    const run = await runCli(home, ['--json', 'inject', '--skills', 'alpha', '--target', 'rel/out'], cwd);
+    expect(run.code).toBe(0);
+    expect((await stat(join(cwd, 'rel', 'out', 'alpha'))).isDirectory()).toBe(true);
   });
 });
