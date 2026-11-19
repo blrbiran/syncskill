@@ -197,43 +197,84 @@ export interface DiscoveredSkill {
   absolutePath: string;
 }
 
+// A source with many skills spends its time waiting on filesystem calls, so the
+// scan keeps up to this many in flight instead of walking entries one by one.
+const SCAN_CONCURRENCY = 16;
+
+function createConcurrencyLimiter(limit: number): <T>(work: () => Promise<T>) => Promise<T> {
+  let inFlight = 0;
+  const waiting: Array<() => void> = [];
+
+  return async function runLimited<T>(work: () => Promise<T>): Promise<T> {
+    if (inFlight >= limit || waiting.length > 0) {
+      await new Promise<void>((resolve) => waiting.push(resolve));
+      // A finishing task transferred its slot to us before waking us up.
+    } else {
+      inFlight += 1;
+    }
+
+    try {
+      return await work();
+    } finally {
+      inFlight -= 1;
+      const next = waiting.shift();
+      if (next) {
+        inFlight += 1;
+        next();
+      }
+    }
+  };
+}
+
 /**
  * Recursively scan a directory for skills (directories containing SKILL.md).
  * Returns all discovered skills with their paths.
  */
 export async function scanSkillsInDirectory(baseDir: string): Promise<DiscoveredSkill[]> {
-  const skills: DiscoveredSkill[] = [];
+  const runLimited = createConcurrencyLimiter(SCAN_CONCURRENCY);
 
-  async function scanDir(dir: string, relPath: string = ''): Promise<void> {
-    try {
-      const entries = await readdir(dir, { withFileTypes: true });
+  async function hasSkillFile(dir: string): Promise<boolean> {
+    return runLimited(async () => {
+      try {
+        return (await stat(join(dir, 'SKILL.md'))).isFile();
+      } catch {
+        return false;
+      }
+    });
+  }
 
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        if (entry.name.startsWith('.')) continue;
+  async function scanDir(dir: string, relPath: string = ''): Promise<DiscoveredSkill[]> {
+    const entries = await runLimited(() => readdir(dir, { withFileTypes: true })).catch(() => null);
+    if (!entries) {
+      // Directory not accessible
+      return [];
+    }
+
+    const found = await Promise.all(
+      entries.map(async (entry): Promise<DiscoveredSkill[]> => {
+        if (!entry.isDirectory()) return [];
+        if (entry.name.startsWith('.')) return [];
 
         const fullPath = join(dir, entry.name);
         const relativePath = relPath ? `${relPath}/${entry.name}` : entry.name;
 
-        try {
-          await readFile(join(fullPath, 'SKILL.md'), 'utf8');
-          skills.push({
+        if (await hasSkillFile(fullPath)) {
+          return [{
             name: entry.name,
             relativePath,
             absolutePath: fullPath
-          });
-        } catch {
-          // No SKILL.md, recurse into subdirectory
-          await scanDir(fullPath, relativePath);
+          }];
         }
-      }
-    } catch {
-      // Directory not accessible
-    }
+
+        // No SKILL.md, recurse into subdirectory
+        return scanDir(fullPath, relativePath);
+      })
+    );
+
+    return found.flat();
   }
 
-  await scanDir(baseDir);
-  return skills;
+  return scanDir(baseDir);
 }
 
 /**
