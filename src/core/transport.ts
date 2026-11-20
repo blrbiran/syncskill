@@ -367,8 +367,14 @@ export async function deployReceiver(
   try {
     await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `mkdir -p ${quoteRemotePath(root)} ${quoteRemotePath(remoteSkillsDir(server))}`]));
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // A transport failure is not a writability fact. Exit 255 is ssh's own failure (unreachable
+    // host, refused key); naming the root would send the operator to the wrong place.
+    if (/exited with code 255|ENOENT|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|ENETUNREACH/i.test(message)) {
+      throw new Error(`E_REMOTE_TRANSPORT: cannot reach ${server.name} to prepare ${root}: ${message}`);
+    }
     throw new Error(
-      `E_REMOTE_ROOT: cannot create ${root} on ${server.name}: ${error instanceof Error ? error.message : String(error)}. ` +
+      `E_REMOTE_ROOT: cannot create ${root} on ${server.name}: ${message}. ` +
         `Create the directory on the remote host, or choose a writable --remote-repo.`
     );
   }
@@ -607,6 +613,9 @@ export async function pushSkillDirectory(
   skill: string,
   runtime: TransportRuntime
 ): Promise<void> {
+  // Issue 421 review: the rsync fallback passes the name as a remote shell word. A local
+  // directory called `a;id` would execute `id` remotely, and "my skill" would shift argv.
+  if (!SAFE_SKILL_NAME.test(skill)) throw new Error(`Invalid skill name: ${skill}`);
   try {
     await runtime.exec(
       'rsync',
@@ -619,7 +628,7 @@ export async function pushSkillDirectory(
       throw error;
     }
 
-    await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'import-skill', skill]), {
+    await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'import-skill', quoteRemotePath(skill)]), {
       stdin: JSON.stringify(await collectSkillData(sourceDir))
     });
   }
@@ -674,6 +683,7 @@ export async function pullSkillDirectory(
   targetDir: string,
   runtime: TransportRuntime
 ): Promise<void> {
+  if (!SAFE_SKILL_NAME.test(skill)) throw new Error(`Invalid skill name: ${skill}`);
   try {
     await mkdir(dirname(targetDir), { recursive: true });
     await runtime.exec(
@@ -689,7 +699,7 @@ export async function pullSkillDirectory(
       throw error;
     }
 
-    const exported = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'export-skill', skill]), {});
+    const exported = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'export-skill', quoteRemotePath(skill)]), {});
     const data = JSON.parse(exported.stdout || '{}') as SkillData | Record<string, string>;
 
     await rm(targetDir, { recursive: true, force: true });

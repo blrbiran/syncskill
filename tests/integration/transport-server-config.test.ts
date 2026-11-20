@@ -172,4 +172,32 @@ describe('server transport configuration', () => {
       deployReceiver({ name: 'alpha', host: 'alpha.example.com', remote_repo: '/srv/My Skills', remote_agents: {} }, runtime)
     ).rejects.toThrow('E_REMOTE_ROOT: cannot create /srv/My Skills on alpha');
   });
+
+  it('does not blame the root when ssh itself failed (issue 422 review)', async () => {
+    const runtime: TransportRuntime = {
+      async exec() {
+        throw new Error('ssh exited with code 255: Permission denied (publickey)');
+      }
+    };
+
+    await expect(
+      deployReceiver({ name: 'alpha', host: 'alpha.example.com', remote_agents: {} }, runtime)
+    ).rejects.toThrow('E_REMOTE_TRANSPORT: cannot reach alpha');
+  });
+
+  it('refuses a skill name that would reach the remote shell as more than one word (issue 421 review)', async () => {
+    const runtime = createRuntime();
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-config-'));
+    tempDirs.push(homeDir);
+    const sourceDir = join(homeDir, 'source');
+    await mkdir(sourceDir, { recursive: true });
+
+    await expect(
+      pushSkillDirectory({ name: 'alpha', host: 'alpha.example.com', remote_agents: {} }, sourceDir, 'a;id', runtime)
+    ).rejects.toThrow('Invalid skill name: a;id');
+    await expect(
+      pullSkillDirectory({ name: 'alpha', host: 'alpha.example.com', remote_agents: {} }, 'my skill', join(homeDir, 'target'), runtime)
+    ).rejects.toThrow('Invalid skill name: my skill');
+    expect(runtime.calls).toHaveLength(0);
+  });
 });

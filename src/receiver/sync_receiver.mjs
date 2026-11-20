@@ -4,8 +4,13 @@ import { access, lstat, mkdir, readFile, readdir, readlink, rm, symlink, writeFi
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
-const syncRoot = join(homedir(), '.syncskill');
+// The receiver is always deployed at `<remote_repo>/sync_receiver.mjs`, so its own location is the
+// root that is actually in use. Issue #422: hardcoding `$HOME/.syncskill` made a non-default
+// `remote_repo` write skills to one tree and read a manifest/config from another.
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const syncRoot = process.env.SYNCSKILL_ROOT ? resolve(process.env.SYNCSKILL_ROOT) : scriptDir;
 const skillsDir = join(syncRoot, 'skills');
 const manifestFile = join(syncRoot, 'manifest.json');
 const configFile = join(syncRoot, 'receiver_config.json');

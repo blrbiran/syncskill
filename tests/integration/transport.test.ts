@@ -18,7 +18,11 @@ async function importReceiverModule() {
 
 async function withMockedHomeDir<T>(homeDir: string, run: () => Promise<T>): Promise<T> {
   const originalHome = process.env.HOME;
+  const originalSyncRoot = process.env.SYNCSKILL_ROOT;
   process.env.HOME = homeDir;
+  // The receiver derives its root from the script location (issue 422 review); these tests
+  // import the module from src/receiver, so name the temp root explicitly.
+  process.env.SYNCSKILL_ROOT = join(homeDir, '.syncskill');
 
   try {
     return await run();
@@ -27,6 +31,11 @@ async function withMockedHomeDir<T>(homeDir: string, run: () => Promise<T>): Pro
       delete process.env.HOME;
     } else {
       process.env.HOME = originalHome;
+    }
+    if (originalSyncRoot === undefined) {
+      delete process.env.SYNCSKILL_ROOT;
+    } else {
+      process.env.SYNCSKILL_ROOT = originalSyncRoot;
     }
   }
 }
@@ -311,7 +320,7 @@ describe('transport', () => {
     expect(runtime.exec).toHaveBeenCalledWith('rsync', expect.any(Array), {});
     expect(runtime.exec).toHaveBeenCalledWith(
       'ssh',
-      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'import-skill', 'welcome'],
+      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'import-skill', '"welcome"'],
       expect.objectContaining({ stdin: expect.stringContaining('SKILL.md') })
     );
   });
@@ -372,7 +381,7 @@ describe('transport', () => {
 
     expect(runtime.exec).toHaveBeenCalledWith(
       'ssh',
-      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'export-skill', 'welcome'],
+      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'export-skill', '"welcome"'],
       {}
     );
     await expect(readFile(join(targetDir, 'SKILL.md'), 'utf8')).resolves.toBe('# welcome\n');
