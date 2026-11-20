@@ -144,7 +144,7 @@ describe('sync engine orchestration', () => {
     expect(runtime.calls.some((call) => call.file === 'rsync' && call.args.at(-1) === 'alpha.example.com:~/.syncskill/skills/welcome/')).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'write-manifest')).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'apply')).toBe(true);
-    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > ~/.syncskill/receiver_config.json' && call.stdin?.includes('"claude"') && call.stdin?.includes('"links"') && call.stdin?.includes('"welcome"') && !call.stdin?.includes('"stale"'))).toBe(true);
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > "$HOME/.syncskill/receiver_config.json"' && call.stdin?.includes('"claude"') && call.stdin?.includes('"links"') && call.stdin?.includes('"welcome"') && !call.stdin?.includes('"stale"'))).toBe(true);
 
     const manifest = await loadServerManifest(homeDir, 'alpha');
     expect(manifest.skills.welcome.direction).toBe('skip');
@@ -214,7 +214,7 @@ describe('sync engine orchestration', () => {
       now: '2026-05-01T01:30:00.000Z'
     });
 
-    const receiverConfigWrites = runtime.calls.filter((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > ~/.syncskill/receiver_config.json');
+    const receiverConfigWrites = runtime.calls.filter((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > "$HOME/.syncskill/receiver_config.json"');
     const finalReceiverConfigWrite = receiverConfigWrites.at(-1);
     expect(finalReceiverConfigWrite?.stdin).toContain('"alpha"');
     expect(finalReceiverConfigWrite?.stdin).not.toContain('"beta"');
@@ -1201,7 +1201,7 @@ describe('sync engine orchestration', () => {
         (call) => call.file === 'ssh' && call.args.includes('rm')
       );
       expect(rmCall).toBeDefined();
-      expect(rmCall?.args).toContain('~/.syncskill/skills/orphan-skill');
+      expect(rmCall?.args).toContain('"$HOME/.syncskill/skills/orphan-skill"');
 
       const calls = consoleSpy.mock.calls.map((c) => c[0]);
       const hasRemovedMessage = calls.some(

@@ -33,6 +33,11 @@ export interface ConfiguredServer {
   port?: number;
   identity_file?: string;
   remote_repo?: string;
+  /** Issue 408: the interpreter that runs the remote receiver (nvm/fnm/volta paths are not on a
+   * non-login ssh PATH). */
+  node_bin?: string;
+  /** Issue 408: ssh ConnectTimeout; the transport calls ssh unattended (BatchMode). */
+  connect_timeout_ms?: number;
   remote_agents: Record<string, string>;
 }
 

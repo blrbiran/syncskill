@@ -30,11 +30,49 @@ export interface ReceiverConfigPayload {
   links?: Record<string, string[]>;
 }
 
-const REMOTE_ROOT = '~/.syncskill';
-const REMOTE_RECEIVER = `${REMOTE_ROOT}/sync_receiver.mjs`;
-const REMOTE_SKILLS_DIR = `${REMOTE_ROOT}/skills`;
+const DEFAULT_REMOTE_ROOT = '~/.syncskill';
+const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
 
 const SAFE_SKILL_NAME = /^[a-zA-Z0-9_-]+$/;
+
+/** Issue 405: every remote path follows `server.remote_repo` (the value `remote add --remote-repo`
+ * writes) instead of a hardcoded `~/.syncskill`, so a configured non-default root is really used. */
+function remoteRoot(server: ConfiguredServer): string {
+  const configured = typeof server.remote_repo === 'string' ? server.remote_repo.trim() : '';
+  return configured === '' ? DEFAULT_REMOTE_ROOT : configured.replace(/\/+$/, '');
+}
+
+function remoteReceiver(server: ConfiguredServer): string {
+  return `${remoteRoot(server)}/sync_receiver.mjs`;
+}
+
+function remoteSkillsDir(server: ConfiguredServer): string {
+  return `${remoteRoot(server)}/skills`;
+}
+
+function remoteConfigPath(server: ConfiguredServer): string {
+  return `${remoteRoot(server)}/receiver_config.json`;
+}
+
+/** Issue 408: nvm/fnm/volta installs are not on a non-login ssh PATH, so the receiver's interpreter is
+ * configurable (`remote add --node-bin`). */
+function remoteNode(server: ConfiguredServer): string {
+  const configured = typeof server.node_bin === 'string' ? server.node_bin.trim() : '';
+  return configured === '' ? 'node' : configured;
+}
+
+function connectTimeoutSeconds(server: ConfiguredServer): number {
+  const ms = typeof server.connect_timeout_ms === 'number' && server.connect_timeout_ms > 0
+    ? server.connect_timeout_ms
+    : DEFAULT_CONNECT_TIMEOUT_MS;
+  return Math.max(1, Math.round(ms / 1000));
+}
+
+/** Issue 408: unattended calls never wait on a password or host-key prompt, and an unreachable host
+ * fails inside the configured window instead of hanging. */
+function sshOptions(server: ConfiguredServer): string[] {
+  return ['-o', 'BatchMode=yes', '-o', `ConnectTimeout=${connectTimeoutSeconds(server)}`];
+}
 
 export interface TransportRuntime {
   calls?: Array<{ file: string; args: string[]; stdin?: string }>;
@@ -117,6 +155,7 @@ function buildSshArgs(server: ConfiguredServer, remoteArgs: string[]): string[] 
   return [
     ...(typeof server.port === 'number' ? ['-p', String(server.port)] : []),
     ...(typeof server.identity_file === 'string' ? ['-i', server.identity_file] : []),
+    ...sshOptions(server),
     buildSshTarget(server),
     ...remoteArgs
   ];
@@ -130,7 +169,8 @@ function buildRsyncArgs(server: ConfiguredServer, source: string, destination: s
   const sshParts = [
     'ssh',
     ...(typeof server.port === 'number' ? ['-p', String(server.port)] : []),
-    ...(typeof server.identity_file === 'string' ? ['-i', server.identity_file] : [])
+    ...(typeof server.identity_file === 'string' ? ['-i', server.identity_file] : []),
+    ...sshOptions(server)
   ];
 
   return [
@@ -176,7 +216,7 @@ export async function refreshRemoteManifestFromServer(
 ): Promise<ServerManifest> {
   await deployReceiver(server, runtime);
   const remoteManifest = await fetchRemoteManifest(server, runtime);
-  const result = await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'scan-skills']));
+  const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'scan-skills']));
   const parsed = JSON.parse(result.stdout || '{}') as {
     remote_hashes?: Record<string, string>;
   };
@@ -222,7 +262,7 @@ export async function scanRemoteAgents(
     await deployReceiver(server, runtime);
   }
 
-  const result = await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'scan-agents']));
+  const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'scan-agents']));
   const parsed = JSON.parse(result.stdout || '{}') as {
     discovered_agents?: unknown[];
     remote_only_skills?: unknown;
@@ -266,7 +306,7 @@ export async function probeServerAccess(
   }
 
   try {
-    await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'manifest']));
+    await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'manifest']));
   } catch (error) {
     return [
       { check: 'transport', ok: true, detail: 'ssh ok' },
@@ -280,7 +320,7 @@ export async function probeServerAccess(
   }
 
   try {
-    const result = await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'probe-access']));
+    const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'probe-access']));
     const parsed = JSON.parse(result.stdout || '{}') as { checks?: ServerProbeResult[] };
 
     return [
@@ -306,7 +346,7 @@ export async function receiverNeedsUpdate(server: ConfiguredServer, runtime: Tra
   const localHash = createHash('md5').update(receiverContent).digest('hex');
 
   try {
-    const result = await runtime.exec('ssh', buildSshArgs(server, ['md5sum', REMOTE_RECEIVER]));
+    const result = await runtime.exec('ssh', buildSshArgs(server, ['md5sum', remoteReceiver(server)]));
     const remoteHash = result.stdout.split(/\s+/)[0];
     return localHash !== remoteHash;
   } catch {
@@ -327,10 +367,10 @@ export async function deployReceiver(
     const receiver = await readFile(new URL('../receiver/sync_receiver.mjs', import.meta.url), 'utf8');
 
     await runtime.exec('ssh', buildSshArgs(server, ['sh', '-s']), { stdin: bootstrap });
-    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${REMOTE_RECEIVER}`]), { stdin: receiver });
+    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${quoteRemotePath(remoteReceiver(server))}`]), { stdin: receiver });
   }
 
-  await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${REMOTE_ROOT}/receiver_config.json`]), {
+  await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${quoteRemotePath(remoteConfigPath(server))}`]), {
     stdin: `${JSON.stringify(receiverConfig, null, 2)}\n`
   });
 }
@@ -341,12 +381,12 @@ export async function applyRemoteLinks(
   receiverConfig: ReceiverConfigPayload = { remote_agents: server.remote_agents }
 ): Promise<void> {
   await deployReceiver(server, runtime, receiverConfig);
-  await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'apply']));
+  await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'apply']));
 }
 
 export async function listRemoteSkills(server: ConfiguredServer, runtime: TransportRuntime): Promise<string[]> {
   try {
-    const result = await runtime.exec('ssh', buildSshArgs(server, ['ls', REMOTE_SKILLS_DIR]));
+    const result = await runtime.exec('ssh', buildSshArgs(server, ['ls', quoteRemotePath(remoteSkillsDir(server))]));
     return result.stdout
       .trim()
       .split('\n')
@@ -373,7 +413,7 @@ export async function deleteRemoteSkills(
     }
   }
 
-  const paths = skills.map(skill => `${REMOTE_SKILLS_DIR}/${skill}`);
+  const paths = skills.map(skill => quoteRemotePath(`${remoteSkillsDir(server)}/${skill}`));
   await runtime.exec('ssh', buildSshArgs(server, ['rm', '-rf', ...paths]));
 }
 
@@ -465,7 +505,7 @@ export async function takeOverRemoteSkill(
   }
 
   try {
-    const remoteSkillType = await inspectRemotePath(server, `${REMOTE_SKILLS_DIR}/${skill}`, runtime);
+    const remoteSkillType = await inspectRemotePath(server, `${remoteSkillsDir(server)}/${skill}`, runtime);
     if (remoteSkillType === 'missing') {
       throw createTransportError('E_USAGE', `Remote skill not found: ${skill}. Push it first: \`syncskill push ${server.name}\``);
     }
@@ -505,7 +545,7 @@ export async function takeOverRemoteSkill(
       await runtime.exec('ssh', buildSshArgs(server, [
         'sh',
         '-lc',
-        `rm -rf ${quoteRemotePath(remotePath)} && ln -s ${quoteRemotePath(`${REMOTE_SKILLS_DIR}/${skill}`)} ${quoteRemotePath(remotePath)}`
+        `rm -rf ${quoteRemotePath(remotePath)} && ln -s ${quoteRemotePath(`${remoteSkillsDir(server)}/${skill}`)} ${quoteRemotePath(remotePath)}`
       ]));
     }
 
@@ -523,7 +563,7 @@ export async function takeOverRemoteSkill(
 }
 
 export async function fetchRemoteManifest(server: ConfiguredServer, runtime: TransportRuntime): Promise<ServerManifest> {
-  const result = await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'manifest']));
+  const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'manifest']));
   const parsed = JSON.parse(result.stdout || '{}') as Partial<ServerManifest>;
 
   return {
@@ -534,7 +574,7 @@ export async function fetchRemoteManifest(server: ConfiguredServer, runtime: Tra
 }
 
 export async function pushManifest(server: ConfiguredServer, manifest: ServerManifest, runtime: TransportRuntime): Promise<void> {
-  await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'write-manifest']), {
+  await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'write-manifest']), {
     stdin: `${JSON.stringify(manifest, null, 2)}\n`
   });
 }
@@ -548,7 +588,7 @@ export async function pushSkillDirectory(
   try {
     await runtime.exec(
       'rsync',
-      buildRsyncArgs(server, `${sourceDir}/`, `${buildSshTarget(server)}:${REMOTE_SKILLS_DIR}/${skill}/`, { delete: true }),
+      buildRsyncArgs(server, `${sourceDir}/`, `${buildSshTarget(server)}:${remoteSkillsDir(server)}/${skill}/`, { delete: true }),
       {}
     );
     return;
@@ -557,7 +597,7 @@ export async function pushSkillDirectory(
       throw error;
     }
 
-    await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'import-skill', skill]), {
+    await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'import-skill', skill]), {
       stdin: JSON.stringify(await collectSkillData(sourceDir))
     });
   }
@@ -616,7 +656,9 @@ export async function pullSkillDirectory(
     await mkdir(dirname(targetDir), { recursive: true });
     await runtime.exec(
       'rsync',
-      buildRsyncArgs(server, `${buildSshTarget(server)}:${REMOTE_SKILLS_DIR}/${skill}/`, `${targetDir}/`),
+      // Issue 407: pull must reproduce the remote tree, deletions included; without --delete the
+      // files removed remotely stayed behind and the next reconcile reported local-changed/conflict.
+      buildRsyncArgs(server, `${buildSshTarget(server)}:${remoteSkillsDir(server)}/${skill}/`, `${targetDir}/`, { delete: true }),
       {}
     );
     return;
@@ -625,7 +667,7 @@ export async function pullSkillDirectory(
       throw error;
     }
 
-    const exported = await runtime.exec('ssh', buildSshArgs(server, ['node', REMOTE_RECEIVER, 'export-skill', skill]), {});
+    const exported = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'export-skill', skill]), {});
     const data = JSON.parse(exported.stdout || '{}') as SkillData | Record<string, string>;
 
     await rm(targetDir, { recursive: true, force: true });

@@ -6,10 +6,23 @@ import { deleteRemoteSkills, listRemoteSkills, receiverNeedsUpdate, takeOverRemo
 
 const receiverPath = new URL('../../src/receiver/sync_receiver.mjs', import.meta.url).pathname;
 
+/** Issue 408: ssh now carries `-o` options; the keys here name the remote command. */
+function lookupKey(file: string, args: string[]): string {
+  const cleaned: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === '-o') {
+      index += 1;
+      continue;
+    }
+    cleaned.push(args[index]);
+  }
+  return [file, ...cleaned].join(' ');
+}
+
 function createRuntime(stdoutByCommand: Record<string, string> = {}, errorByCommand: Record<string, Error> = {}): TransportRuntime {
   return {
     async exec(file, args) {
-      const key = [file, ...args].join(' ');
+      const key = lookupKey(file, args);
 
       if (key in errorByCommand) {
         throw errorByCommand[key];

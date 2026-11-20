@@ -86,6 +86,22 @@ import {
   type TransportRuntime
 } from '../../src/core/transport.js';
 
+/**
+ * Issue 408: ssh calls carry `-o BatchMode=yes -o ConnectTimeout=N`. The command keys below name the
+ * remote command; the dedicated test asserts the options themselves.
+ */
+function lookupKey(file: string, args: string[]): string {
+  const cleaned: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === '-o') {
+      index += 1;
+      continue;
+    }
+    cleaned.push(args[index]);
+  }
+  return [file, ...cleaned].join(' ');
+}
+
 function createRuntime(stdoutByCommand: Record<string, string> = {}): TransportRuntime & {
   calls: Array<{ file: string; args: string[]; stdin?: string }>;
 } {
@@ -94,7 +110,7 @@ function createRuntime(stdoutByCommand: Record<string, string> = {}): TransportR
   return {
     calls,
     async exec(file, args, options = {}) {
-      const key = [file, ...args].join(' ');
+      const key = lookupKey(file, args);
       calls.push({
         file,
         args,
@@ -144,17 +160,21 @@ describe('transport', () => {
 
     expect(runtime.calls.map((call) => [call.file, ...call.args])).toEqual(
       expect.arrayContaining([
-        ['ssh', '-p', '2222', '-i', '/Users/demo/.ssh/id_syncskill', 'deploy@alpha.example.com', 'sh', '-s'],
+        ['ssh', '-p', '2222', '-i', '/Users/demo/.ssh/id_syncskill', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'deploy@alpha.example.com', 'sh', '-s'],
         [
           'ssh',
           '-p',
           '2222',
           '-i',
           '/Users/demo/.ssh/id_syncskill',
+          '-o',
+          'BatchMode=yes',
+          '-o',
+          'ConnectTimeout=15',
           'deploy@alpha.example.com',
           'sh',
           '-lc',
-          'cat > ~/.syncskill/sync_receiver.mjs'
+          'cat > "$HOME/.syncskill/sync_receiver.mjs"'
         ],
         [
           'ssh',
@@ -162,14 +182,18 @@ describe('transport', () => {
           '2222',
           '-i',
           '/Users/demo/.ssh/id_syncskill',
+          '-o',
+          'BatchMode=yes',
+          '-o',
+          'ConnectTimeout=15',
           'deploy@alpha.example.com',
           'sh',
           '-lc',
-          'cat > ~/.syncskill/receiver_config.json'
+          'cat > "$HOME/.syncskill/receiver_config.json"'
         ]
       ])
     );
-    expect(runtime.calls.find((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > ~/.syncskill/receiver_config.json')).toMatchObject({
+    expect(runtime.calls.find((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > "$HOME/.syncskill/receiver_config.json"')).toMatchObject({
       stdin: expect.stringContaining('"links"')
     });
   });
@@ -196,7 +220,7 @@ describe('transport', () => {
       }
     );
 
-    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > ~/.syncskill/receiver_config.json' && call.stdin?.includes('"links"'))).toBe(true);
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > "$HOME/.syncskill/receiver_config.json"' && call.stdin?.includes('"links"'))).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'apply')).toBe(true);
   });
 
@@ -254,7 +278,7 @@ describe('transport', () => {
 
     expect(runtime.calls.at(-1)).toMatchObject({
       file: 'ssh',
-      args: ['alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'write-manifest'],
+      args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'write-manifest'],
       stdin: `${JSON.stringify(manifest, null, 2)}\n`
     });
   });
@@ -287,7 +311,7 @@ describe('transport', () => {
     expect(runtime.exec).toHaveBeenCalledWith('rsync', expect.any(Array), {});
     expect(runtime.exec).toHaveBeenCalledWith(
       'ssh',
-      ['alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'import-skill', 'welcome'],
+      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'import-skill', 'welcome'],
       expect.objectContaining({ stdin: expect.stringContaining('SKILL.md') })
     );
   });
@@ -348,7 +372,7 @@ describe('transport', () => {
 
     expect(runtime.exec).toHaveBeenCalledWith(
       'ssh',
-      ['alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'export-skill', 'welcome'],
+      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'export-skill', 'welcome'],
       {}
     );
     await expect(readFile(join(targetDir, 'SKILL.md'), 'utf8')).resolves.toBe('# welcome\n');
@@ -497,15 +521,15 @@ describe('transport', () => {
       expect.arrayContaining([
         {
           file: 'ssh',
-          args: ['alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'manifest']
+          args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'manifest']
         },
         {
           file: 'ssh',
-          args: ['alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'scan-skills']
+          args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'scan-skills']
         },
         {
           file: 'ssh',
-          args: ['alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'write-manifest'],
+          args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'write-manifest'],
           stdin: expect.stringContaining('"docs":')
         }
       ])
