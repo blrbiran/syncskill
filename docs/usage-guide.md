@@ -12,7 +12,7 @@ syncskill scan
 syncskill link build
 ```
 
-After `init`, local state lives under `~/.syncskill/` by default, including the managed skill tree, manifests, and `config.json`. Set `SYNCSKILL_DIR` (or `--sync-dir`) to an absolute path to relocate the whole runtime directory; agent skill directories still resolve under `HOME`. `SYNCSKILL_CONFIG` / `--config` are not supported and fail with exit code 2.
+After `init`, local state lives under `~/.syncskill/` by default, including the managed skill tree, manifests, and `config.json`. Set `SYNCSKILL_DIR` (or `--sync-dir`) to an absolute path to relocate the whole runtime directory; agent skill directories still resolve under `HOME`. `--config` / `SYNCSKILL_CONFIG` are kept for scripts written against the mature CLI: a path whose file name is `config.json` or `config.yaml` is treated as `--sync-dir <its directory>`; any other file name is refused with `E_USAGE_CONFIG_PATH` and the `--sync-dir` alternative.
 
 ## AI Agent Integration
 
@@ -517,14 +517,16 @@ The doctor command checks for:
 | `--no-refresh` | Skip automatic manifest refresh before commands |
 | `-y, --yes` | Skip confirmation prompts |
 | `--yes-destructive` | Allow destructive actions in non-interactive mode |
-| `--dry-run` | Preview changes without executing |
+| `--dry-run` | Preview changes without executing (only on commands that declare it; elsewhere refused with `E_USAGE_GLOBAL_FLAG`) |
+| `--force` | Skip confirmation prompts (only on commands that declare it) |
+| `--quiet` | Not supported: use `--json` or redirect stdout |
 
 Global environment variable equivalents:
 
 | Variable | Description |
 |----------|-------------|
 | `SYNCSKILL_DIR` | Override the default `~/.syncskill` runtime directory (absolute path; `--sync-dir` wins) |
-| `SYNCSKILL_CONFIG` | Not supported: any value fails with `E_USAGE_CONFIG_PATH` |
+| `SYNCSKILL_CONFIG` | Alias for `SYNCSKILL_DIR` when it names `config.json` / `config.yaml`; otherwise `E_USAGE_CONFIG_PATH` |
 | `SYNCSKILL_JSON` | Enable JSON mode (same as `--json`) |
 | `SYNCSKILL_NO_INTERACTIVE` | Disable interactive prompts |
 | `SYNCSKILL_STRICT` | Exit with code 6 on partial skip results when set to `1` |

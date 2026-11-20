@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { cp, readFile, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
 import { checkbox, select, confirm } from '@inquirer/prompts';
 import { Command, InvalidArgumentError, Option } from 'commander';
@@ -1384,7 +1384,11 @@ export function createProgram(homeDir?: string): Command {
     .option('--resolutions <path|->', 'Provide resolutions file or read resolutions from stdin')
     .addOption(new Option('--resolutions-stdin').hideHelp())
     .option('--sync-dir <path>', 'Override ~/.syncskill directory')
-    .option('--config <path>', 'Not supported: fails with E_USAGE_CONFIG_PATH (use --sync-dir)')
+    .option('--config <path>', 'Alias for --sync-dir when it names config.json or config.yaml')
+    .option('--dry-run', 'Preview without making changes (on commands that support it)')
+    .option('-y, --yes', 'Accept defaults without prompting (on commands that support it)')
+    .option('--force', 'Skip confirmation prompts (on commands that support it)')
+    .option('--quiet', 'Not supported: redirect stdout or use --json')
     .option('--no-refresh', 'Skip automatic manifest refresh before commands')
     .configureHelp({
       formatHelp: (cmd, helper) => {
@@ -1421,12 +1425,52 @@ export function createProgram(homeDir?: string): Command {
       setGlobalOutput(output);
 
       if (mergedConfig.configPath !== undefined) {
-        return failWithOutputError('E_USAGE_CONFIG_PATH', '--config / SYNCSKILL_CONFIG is not supported', 'Use --sync-dir or SYNCSKILL_DIR to relocate the whole directory');
+        // Issue 411: the mature CLI's `--config <file>` names the config file; here the directory is
+        // what relocates everything, so a file named config.json / config.yaml maps losslessly and
+        // anything else is refused with the supported alternative.
+        const configPath = resolve(mergedConfig.configPath);
+        const fileName = basename(configPath);
+        if (fileName !== 'config.json' && fileName !== 'config.yaml') {
+          return failWithOutputError(
+            'E_USAGE_CONFIG_PATH',
+            `--config must name syncskill's config.json or config.yaml: ${JSON.stringify(mergedConfig.configPath)}`,
+            'Use --sync-dir <absolute directory> to relocate the whole runtime directory'
+          );
+        }
+        const configDir = dirname(configPath);
+        if (mergedConfig.syncDir !== undefined && resolve(mergedConfig.syncDir) !== configDir) {
+          return failWithOutputError('E_USAGE_CONFIG_PATH', '--config and --sync-dir name different directories', 'Pass only one of them');
+        }
+        mergedConfig.syncDir = configDir;
       }
       if (mergedConfig.syncDir !== undefined && !isAbsolute(mergedConfig.syncDir)) {
         return failWithOutputError('E_USAGE_SYNC_DIR', `--sync-dir / SYNCSKILL_DIR must be an absolute path: ${JSON.stringify(mergedConfig.syncDir)}`);
       }
       setSyncDirOverride(mergedConfig.syncDir === undefined ? undefined : resolve(mergedConfig.syncDir));
+
+      // Issue 411: the mature CLI accepted --dry-run / -y / --force before the command. They are
+      // honoured only where the command declares them; elsewhere they would be silently ignored,
+      // which is exactly the wrong answer for a safety flag.
+      const globalFlags = thisCommand.opts<{ dryRun?: boolean; yes?: boolean; force?: boolean; quiet?: boolean }>();
+      const commandName = getCommandPath(actionCommand) || actionCommand.name();
+      for (const [value, key, long] of [
+        [globalFlags.dryRun, 'dryRun', '--dry-run'],
+        [globalFlags.yes, 'yes', '--yes'],
+        [globalFlags.force, 'force', '--force']
+      ] as const) {
+        if (value !== true) continue;
+        if (!actionCommand.options.some((option) => option.long === long)) {
+          return failWithOutputError(
+            'E_USAGE_GLOBAL_FLAG',
+            `${long} is not supported by \`${commandName}\``,
+            `See \`syncskill ${commandName} --help\` for the options it does take`
+          );
+        }
+        actionCommand.setOptionValue(key, true);
+      }
+      if (globalFlags.quiet === true) {
+        return failWithOutputError('E_USAGE_GLOBAL_FLAG', '--quiet is not supported', 'Use --json for machine output, or redirect stdout');
+      }
 
       if (shouldSkipCommandPreflight(actionCommand) || shouldSkipInstallPreflight(actionCommand)) {
         return;
@@ -3043,8 +3087,19 @@ export function createProgram(homeDir?: string): Command {
     .option('--dry-run', 'Preview changes without pushing')
     .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
     .option('-y, --yes', 'Skip confirmation prompts')
-    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; yes?: boolean }) => {
+    .addOption(new Option('--on-local-deletion <policy>').hideHelp())
+    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; yes?: boolean; onLocalDeletion?: string }) => {
       try {
+        // Issue 411: the mature CLI's push/sync took --on-local-deletion. Here the same need is served
+        // by --yes-destructive (or the prompt), and the pull direction has --on-remote-deletion; say so
+        // instead of letting commander answer with a bare "unknown option".
+        if (options.onLocalDeletion !== undefined) {
+          return failWithOutputError(
+            'E_USAGE_ON_LOCAL_DELETION',
+            '--on-local-deletion is not supported on push',
+            'Remote cleanup after a local deletion is confirmed by --yes-destructive (or an interactive prompt); the pull direction uses pull --on-remote-deletion'
+          );
+        }
         const noInteractive = isNoInteractive(program);
         const targetServers = await prepareSyncTargetServers(resolvedHomeDir, server, options, 'push', noInteractive);
         if (!targetServers) return;
@@ -3158,6 +3213,7 @@ export function createProgram(homeDir?: string): Command {
     .option('--on-remote-deletion <policy>', 'How to handle remote deletions: keep-local, delete, prompt', parseOnDeletion)
     .addOption(new Option('--on-deletion <policy>').hideHelp().argParser(parseOnDeletion))
     .option('-y, --yes', 'Skip confirmation prompts')
+    .addOption(new Option('--on-local-deletion <policy>').hideHelp())
     .action(async (
       server: string | undefined,
       options: {
@@ -3166,6 +3222,7 @@ export function createProgram(homeDir?: string): Command {
         timeout?: number;
         pullBackup?: boolean;
         yes?: boolean;
+        onLocalDeletion?: string;
         crossServerPolicy?: string;
         onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort';
         onRemoteDeletion?: 'keep-local' | 'delete' | 'prompt';
@@ -3173,6 +3230,13 @@ export function createProgram(homeDir?: string): Command {
       }
     ) => {
       try {
+        if (options.onLocalDeletion !== undefined) {
+          return failWithOutputError(
+            'E_USAGE_ON_LOCAL_DELETION',
+            '--on-local-deletion is not supported on sync',
+            'Remote cleanup after a local deletion is confirmed by --yes-destructive (or an interactive prompt); the pull direction uses --on-remote-deletion'
+          );
+        }
         const noInteractive = isNoInteractive(program);
         const globalOptions = program.opts<{ refresh: boolean }>();
         const json = program.opts<{ json?: boolean }>().json === true;

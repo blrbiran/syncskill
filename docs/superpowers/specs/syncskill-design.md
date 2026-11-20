@@ -3453,3 +3453,15 @@ $ syncskill --json --no-interactive link edit my-skill
 调用方拿到 `hint` 后改用非交互形式重跑。**`hint` 应总是可执行的命令片段**，避免"see docs"式无效提示。
 
 **与 `-y` / `--force` / `--dry-run` 的组合行为**：详见 §3.0.5 组合矩阵。`--no-interactive` 与 `-y` 是正交的（独立、可组合），最 AI-friendly 的组合是 `--no-interactive -y --json`。
+
+---
+
+## Correction 1 (2026-11-20, tester issue #411) — `--config` 是别名，全局旗标只在声明处生效
+
+正文 §「显式指定路径」与 CHANGELOG §11.11 描述的是成熟版本的 `--config <file>` 语义；本仓库先前选择「一律拒绝」。现按测试者 #411 改为：
+
+- `--config <path>` / `SYNCSKILL_CONFIG`：文件名（basename）为 `config.json` 或 `config.yaml` 时，等价于 `--sync-dir <其所在目录>`；其它文件名仍报 `E_USAGE_CONFIG_PATH`，并在 hint 里给出 `--sync-dir`。两者同时给出且目录不同则拒绝。
+- 程序级 `--dry-run` / `-y, --yes` / `--force`：只有在子命令自己也声明了同名选项时才透传（commander `setOptionValue`）；未声明时以 `E_USAGE_GLOBAL_FLAG` 明确拒绝并给 `--help`，不静默忽略（安全旗标被忽略比报错更危险）。
+- `--quiet`：不支持，`E_USAGE_GLOBAL_FLAG`，hint 指向 `--json` 或重定向 stdout。
+- `push` / `sync` 的 `--on-local-deletion <policy>`：明确拒绝（`E_USAGE_ON_LOCAL_DELETION`），hint 指向 `--yes-destructive`（或交互确认）与 pull 侧的 `--on-remote-deletion`；不实现成熟版本的 keep-remote/delete/prompt 语义，因为当前模型的远端清理只有「确认/不确认」两种状态。
+
