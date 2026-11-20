@@ -11,7 +11,7 @@
     "skills"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && shx cp -r skills dist/",
+    "build": "tsc -p tsconfig.build.json && shx cp -r skills dist/ && shx cp -r src/receiver dist/receiver",
     "dev": "tsx src/index.ts",
     "test": "vitest run tests/unit tests/integration",
     "test:unit": "vitest run tests/unit",
