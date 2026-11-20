@@ -141,7 +141,7 @@ describe('sync engine orchestration', () => {
       conflicted_skills: []
     });
 
-    expect(runtime.calls.some((call) => call.file === 'rsync' && call.args.at(-1) === 'alpha.example.com:~/.syncskill/skills/welcome/')).toBe(true);
+    expect(runtime.calls.some((call) => call.file === 'rsync' && call.args.at(-1) === 'alpha.example.com:"$HOME/.syncskill/skills/welcome/"')).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'write-manifest')).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'apply')).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > "$HOME/.syncskill/receiver_config.json"' && call.stdin?.includes('"claude"') && call.stdin?.includes('"links"') && call.stdin?.includes('"welcome"') && !call.stdin?.includes('"stale"'))).toBe(true);
@@ -373,7 +373,7 @@ describe('sync engine orchestration', () => {
       expect.arrayContaining([
         expect.objectContaining({
           file: 'ssh',
-          args: expect.arrayContaining(['alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'write-manifest'])
+          args: expect.arrayContaining(['alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'write-manifest'])
         })
       ])
     );

@@ -98,6 +98,78 @@ describe('server transport configuration', () => {
 
     const rsync = runtime.calls.find((call) => call.file === 'rsync')!;
     expect(rsync.args).toContain('--delete');
-    expect(rsync.args.at(-1)).toBe('alpha.example.com:/srv/root/skills/welcome/');
+    expect(rsync.args.at(-1)).toBe('alpha.example.com:"/srv/root/skills/welcome/"');
+  });
+
+  it('quotes a remote root with spaces so rsync keeps one destination (issue 421)', async () => {
+    const runtime = createRuntime();
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-config-'));
+    tempDirs.push(homeDir);
+    const sourceDir = join(homeDir, 'source');
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+    await pushSkillDirectory({ name: 'alpha', host: 'alpha.example.com', remote_repo: '/srv/My Skills', remote_agents: {} }, sourceDir, 'welcome', runtime);
+    await pullSkillDirectory({ name: 'alpha', host: 'alpha.example.com', remote_repo: '/srv/My Skills', remote_agents: {} }, 'welcome', join(homeDir, 'target'), runtime);
+
+    const rsyncCalls = runtime.calls.filter((call) => call.file === 'rsync');
+    expect(rsyncCalls[0].args.at(-1)).toBe('alpha.example.com:"/srv/My Skills/skills/welcome/"');
+    expect(rsyncCalls[1].args.at(-2)).toBe('alpha.example.com:"/srv/My Skills/skills/welcome/"');
+  });
+
+  it('escapes dollar signs instead of letting the remote shell expand them (issue 421)', async () => {
+    const runtime = createRuntime();
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-config-'));
+    tempDirs.push(homeDir);
+    const sourceDir = join(homeDir, 'source');
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+    await pushSkillDirectory({ name: 'alpha', host: 'alpha.example.com', remote_repo: '/srv/$HOME', remote_agents: {} }, sourceDir, 'welcome', runtime);
+
+    const rsync = runtime.calls.find((call) => call.file === 'rsync')!;
+    expect(rsync.args.at(-1)).toBe('alpha.example.com:"/srv/\\$HOME/skills/welcome/"');
+  });
+
+  it('keeps the default root as the remote home (issue 421 regression)', async () => {
+    const runtime = createRuntime();
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-config-'));
+    tempDirs.push(homeDir);
+    const sourceDir = join(homeDir, 'source');
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+    await pushSkillDirectory({ name: 'alpha', host: 'alpha.example.com', remote_agents: {} }, sourceDir, 'welcome', runtime);
+
+    const rsync = runtime.calls.find((call) => call.file === 'rsync')!;
+    expect(rsync.args.at(-1)).toBe('alpha.example.com:"$HOME/.syncskill/skills/welcome/"');
+  });
+
+  it('creates a non-default remote root before deploying the receiver (issue 422)', async () => {
+    const runtime = createRuntime();
+    const server = { name: 'alpha', host: 'alpha.example.com', remote_repo: '/srv/My Skills', remote_agents: {} };
+
+    await deployReceiver(server, runtime);
+
+    const calls = runtime.calls.map((call) => call.args.join(' '));
+    expect(calls.some((call) => call.includes('mkdir -p "/srv/My Skills" "/srv/My Skills/skills"'))).toBe(true);
+    expect(runtime.calls.some((call) => call.args.join(' ').endsWith('sh -s -- "/srv/My Skills"'))).toBe(true);
+    expect(calls.some((call) => call.includes('cat > "/srv/My Skills/sync_receiver.mjs"'))).toBe(true);
+    expect(calls.some((call) => call.includes('cat > "/srv/My Skills/receiver_config.json"'))).toBe(true);
+  });
+
+  it('names the remote root when it cannot be created (issue 422)', async () => {
+    const runtime: TransportRuntime = {
+      async exec(_file, args) {
+        if (args.some((arg) => arg.includes('mkdir -p'))) {
+          throw new Error('Permission denied');
+        }
+        return { stdout: '', stderr: '' };
+      }
+    };
+
+    await expect(
+      deployReceiver({ name: 'alpha', host: 'alpha.example.com', remote_repo: '/srv/My Skills', remote_agents: {} }, runtime)
+    ).rejects.toThrow('E_REMOTE_ROOT: cannot create /srv/My Skills on alpha');
   });
 });

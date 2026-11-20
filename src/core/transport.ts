@@ -216,7 +216,7 @@ export async function refreshRemoteManifestFromServer(
 ): Promise<ServerManifest> {
   await deployReceiver(server, runtime);
   const remoteManifest = await fetchRemoteManifest(server, runtime);
-  const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'scan-skills']));
+  const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'scan-skills']));
   const parsed = JSON.parse(result.stdout || '{}') as {
     remote_hashes?: Record<string, string>;
   };
@@ -262,7 +262,7 @@ export async function scanRemoteAgents(
     await deployReceiver(server, runtime);
   }
 
-  const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'scan-agents']));
+  const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'scan-agents']));
   const parsed = JSON.parse(result.stdout || '{}') as {
     discovered_agents?: unknown[];
     remote_only_skills?: unknown;
@@ -306,7 +306,7 @@ export async function probeServerAccess(
   }
 
   try {
-    await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'manifest']));
+    await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'manifest']));
   } catch (error) {
     return [
       { check: 'transport', ok: true, detail: 'ssh ok' },
@@ -320,7 +320,7 @@ export async function probeServerAccess(
   }
 
   try {
-    const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'probe-access']));
+    const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'probe-access']));
     const parsed = JSON.parse(result.stdout || '{}') as { checks?: ServerProbeResult[] };
 
     return [
@@ -346,7 +346,7 @@ export async function receiverNeedsUpdate(server: ConfiguredServer, runtime: Tra
   const localHash = createHash('md5').update(receiverContent).digest('hex');
 
   try {
-    const result = await runtime.exec('ssh', buildSshArgs(server, ['md5sum', remoteReceiver(server)]));
+    const result = await runtime.exec('ssh', buildSshArgs(server, ['md5sum', quoteRemotePath(remoteReceiver(server))]));
     const remoteHash = result.stdout.split(/\s+/)[0];
     return localHash !== remoteHash;
   } catch {
@@ -360,13 +360,28 @@ export async function deployReceiver(
   runtime: TransportRuntime,
   receiverConfig: ReceiverConfigPayload = { remote_agents: server.remote_agents }
 ): Promise<void> {
+  // Issue 422: a non-default `remote_repo` may not exist yet. Create it (and `skills/`) before
+  // bootstrap, otherwise bootstrap only provisions `~/.syncskill` and the receiver write dies
+  // with a bare `No such file or directory`.
+  const root = remoteRoot(server);
+  try {
+    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `mkdir -p ${quoteRemotePath(root)} ${quoteRemotePath(remoteSkillsDir(server))}`]));
+  } catch (error) {
+    throw new Error(
+      `E_REMOTE_ROOT: cannot create ${root} on ${server.name}: ${error instanceof Error ? error.message : String(error)}. ` +
+        `Create the directory on the remote host, or choose a writable --remote-repo.`
+    );
+  }
+
   const needsUpdate = await receiverNeedsUpdate(server, runtime);
 
   if (needsUpdate) {
     const bootstrap = await readFile(new URL('../receiver/bootstrap_remote.sh', import.meta.url), 'utf8');
     const receiver = await readFile(new URL('../receiver/sync_receiver.mjs', import.meta.url), 'utf8');
 
-    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-s']), { stdin: bootstrap });
+    // Issue 422: the bootstrap script takes the root as its first argument instead of assuming
+    // `$HOME/.syncskill`, so it checks write access on the root that is actually in use.
+    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-s', '--', quoteRemotePath(root)]), { stdin: bootstrap });
     await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${quoteRemotePath(remoteReceiver(server))}`]), { stdin: receiver });
   }
 
@@ -381,7 +396,7 @@ export async function applyRemoteLinks(
   receiverConfig: ReceiverConfigPayload = { remote_agents: server.remote_agents }
 ): Promise<void> {
   await deployReceiver(server, runtime, receiverConfig);
-  await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'apply']));
+  await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'apply']));
 }
 
 export async function listRemoteSkills(server: ConfiguredServer, runtime: TransportRuntime): Promise<string[]> {
@@ -451,14 +466,21 @@ function joinRemotePath(basePath: string, skill: string): string {
   return `${basePath.replace(/\/+$/, '')}/${skill}`;
 }
 
-function quoteRemotePath(path: string): string {
-  const normalized = path === '~'
-    ? '$HOME'
-    : path.startsWith('~/')
-      ? `$HOME/${path.slice(2)}`
-      : path;
+function escapeDoubleQuoted(value: string): string {
+  // `$` matters as much as the quote characters: inside double quotes the remote shell would
+  // expand `$HOME` or `$(...)`, so a literal path must escape it too (issue 421).
+  return value.replace(/[\\"`$]/g, '\\$&');
+}
 
-  return `"${normalized.replace(/[\\"`]/g, '\\$&')}"`;
+function quoteRemotePath(path: string): string {
+  if (path === '~') {
+    return '"$HOME"';
+  }
+  if (path.startsWith('~/')) {
+    return `"$HOME/${escapeDoubleQuoted(path.slice(2))}"`;
+  }
+
+  return `"${escapeDoubleQuoted(path)}"`;
 }
 
 async function inspectRemotePath(
@@ -563,7 +585,7 @@ export async function takeOverRemoteSkill(
 }
 
 export async function fetchRemoteManifest(server: ConfiguredServer, runtime: TransportRuntime): Promise<ServerManifest> {
-  const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'manifest']));
+  const result = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'manifest']));
   const parsed = JSON.parse(result.stdout || '{}') as Partial<ServerManifest>;
 
   return {
@@ -574,7 +596,7 @@ export async function fetchRemoteManifest(server: ConfiguredServer, runtime: Tra
 }
 
 export async function pushManifest(server: ConfiguredServer, manifest: ServerManifest, runtime: TransportRuntime): Promise<void> {
-  await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'write-manifest']), {
+  await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'write-manifest']), {
     stdin: `${JSON.stringify(manifest, null, 2)}\n`
   });
 }
@@ -588,7 +610,7 @@ export async function pushSkillDirectory(
   try {
     await runtime.exec(
       'rsync',
-      buildRsyncArgs(server, `${sourceDir}/`, `${buildSshTarget(server)}:${remoteSkillsDir(server)}/${skill}/`, { delete: true }),
+      buildRsyncArgs(server, `${sourceDir}/`, `${buildSshTarget(server)}:${quoteRemotePath(`${remoteSkillsDir(server)}/${skill}/`)}`, { delete: true }),
       {}
     );
     return;
@@ -597,7 +619,7 @@ export async function pushSkillDirectory(
       throw error;
     }
 
-    await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'import-skill', skill]), {
+    await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'import-skill', skill]), {
       stdin: JSON.stringify(await collectSkillData(sourceDir))
     });
   }
@@ -658,7 +680,7 @@ export async function pullSkillDirectory(
       'rsync',
       // Issue 407: pull must reproduce the remote tree, deletions included; without --delete the
       // files removed remotely stayed behind and the next reconcile reported local-changed/conflict.
-      buildRsyncArgs(server, `${buildSshTarget(server)}:${remoteSkillsDir(server)}/${skill}/`, `${targetDir}/`, { delete: true }),
+      buildRsyncArgs(server, `${buildSshTarget(server)}:${quoteRemotePath(`${remoteSkillsDir(server)}/${skill}/`)}`, `${targetDir}/`, { delete: true }),
       {}
     );
     return;
@@ -667,7 +689,7 @@ export async function pullSkillDirectory(
       throw error;
     }
 
-    const exported = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), remoteReceiver(server), 'export-skill', skill]), {});
+    const exported = await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'export-skill', skill]), {});
     const data = JSON.parse(exported.stdout || '{}') as SkillData | Record<string, string>;
 
     await rm(targetDir, { recursive: true, force: true });

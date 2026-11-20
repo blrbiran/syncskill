@@ -1,7 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
-SYNC_ROOT="$HOME/.syncskill"
+# Issue 422: accept the configured root (deployReceiver passes `remote_repo`) instead of assuming
+# the default, so a non-default remote is provisioned and its write access is checked.
+SYNC_ROOT="${1:-$HOME/.syncskill}"
 TEST_FILE="$SYNC_ROOT/.write_test_$$"
 
 # Clean up test file on exit (handles interrupts)

@@ -47,7 +47,7 @@ describe('receiverNeedsUpdate', () => {
   it('returns true when remote file does not exist (md5sum throws)', async () => {
     const runtime = createRuntime(
       {},
-      { 'ssh testuser@example.com md5sum ~/.syncskill/sync_receiver.mjs': new Error('md5sum: file not found') }
+      { 'ssh testuser@example.com md5sum "$HOME/.syncskill/sync_receiver.mjs"': new Error('md5sum: file not found') }
     );
 
     const result = await receiverNeedsUpdate(testServer, runtime);
@@ -57,7 +57,7 @@ describe('receiverNeedsUpdate', () => {
 
   it('returns true when hash differs', async () => {
     const runtime = createRuntime({
-      'ssh testuser@example.com md5sum ~/.syncskill/sync_receiver.mjs': 'differenthash123456789012  ~/.syncskill/sync_receiver.mjs'
+      'ssh testuser@example.com md5sum "$HOME/.syncskill/sync_receiver.mjs"': 'differenthash123456789012  ~/.syncskill/sync_receiver.mjs'
     });
 
     const result = await receiverNeedsUpdate(testServer, runtime);
@@ -71,7 +71,7 @@ describe('receiverNeedsUpdate', () => {
     const localHash = createHash('md5').update(localContent).digest('hex');
 
     const runtime = createRuntime({
-      'ssh testuser@example.com md5sum ~/.syncskill/sync_receiver.mjs': `${localHash}  ~/.syncskill/sync_receiver.mjs`
+      'ssh testuser@example.com md5sum "$HOME/.syncskill/sync_receiver.mjs"': `${localHash}  ~/.syncskill/sync_receiver.mjs`
     });
 
     const result = await receiverNeedsUpdate(testServer, runtime);

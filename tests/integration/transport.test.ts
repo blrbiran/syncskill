@@ -160,7 +160,7 @@ describe('transport', () => {
 
     expect(runtime.calls.map((call) => [call.file, ...call.args])).toEqual(
       expect.arrayContaining([
-        ['ssh', '-p', '2222', '-i', '/Users/demo/.ssh/id_syncskill', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'deploy@alpha.example.com', 'sh', '-s'],
+        ['ssh', '-p', '2222', '-i', '/Users/demo/.ssh/id_syncskill', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'deploy@alpha.example.com', 'sh', '-s', '--', '"$HOME/.syncskill"'],
         [
           'ssh',
           '-p',
@@ -247,7 +247,7 @@ describe('transport', () => {
   it('fetchRemoteManifest reads manifest JSON through the receiver command', async () => {
     const manifestJson = JSON.stringify(createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z'));
     const runtime = createRuntime({
-      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs manifest': manifestJson
+      'ssh alpha.example.com node "$HOME/.syncskill/sync_receiver.mjs" manifest': manifestJson
     });
 
     await expect(
@@ -278,7 +278,7 @@ describe('transport', () => {
 
     expect(runtime.calls.at(-1)).toMatchObject({
       file: 'ssh',
-      args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'write-manifest'],
+      args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'write-manifest'],
       stdin: `${JSON.stringify(manifest, null, 2)}\n`
     });
   });
@@ -311,7 +311,7 @@ describe('transport', () => {
     expect(runtime.exec).toHaveBeenCalledWith('rsync', expect.any(Array), {});
     expect(runtime.exec).toHaveBeenCalledWith(
       'ssh',
-      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'import-skill', 'welcome'],
+      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'import-skill', 'welcome'],
       expect.objectContaining({ stdin: expect.stringContaining('SKILL.md') })
     );
   });
@@ -372,7 +372,7 @@ describe('transport', () => {
 
     expect(runtime.exec).toHaveBeenCalledWith(
       'ssh',
-      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'export-skill', 'welcome'],
+      ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'export-skill', 'welcome'],
       {}
     );
     await expect(readFile(join(targetDir, 'SKILL.md'), 'utf8')).resolves.toBe('# welcome\n');
@@ -434,7 +434,7 @@ describe('transport', () => {
 
   it('refreshRemoteManifestFromServer reads remote manifest before rebuilding from receiver remote hashes', async () => {
     const runtime = createRuntime({
-      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs manifest': JSON.stringify({
+      'ssh alpha.example.com node "$HOME/.syncskill/sync_receiver.mjs" manifest': JSON.stringify({
         version: 1,
         server: 'remote',
         updated_at: '2026-05-01T00:00:00.000Z',
@@ -455,7 +455,7 @@ describe('transport', () => {
           }
         }
       }),
-      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs scan-skills': JSON.stringify({
+      'ssh alpha.example.com node "$HOME/.syncskill/sync_receiver.mjs" scan-skills': JSON.stringify({
         remote_hashes: {
           docs: 'docs-hash',
           welcome: 'welcome-hash'
@@ -521,15 +521,15 @@ describe('transport', () => {
       expect.arrayContaining([
         {
           file: 'ssh',
-          args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'manifest']
+          args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'manifest']
         },
         {
           file: 'ssh',
-          args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'scan-skills']
+          args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'scan-skills']
         },
         {
           file: 'ssh',
-          args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '~/.syncskill/sync_receiver.mjs', 'write-manifest'],
+          args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'write-manifest'],
           stdin: expect.stringContaining('"docs":')
         }
       ])
@@ -539,8 +539,8 @@ describe('transport', () => {
   it('probeServerAccess reports transport, receiver, manifest, and remote agent checks', async () => {
     const runtime = createRuntime({
       'ssh alpha.example.com true': '',
-      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs manifest': JSON.stringify(createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z')),
-      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs probe-access': JSON.stringify({
+      'ssh alpha.example.com node "$HOME/.syncskill/sync_receiver.mjs" manifest': JSON.stringify(createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z')),
+      'ssh alpha.example.com node "$HOME/.syncskill/sync_receiver.mjs" probe-access': JSON.stringify({
         checks: [
           { check: 'manifest', ok: true, detail: 'manifest readable' },
           { check: 'remote_agent:claude', ok: false, detail: 'missing: /srv/skills' }
@@ -572,6 +572,7 @@ describe('transport', () => {
     runtime.exec = vi
       .fn<TransportRuntime['exec']>()
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // ssh true (transport)
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // mkdir remote root
       .mockRejectedValueOnce(new Error('file not found')) // md5sum (receiverNeedsUpdate returns true)
       .mockRejectedValueOnce(new Error('receiver bootstrap failed')); // bootstrap fails
 
@@ -597,6 +598,7 @@ describe('transport', () => {
     runtime.exec = vi
       .fn<TransportRuntime['exec']>()
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // ssh true (transport)
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // mkdir remote root
       .mockRejectedValueOnce(new Error('file not found')) // md5sum (receiverNeedsUpdate returns true)
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // bootstrap
       .mockResolvedValueOnce({ stdout: '', stderr: '' }) // receiver upload
@@ -699,7 +701,7 @@ describe('transport', () => {
 
   it('scanRemoteAgents reads remote receiver scan output', async () => {
     const runtime = createRuntime({
-      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs scan-agents': JSON.stringify({
+      'ssh alpha.example.com node "$HOME/.syncskill/sync_receiver.mjs" scan-agents': JSON.stringify({
         discovered_agents: [
           {
             name: 'claude',
@@ -948,8 +950,8 @@ describe('transport', () => {
   it('probeServerAccess reports probe-access parse failures as probe failures', async () => {
     const runtime = createRuntime({
       'ssh alpha.example.com true': '',
-      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs manifest': JSON.stringify(createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z')),
-      'ssh alpha.example.com node ~/.syncskill/sync_receiver.mjs probe-access': '{broken-json'
+      'ssh alpha.example.com node "$HOME/.syncskill/sync_receiver.mjs" manifest': JSON.stringify(createEmptyManifest('alpha', '2026-05-01T00:00:00.000Z')),
+      'ssh alpha.example.com node "$HOME/.syncskill/sync_receiver.mjs" probe-access': '{broken-json'
     });
 
     await expect(
