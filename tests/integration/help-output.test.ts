@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { describe, expect, it } from 'vitest';
@@ -6,6 +8,9 @@ import { describe, expect, it } from 'vitest';
 import { createProgram } from '../../src/index.js';
 
 const execAsync = promisify(execFile);
+// Issue 409: the checkout can live anywhere; the tests used to name one machine's absolute path, so
+// every spawn died with `spawn node ENOENT`. Run the suite's own binary from this checkout.
+const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 describe('help output', () => {
   it('describes the shipped commands in install-facing language', () => {
@@ -25,8 +30,8 @@ describe('help output', () => {
   });
 
   it('inject help exposes its selector and target options', async () => {
-    const { stdout } = await execAsync('node', ['dist/index.js', 'inject', '--help'], {
-      cwd: '/Users/biran/code/skills/syncskill'
+    const { stdout } = await execAsync(process.execPath, ['dist/index.js', 'inject', '--help'], {
+      cwd: ROOT
     });
 
     expect(stdout).toContain('--target');
@@ -41,8 +46,8 @@ describe('help output', () => {
   });
 
   it('should show --json, --no-interactive, and --yes-destructive in root help', async () => {
-    const { stdout } = await execAsync('node', ['dist/index.js', '--help'], {
-      cwd: '/Users/biran/code/skills/syncskill'
+    const { stdout } = await execAsync(process.execPath, ['dist/index.js', '--help'], {
+      cwd: ROOT
     });
 
     expect(stdout).toContain('--json');
@@ -52,8 +57,8 @@ describe('help output', () => {
   });
 
   it('install help keeps the public self flow and hides removed self flag wording', async () => {
-    const { stdout } = await execAsync('node', ['dist/index.js', 'install', '--help'], {
-      cwd: '/Users/biran/code/skills/syncskill'
+    const { stdout } = await execAsync(process.execPath, ['dist/index.js', 'install', '--help'], {
+      cwd: ROOT
     });
 
     expect(stdout).toContain('Use "self" for built-in skill; URL/path for external source');
@@ -61,8 +66,8 @@ describe('help output', () => {
   });
 
   it('remote add help exposes remote repo transport option', async () => {
-    const { stdout } = await execAsync('node', ['dist/index.js', 'remote', 'add', '--help'], {
-      cwd: '/Users/biran/code/skills/syncskill'
+    const { stdout } = await execAsync(process.execPath, ['dist/index.js', 'remote', 'add', '--help'], {
+      cwd: ROOT
     });
 
     expect(stdout).toContain('--remote-repo <path>');
@@ -70,8 +75,8 @@ describe('help output', () => {
   });
 
   it('pull help exposes current deletion/backup controls only through the public surface', async () => {
-    const { stdout } = await execAsync('node', ['dist/index.js', 'pull', '--help'], {
-      cwd: '/Users/biran/code/skills/syncskill'
+    const { stdout } = await execAsync(process.execPath, ['dist/index.js', 'pull', '--help'], {
+      cwd: ROOT
     });
 
     expect(stdout).toContain('--on-remote-deletion');
@@ -80,8 +85,8 @@ describe('help output', () => {
   });
 
   it('sync help exposes current deletion controls without deprecated aliases', async () => {
-    const { stdout } = await execAsync('node', ['dist/index.js', 'sync', '--help'], {
-      cwd: '/Users/biran/code/skills/syncskill'
+    const { stdout } = await execAsync(process.execPath, ['dist/index.js', 'sync', '--help'], {
+      cwd: ROOT
     });
 
     expect(stdout).toContain('--on-remote-deletion');
@@ -130,8 +135,8 @@ describe('help output', () => {
   });
 
   it('should show subcommands: edit, set, add, remove, clear, build, list', async () => {
-    const { stdout } = await execAsync('node', ['dist/index.js', 'link', '--help'], {
-      cwd: '/Users/biran/code/skills/syncskill'
+    const { stdout } = await execAsync(process.execPath, ['dist/index.js', 'link', '--help'], {
+      cwd: ROOT
     });
 
     expect(stdout).toContain('edit');
@@ -146,8 +151,8 @@ describe('help output', () => {
 
   it('rejects removed link apply alias', async () => {
     await expect(
-      execAsync('node', ['dist/index.js', 'link', 'apply'], {
-        cwd: '/Users/biran/code/skills/syncskill'
+      execAsync(process.execPath, ['dist/index.js', 'link', 'apply'], {
+        cwd: ROOT
       })
     ).rejects.toMatchObject({
       stderr: expect.stringContaining("too many arguments for 'link'")
