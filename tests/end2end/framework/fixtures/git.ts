@@ -29,14 +29,18 @@ async function gitCommit(repoDir: string, message: string): Promise<void> {
 }
 
 /**
- * Create a bare git repository.
+ * Create a bare git repository whose HEAD is the branch the fixture will push.
+ * Issue 410: `git init --bare` names HEAD after the machine's `init.defaultBranch`, so a clone of a
+ * fixture that pushes `main` came back empty on machines defaulting to `master`.
  */
 export async function createGitBareRepo(
   parentDir: string,
-  name: string
+  name: string,
+  branch = 'main'
 ): Promise<string> {
   const bareRepoPath = join(parentDir, `${name}.git`);
   await git(['init', '--bare', bareRepoPath]);
+  await git(['symbolic-ref', 'HEAD', `refs/heads/${branch}`], bareRepoPath);
   return bareRepoPath;
 }
 
@@ -60,7 +64,7 @@ export async function createGitSourceFixture(
   config: GitSourceConfig
 ): Promise<GitSourceFixture> {
   const branch = config.branch ?? 'main';
-  const bareRepoPath = await createGitBareRepo(parentDir, name);
+  const bareRepoPath = await createGitBareRepo(parentDir, name, branch);
   const workDir = join(parentDir, `${name}-work`);
 
   // Clone, add skills, push
