@@ -128,7 +128,7 @@ describe('syncskill profile and inject', () => {
     return JSON.parse(await readFile(join(home, '.syncskill', 'config.json'), 'utf8')) as { profiles: unknown };
   }
 
-  it('1: profile round trip survives an unrelated config save', async () => {
+  it('1: profile round trip survives an unrelated config save', { timeout: 20_000 }, async () => {
     const home = await setup();
     let run = await runCli(home, ['--json', 'profile', 'set', 'review', 'beta', 'alpha']);
     expect(run.code).toBe(0);

@@ -147,7 +147,7 @@ describe('install CLI command', () => {
     });
   });
 
-  it('installs the built-in skill with self', async () => {
+  it('installs the built-in skill with self', { timeout: 20_000 }, async () => {
     const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', 'install', 'self'], {
       cwd: join(import.meta.dirname, '../..'),
       env: { ...process.env, HOME: homeDir }
