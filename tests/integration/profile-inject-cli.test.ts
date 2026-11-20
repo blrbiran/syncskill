@@ -1,6 +1,5 @@
 // tests/integration/profile-inject-cli.test.ts
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
@@ -69,8 +68,9 @@ async function snapshotDir(root: string): Promise<string | string[]> {
         entries.push(`${rel}|dir`);
         await walk(path);
       } else if (info.isFile()) {
-        const digest = createHash('sha256').update(await readFile(path)).digest('hex');
-        entries.push(`${rel}|file|${info.size}|${digest}`);
+        // The guard only has to notice a write; hashing a multi-hundred-MB source tree made the snapshot
+        // take longer than the hook budget on machines with a populated ~/.syncskill.
+        entries.push(`${rel}|file|${info.size}|${info.mtimeMs}`);
       } else {
         entries.push(`${rel}|other`);
       }

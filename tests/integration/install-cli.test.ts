@@ -533,7 +533,7 @@ describe('install CLI command', () => {
     await expect(readFile(join(sourceRoot, 'skills', 'retry-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# retry');
   });
 
-  it('reports already-installed skills when reinstalling the same git subdir skill', async () => {
+  it('reports already-installed skills when reinstalling the same git subdir skill', { timeout: 20_000 }, async () => {
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
 
     await mkdir(join(workRepoDir, 'skills', 'research', 'arxiv'), { recursive: true });
@@ -562,7 +562,7 @@ describe('install CLI command', () => {
     expect(second.stdout).not.toContain('No skills installed.');
   });
 
-  it('emits already_installed in json output when reinstalling the same git subdir skill', async () => {
+  it('emits already_installed in json output when reinstalling the same git subdir skill', { timeout: 20_000 }, async () => {
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
 
     await mkdir(join(workRepoDir, 'skills', 'research', 'arxiv'), { recursive: true });

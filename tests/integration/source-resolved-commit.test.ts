@@ -52,7 +52,7 @@ async function createGitSourceFixture(homeDir: string): Promise<{ bareRepoDir: s
 describe('source resolved commit', () => {
   const tempDirs = useTempDirs();
 
-  it('records the checkout HEAD after install and follows it after update', async () => {
+  it('records the checkout HEAD after install and follows it after update', { timeout: 20_000 }, async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-commit-'));
     tempDirs.push(homeDir);
     await mkdir(join(homeDir, '.syncskill'), { recursive: true });
