@@ -30,6 +30,7 @@ import {
   pullSkillDirectory,
   pushManifest,
   pushSkillDirectory,
+  withTimeout,
   type ReceiverConfigPayload,
   type TransportRuntime
 } from './transport.js';
@@ -63,6 +64,23 @@ interface CrossServerConflict {
 
 function createSyncEngineError(code: 'E_CONFLICT' | 'E_SERVER_NOT_FOUND' | 'E_REMOTE_NOT_FOUND' | 'E_NEEDS_INPUT' | 'E_USAGE', message: string): Error {
   return new Error(`${code}: ${message}`);
+}
+
+/**
+ * Issue 406: `--timeout <seconds>` bounds one server's remote phase. The subprocess is not killed
+ * (withTimeout's documented semantics): the CLI reports and releases, and ssh/rsync finish or die on
+ * their own.
+ */
+async function withServerTimeout<T>(
+  serverName: string,
+  options: SyncEngineOptions,
+  work: () => Promise<T>
+): Promise<T> {
+  const seconds = options.timeout;
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) {
+    return work();
+  }
+  return withTimeout(work(), seconds * 1000, `sync with ${serverName}`);
 }
 
 async function collectLocalFileList(dir: string): Promise<string[]> {
@@ -445,12 +463,26 @@ async function planCrossServerResolution(
 export async function pushToServers(homeDir: string, servers?: string[], options: SyncEngineOptions = {}): Promise<PushResult[]> {
   const config = await loadConfig(homeDir);
   const targetServers = resolveTargetServers(config, servers);
-  const runtime = options.runtime ?? createTransportRuntime();
   const results: PushResult[] = [];
+  for (const serverName of targetServers) {
+    results.push(await withServerTimeout(serverName, options, () => pushToServer(homeDir, serverName, options, config)));
+  }
+  return results;
+}
+
+async function pushToServer(
+  homeDir: string,
+  serverName: string,
+  options: SyncEngineOptions,
+  config: SyncSkillConfig
+): Promise<PushResult> {
+  const runtime = options.runtime ?? createTransportRuntime();
   const configuredConflictPolicy = resolveSingleServerConflictPolicy(config.conflict_resolution, options.onConflict);
 
-  for (const serverName of targetServers) {
+  {
     const server = getConfiguredServer(config, serverName);
+    const pushSet = pushSetOf(config, serverName);
+    const included = (skill: string): boolean => pushSet === null || pushSet.has(skill);
     let receiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
     if (receiverBackup) {
       const mergedBackup = mergeConfiguredLinksIntoReceiverBackup(
@@ -473,9 +505,9 @@ export async function pushToServers(homeDir: string, servers?: string[], options
       manifest = resolvePreferredLocalSkills(manifest, preferredLocalSkills, updated.updatedAt);
     }
 
-    const conflictedSkills = listSkillsByDirection(manifest, 'conflict');
-    const pushedSkills = listSkillsByDirection(manifest, 'push');
-    const pullSkills = listSkillsByDirection(manifest, 'pull');
+    const conflictedSkills = listSkillsByDirection(manifest, 'conflict').filter(included);
+    const pushedSkills = listSkillsByDirection(manifest, 'push').filter(included);
+    const pullSkills = listSkillsByDirection(manifest, 'pull').filter(included);
 
     if (options.onConflict === 'abort' && conflictedSkills.length > 0) {
       throw createSyncEngineError('E_CONFLICT', `Content conflict on ${serverName}: ${conflictedSkills.join(', ')}`);
@@ -495,7 +527,7 @@ export async function pushToServers(homeDir: string, servers?: string[], options
       const remoteSkillSet = new Set(remoteSkillList);
 
       // Find skills marked as skip but missing remotely
-      const skipSkills = listSkillsByDirection(manifest, 'skip');
+      const skipSkills = listSkillsByDirection(manifest, 'skip').filter(included);
       const missingRemotely = skipSkills.filter(skill =>
         manifest.skills[skill]?.local_hash !== null && !remoteSkillSet.has(skill)
       );
@@ -512,7 +544,7 @@ export async function pushToServers(homeDir: string, servers?: string[], options
           }
         }
         // Re-compute pushed skills list after safety net (reconcileManifest will now see local-only)
-        finalPushedSkills = listSkillsByDirection(manifest, 'push');
+        finalPushedSkills = listSkillsByDirection(manifest, 'push').filter(included);
       }
     }
 
@@ -560,14 +592,13 @@ export async function pushToServers(homeDir: string, servers?: string[], options
       }
 
       // Skip actual push, return result with empty pushed_skills
-      results.push({
+      return {
         server: serverName,
         pushed_skills: [],
         skipped_skills: uniqueSorted(pullSkills),
         conflicted_skills: conflictedSkills,
         manifest
-      });
-      continue;
+      };
     }
 
     for (const skill of finalPushedSkills) {
@@ -577,9 +608,10 @@ export async function pushToServers(homeDir: string, servers?: string[], options
     // Cleanup: remove remote skills not in current local config
     const remoteSkillsForCleanup = remoteSkillListForCleanup ?? await listRemoteSkills(server, runtime);
 
-    // Local skills that have content (not deleted)
+    // Local skills this server is included for and that still have content (issue 404: a skill
+    // removed from the link matrix / include is cleaned up remotely, not carried along).
     const localSkillSet = new Set(
-      Object.keys(manifest.skills).filter(skill => manifest.skills[skill]?.local_hash !== null)
+      Object.keys(manifest.skills).filter(skill => manifest.skills[skill]?.local_hash !== null && included(skill))
     );
 
     // Remote skills not in local config
@@ -619,19 +651,21 @@ export async function pushToServers(homeDir: string, servers?: string[], options
     await applyRemoteLinks(server, runtime, receiverConfig);
     await persistManifestState(homeDir, updated.previousManifest, finalizedManifest, updated.updatedAt);
 
-    results.push({
+    return {
       server: server.name,
       pushed_skills: finalPushedSkills,
       skipped_skills: uniqueSorted(pullSkills),
       conflicted_skills: conflictedSkills,
       manifest: finalizedManifest
-    });
+    };
   }
-
-  return results;
 }
 
 export async function pullFromServer(homeDir: string, serverName: string, options: SyncEngineOptions = {}): Promise<PullResult> {
+  return withServerTimeout(serverName, options, () => pullFromServerWork(homeDir, serverName, options));
+}
+
+async function pullFromServerWork(homeDir: string, serverName: string, options: SyncEngineOptions = {}): Promise<PullResult> {
   const config = await loadConfig(homeDir);
   const server = getConfiguredServer(config, serverName);
   const runtime = options.runtime ?? createTransportRuntime();
@@ -1155,6 +1189,21 @@ function getIncludedServerSkills(config: SyncSkillConfig, serverName: string): s
     ? serverSkills.include.filter((skill): skill is string => typeof skill === 'string')
     : Object.keys(config.links);
   return [...new Set(included)].sort();
+}
+
+/**
+ * Issue 404: the skills a server is served. An explicit `servers.<name>.skills.include` wins; without
+ * one the link matrix (`config.links` keys) is the set. A config that declares neither keeps the old
+ * behaviour -- every local skill, since nothing said which subset was meant. `null` means no limit.
+ */
+function pushSetOf(config: SyncSkillConfig, serverName: string): Set<string> | null {
+  const serverRecord = config.servers[serverName] as Record<string, unknown> | undefined;
+  const serverSkills = serverRecord?.skills as { include?: unknown } | undefined;
+  if (Array.isArray(serverSkills?.include)) {
+    return new Set(serverSkills.include.filter((skill): skill is string => typeof skill === 'string'));
+  }
+  const linkNames = Object.keys(config.links);
+  return linkNames.length > 0 ? new Set(linkNames) : null;
 }
 
 function getSkillsDir(homeDir: string): string {
