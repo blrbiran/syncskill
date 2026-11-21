@@ -118,6 +118,14 @@ describe('help output', () => {
     expect(options).toContain('--dry-run');
   });
 
+  it('prune exposes its cleanup controls', () => {
+    const program = createProgram('/tmp');
+    const pruneCmd = program.commands.find(c => c.name() === 'prune');
+    const options = pruneCmd?.options.map(o => o.long);
+
+    expect(options).toEqual(expect.arrayContaining(['--apply', '--older-than', '--all']));
+  });
+
   it('link command does not expose a --list flag', () => {
     const program = createProgram('/tmp');
     const linkCmd = program.commands.find(c => c.name() === 'link');

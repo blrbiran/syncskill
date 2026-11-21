@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { access, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
@@ -115,19 +115,70 @@ async function hashSkillDirectory(skillDir) {
   return hash.digest('hex');
 }
 
+function manifestInvalidError(error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  return new Error(
+    `manifest-invalid: ${manifestFile} is not valid JSON (${detail}); restore ${manifestFile}.bak or remove the file to start fresh`
+  );
+}
+
+// Issue #427: return null when the manifest is absent, and a named error (not the raw SyntaxError)
+// when it exists but does not parse, so status/push/pull point at the .bak recovery copy.
+async function readManifestOrNull() {
+  let text;
+  try {
+    text = await readFile(manifestFile, 'utf8');
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return null;
+    throw error;
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw manifestInvalidError(error);
+  }
+}
+
 async function readManifest() {
-  return readJson(manifestFile, {
+  return (await readManifestOrNull()) ?? {
     version: 1,
     server: 'remote',
     updated_at: new Date().toISOString(),
     skills: {}
-  });
+  };
+}
+
+// A corrupt current manifest is not a safe backup source: it must not clobber the last good .bak.
+// The atomic replace below still repairs the manifest itself.
+async function backupManifest(file) {
+  let previous;
+  try {
+    previous = await readFile(file, 'utf8');
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return;
+    throw error;
+  }
+  try {
+    JSON.parse(previous);
+  } catch {
+    return;
+  }
+  await writeFile(`${file}.bak`, previous, 'utf8');
+}
+
+// Issue #427: two writers used to `writeFile` the manifest directly, so a crash mid-write truncated
+// the remote truth. Serialize to a sibling temp file and rename(2) it into place instead.
+async function writeManifestAtomic(manifest) {
+  await mkdir(syncRoot, { recursive: true });
+  await backupManifest(manifestFile);
+  const temporary = `${manifestFile}.tmp-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  await writeFile(temporary, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  await rename(temporary, manifestFile);
 }
 
 async function writeManifestFromStdin() {
   const manifest = JSON.parse(await readStdin());
-  await mkdir(syncRoot, { recursive: true });
-  await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  await writeManifestAtomic(manifest);
 }
 
 function validateRelativePath(basePath, relativePath) {
@@ -225,9 +276,107 @@ async function promoteSkill(name, stagingPath) {
   if (dirname(stagingDir) !== skillsRoot || !stagingDir.startsWith(join(skillsRoot, `.${name}.staging-`))) {
     throw new Error(`Invalid staging directory for ${name}: ${stagingPath}`);
   }
-  const info = await lstat(stagingDir);
-  if (!info.isDirectory()) throw new Error(`Staging directory is not a directory: ${stagingPath}`);
-  await swapSkillDirectory(name, stagingDir);
+  try {
+    const info = await lstat(stagingDir);
+    if (!info.isDirectory()) throw new Error(`Staging directory is not a directory: ${stagingPath}`);
+    await swapSkillDirectory(name, stagingDir);
+  } catch (error) {
+    // Issue #426: a promote that cannot consume the staging tree leaves nothing behind. The
+    // transport's own best-effort cleanup covers the case where this process never ran.
+    await rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+// Issue #426: the push path may have written a staging tree that never reached promote. Only a
+// direct child of skills/ named like a staging tree is removable; live skills and backup siblings
+// never match.
+async function removeStaging(stagingPath) {
+  const stagingDir = resolve(stagingPath);
+  const skillsRoot = resolve(skillsDir);
+  if (dirname(stagingDir) !== skillsRoot || !/^\.[A-Za-z0-9_-]+\.staging-/.test(basename(stagingDir))) {
+    throw new Error(`Refusing to remove a non-staging path: ${stagingPath}`);
+  }
+  await rm(stagingDir, { recursive: true, force: true });
+}
+
+const DEFAULT_STAGING_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+
+async function directorySize(dirPath) {
+  let total = 0;
+  for (const entry of await readdir(dirPath, { withFileTypes: true })) {
+    const fullPath = join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      total += await directorySize(fullPath);
+    } else if (entry.isFile()) {
+      total += (await lstat(fullPath)).size;
+    }
+  }
+  return total;
+}
+
+function parsePruneOptions(args) {
+  let apply = false;
+  let olderThanMs = DEFAULT_STAGING_MIN_AGE_MS;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === '--apply') {
+      apply = true;
+    } else if (args[index] === '--older-than-ms') {
+      const value = Number(args[index + 1]);
+      if (Number.isFinite(value) && value >= 0) olderThanMs = value;
+      index += 1;
+    }
+  }
+  return { apply, olderThanMs };
+}
+
+// Issue #426: orphan staging trees are invisible to status/scan. Prune them by age; only
+// `.<skill>.staging-*` children of skills/ are candidates, and the default age keeps a push that is
+// still running safe even when the receiver is called directly.
+async function pruneStaging(args) {
+  const { apply, olderThanMs } = parsePruneOptions(args);
+  const now = Date.now();
+  const pruned = [];
+  const skipped = [];
+  let entries;
+  try {
+    entries = await readdir(skillsDir, { withFileTypes: true });
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      process.stdout.write(`${JSON.stringify({ applied: apply, pruned, skipped })}\n`);
+      return;
+    }
+    throw error;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const match = /^\.([A-Za-z0-9_-]+)\.staging-/.exec(entry.name);
+    if (!match) continue;
+    const fullPath = join(skillsDir, entry.name);
+    const stats = await lstat(fullPath);
+    const record = {
+      skill: match[1],
+      name: entry.name,
+      path: fullPath,
+      age_ms: Math.max(0, Math.round(now - stats.mtimeMs)),
+      bytes: await directorySize(fullPath)
+    };
+    if (record.age_ms >= olderThanMs) {
+      pruned.push(record);
+    } else {
+      skipped.push(record);
+    }
+  }
+
+  pruned.sort((left, right) => left.name.localeCompare(right.name));
+  skipped.sort((left, right) => left.name.localeCompare(right.name));
+  if (apply) {
+    for (const record of pruned) {
+      await rm(record.path, { recursive: true, force: true });
+    }
+  }
+  process.stdout.write(`${JSON.stringify({ applied: apply, pruned, skipped })}\n`);
 }
 
 async function exportSkill(name) {
@@ -334,7 +483,7 @@ async function scanAgents() {
 }
 
 async function probeAccess() {
-  const manifestExists = (await readJson(manifestFile, null)) !== null;
+  const manifestExists = (await readManifestOrNull()) !== null;
   const config = await readJson(configFile, { remote_agents: {} });
   const remoteAgentResults = [];
 
@@ -491,7 +640,7 @@ async function applyLinks() {
     )
   };
 
-  await writeFile(manifestFile, `${JSON.stringify(finalizedManifest, null, 2)}\n`, 'utf8');
+  await writeManifestAtomic(finalizedManifest);
 
   for (const warning of takeoverWarnings) {
     process.stderr.write(`${warning}\n`);
@@ -510,6 +659,10 @@ if (command === 'manifest') {
   await importSkill(arg);
 } else if (command === 'promote-skill' && typeof arg === 'string' && typeof arg2 === 'string') {
   await promoteSkill(arg, arg2);
+} else if (command === 'remove-staging' && typeof arg === 'string') {
+  await removeStaging(arg);
+} else if (command === 'prune-staging') {
+  await pruneStaging(process.argv.slice(3));
 } else if (command === 'export-skill' && typeof arg === 'string') {
   await exportSkill(arg);
 } else if (command === 'scan-skills') {

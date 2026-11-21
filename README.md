@@ -149,6 +149,7 @@ Repeated installs from the same git or HTTP source reuse the existing source ent
 | `syncskill push [server\|--all] [--timeout <seconds>]` | Push local changes to servers |
 | `syncskill pull [server\|--all] [--timeout <seconds>] [--cross-server-policy <policy>] [--on-conflict <policy>] [--on-remote-deletion <policy>]` | Pull remote changes from servers |
 | `syncskill sync [server\|--all] [--timeout <seconds>] [--cross-server-policy <policy>] [--on-conflict <policy>] [--on-remote-deletion <policy>]` | Full sync (pull then push) |
+| `syncskill prune [server\|--all] [--apply] [--older-than <hours>]` | List (or with `--apply`, delete) staging trees an interrupted push left on the remote; defaults to a 24-hour dry run |
 
 ### Diagnostics
 

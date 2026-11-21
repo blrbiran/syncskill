@@ -452,6 +452,26 @@ Typical remote flow:
 5. Run `syncskill pull alpha` to fetch remote changes
 6. Run `syncskill sync --all` for full pull-then-push orchestration
 
+### Stale staging cleanup
+
+A push transfers into a hidden `.<skill>.staging-*` directory and asks the receiver to swap it in atomically. An interrupted push cleans its staging tree up; if the remote process died first, an orphan can survive. `prune` lists those orphans and, with `--apply`, deletes them. Live skill directories are never candidates.
+
+```bash
+# List orphan staging trees older than 24 hours (dry run)
+syncskill prune alpha
+
+# Delete them
+syncskill prune alpha --apply
+
+# Look at older-than-one-week orphans on every server
+syncskill prune --all --older-than 168
+
+# Machine-readable
+syncskill prune --all --json
+```
+
+`--older-than` is in hours and defaults to 24, so a push that is still running is never touched. A corrupt remote `manifest.json` is reported as `manifest-invalid`; the receiver keeps the previous parseable manifest at `manifest.json.bak` and the error names that file.
+
 ## Configuration
 
 ```bash

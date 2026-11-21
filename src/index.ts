@@ -22,7 +22,7 @@ async function selectTargetServers(
   allServers: string[],
   server: string | undefined,
   options: SelectServersOptions,
-  action: 'push' | 'pull' | 'sync'
+  action: 'push' | 'pull' | 'sync' | 'prune'
 ): Promise<string[] | null> {
   if (options.all) {
     return allServers;
@@ -56,7 +56,9 @@ async function selectTargetServers(
     ? 'Select servers to push:'
     : action === 'pull'
       ? 'Select servers to pull from:'
-      : 'Select servers to sync:';
+      : action === 'prune'
+        ? 'Select servers to prune:'
+        : 'Select servers to sync:';
   const selected = await checkbox({
     message,
     choices: [
@@ -81,7 +83,7 @@ async function prepareSyncTargetServers(
   homeDir: string,
   server: string | undefined,
   options: { all?: boolean; yes?: boolean },
-  action: 'push' | 'pull' | 'sync',
+  action: 'push' | 'pull' | 'sync' | 'prune',
   noInteractive?: boolean
 ): Promise<string[] | null> {
   const config = await loadConfig(homeDir);
@@ -126,7 +128,7 @@ import {
 import { initializeRepo } from './repo.js';
 import { getPullBackupDir, getRestorePreBackupDir, restoreSkillFromPullBackup } from './utils/backup.js';
 import { pathExists } from './utils/utils.js';
-import { takeOverRemoteSkill } from './core/transport.js';
+import { createTransportRuntime, pruneRemoteStaging, takeOverRemoteSkill, type RemoteStagingPruneResult } from './core/transport.js';
 import {
   autoRefreshManifests,
   buildStatusJson,
@@ -3301,6 +3303,66 @@ export function createProgram(homeDir?: string): Command {
         })) {
           process.exit(ExitCode.DIRTY_SKIP);
         }
+      } catch (error) {
+        handleSyncCommandError(error);
+      }
+    });
+
+  function formatAge(ms: number): string {
+    const hours = Math.floor(ms / 3_600_000);
+    if (hours >= 24) return `${Math.floor(hours / 24)}d`;
+    if (hours >= 1) return `${hours}h`;
+    return `${Math.max(1, Math.round(ms / 60_000))}m`;
+  }
+
+  program
+    .command('prune [server]')
+    .description('Remove stale staging trees an interrupted push left on the remote (dry run unless --apply)')
+    .option('--all', 'Prune all configured servers')
+    .option('--apply', 'Delete the staged trees instead of listing them')
+    .option('--older-than <hours>', 'Only prune staging trees older than this many hours', parseInteger, 24)
+    .action(async (server: string | undefined, options: { all?: boolean; apply?: boolean; olderThan?: number }) => {
+      try {
+        const noInteractive = isNoInteractive(program);
+        const targetServers = await prepareSyncTargetServers(resolvedHomeDir, server, options, 'prune', noInteractive);
+        if (!targetServers) return;
+
+        const config = await loadConfig(resolvedHomeDir);
+        const runtime = createTransportRuntime();
+        const hours = typeof options.olderThan === 'number' && Number.isFinite(options.olderThan) ? options.olderThan : 24;
+        const olderThanMs = Math.max(0, hours) * 3_600_000;
+        const results: Array<{ server: string; result: RemoteStagingPruneResult }> = [];
+        for (const name of targetServers) {
+          results.push({
+            server: name,
+            result: await pruneRemoteStaging(getConfiguredServer(config, name), runtime, { apply: options.apply, olderThanMs })
+          });
+        }
+
+        const json = program.opts<{ json?: boolean }>().json === true;
+        if (json) {
+          getGlobalOutput().result(true, {
+            servers: results.map(({ server: name, result }) => ({ server: name, ...result }))
+          });
+          return;
+        }
+
+        let total = 0;
+        for (const { server: name, result } of results) {
+          if (result.pruned.length === 0) {
+            const note = result.skipped.length > 0 ? ` (${result.skipped.length} not old enough)` : '';
+            console.log(`${name}: no stale staging trees${note}`);
+            continue;
+          }
+          for (const row of result.pruned) {
+            total += row.bytes;
+            console.log(`${name}: ${options.apply ? 'removed' : 'would remove'} ${row.name} (${formatAge(row.age_ms)}, ${row.bytes} B)`);
+          }
+        }
+        if (!options.apply && total > 0) {
+          console.log(`Dry run: ${total} B reclaimable. Re-run with --apply to delete.`);
+        }
+        getGlobalOutput().result(true, { applied: options.apply === true, total_bytes: total });
       } catch (error) {
         handleSyncCommandError(error);
       }

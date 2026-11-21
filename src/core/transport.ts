@@ -617,6 +617,41 @@ export async function pushManifest(server: ConfiguredServer, manifest: ServerMan
   });
 }
 
+export interface RemoteStagingEntry {
+  skill: string;
+  name: string;
+  path: string;
+  age_ms: number;
+  bytes: number;
+}
+
+export interface RemoteStagingPruneResult {
+  applied: boolean;
+  pruned: RemoteStagingEntry[];
+  skipped: RemoteStagingEntry[];
+}
+
+/** Issue #426: list, and with `apply` delete, staging trees an interrupted push left on the remote. */
+export async function pruneRemoteStaging(
+  server: ConfiguredServer,
+  runtime: TransportRuntime,
+  options: { apply?: boolean; olderThanMs?: number } = {}
+): Promise<RemoteStagingPruneResult> {
+  const remoteArgs = [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'prune-staging'];
+  if (options.apply) remoteArgs.push('--apply');
+  if (typeof options.olderThanMs === 'number') {
+    remoteArgs.push('--older-than-ms', String(Math.max(0, Math.floor(options.olderThanMs))));
+  }
+  const result = await runtime.exec('ssh', buildSshArgs(server, remoteArgs));
+  const parsed = JSON.parse(result.stdout || '{}') as Partial<RemoteStagingPruneResult>;
+
+  return {
+    applied: parsed.applied === true,
+    pruned: Array.isArray(parsed.pruned) ? parsed.pruned : [],
+    skipped: Array.isArray(parsed.skipped) ? parsed.skipped : []
+  };
+}
+
 export async function pushSkillDirectory(
   server: ConfiguredServer,
   sourceDir: string,
@@ -637,6 +672,8 @@ export async function pushSkillDirectory(
     );
   } catch (error) {
     if (!shouldFallbackFromRsync(error)) {
+      // Issue #426: a partial transfer must not leave a staging tree behind.
+      await discardRemoteStaging(server, staging, runtime);
       throw error;
     }
 
@@ -647,7 +684,23 @@ export async function pushSkillDirectory(
   }
 
   // rsync's own failure may fall back; a failed promote is the receiver's answer and propagates as-is.
-  await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'promote-skill', quoteRemotePath(skill), quoteRemotePath(staging)]), {});
+  try {
+    await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'promote-skill', quoteRemotePath(skill), quoteRemotePath(staging)]), {});
+  } catch (error) {
+    // Issue #426: the receiver cleans up when it ran and failed; this covers an ssh-level failure
+    // where the receiver never saw the promote. Best-effort, so the original error still propagates.
+    await discardRemoteStaging(server, staging, runtime);
+    throw error;
+  }
+}
+
+/** Issue #426: best-effort; a cleanup failure must never mask the transfer error it follows. */
+async function discardRemoteStaging(server: ConfiguredServer, staging: string, runtime: TransportRuntime): Promise<void> {
+  try {
+    await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'remove-staging', quoteRemotePath(staging)]));
+  } catch {
+    // ignored on purpose
+  }
 }
 
 function shouldFallbackFromRsync(error: unknown): boolean {

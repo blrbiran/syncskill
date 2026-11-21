@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -41,14 +41,18 @@ async function withMockedHomeDir<T>(homeDir: string, run: () => Promise<T>): Pro
   }
 }
 
-async function runReceiverCommandWithOutput(homeDir: string, command: string) {
+async function runReceiverCommandWithOutput(homeDir: string, command: string, extraArgs: string[] = [], stdinText?: string) {
   return withMockedHomeDir(homeDir, async () => {
     const argv = process.argv.slice();
+    const originalStdin = process.stdin;
     const stdoutWrite = process.stdout.write.bind(process.stdout);
     const stderrWrite = process.stderr.write.bind(process.stderr);
     let stdout = '';
     let stderr = '';
-    process.argv = ['node', receiverPath, command];
+    process.argv = ['node', receiverPath, command, ...extraArgs];
+    if (stdinText !== undefined) {
+      Object.defineProperty(process, 'stdin', { value: Readable.from([stdinText]), configurable: true });
+    }
     process.stdout.write = ((chunk: string | Uint8Array) => {
       stdout += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
       return true;
@@ -65,6 +69,9 @@ async function runReceiverCommandWithOutput(homeDir: string, command: string) {
       process.argv = argv;
       process.stdout.write = stdoutWrite;
       process.stderr.write = stderrWrite;
+      if (stdinText !== undefined) {
+        Object.defineProperty(process, 'stdin', { value: originalStdin, configurable: true });
+      }
     }
   });
 }
@@ -87,8 +94,9 @@ import {
   applyRemoteLinks,
   deployReceiver,
   fetchRemoteManifest,
-  pullSkillDirectory,
   probeServerAccess,
+  pruneRemoteStaging,
+  pullSkillDirectory,
   pushManifest,
   pushSkillDirectory,
   refreshRemoteManifestFromServer,
@@ -433,7 +441,7 @@ describe('transport', () => {
     expect(promote.args[promote.args.length - 1]).toContain('.welcome.staging-');
   });
 
-  it('pushSkillDirectory does not fall back for rsync transfer errors', async () => {
+  it('pushSkillDirectory does not fall back for rsync transfer errors, and discards the staging tree', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
     tempDirs.push(homeDir);
     const sourceDir = join(homeDir, '.syncskill', 'skills', 'welcome');
@@ -442,7 +450,8 @@ describe('transport', () => {
 
     const transferError = new Error('rsync exited with code 23');
     const runtime = createRuntime();
-    runtime.exec = vi.fn<TransportRuntime['exec']>().mockRejectedValueOnce(transferError);
+    const exec = vi.fn<TransportRuntime['exec']>().mockRejectedValue(transferError);
+    runtime.exec = exec;
 
     await expect(
       pushSkillDirectory(
@@ -457,7 +466,12 @@ describe('transport', () => {
       )
     ).rejects.toBe(transferError);
 
-    expect(runtime.exec).toHaveBeenCalledTimes(1);
+    // Issue #426: the partial staging tree is cleaned up instead of being left on the remote. The
+    // original transfer error still propagates and there is no import-skill fallback.
+    expect(exec.mock.calls.map(([file]) => file)).toEqual(['rsync', 'ssh']);
+    expect(exec.mock.calls[1]![1]).toContain('remove-staging');
+    expect(exec.mock.calls[1]![1].at(-1)).toContain('.welcome.staging-');
+    expect(exec.mock.calls.some(([, args]) => args.includes('import-skill'))).toBe(false);
   });
 
 
@@ -1390,5 +1404,204 @@ describe('transport', () => {
     );
 
     await expect(readFile(join(targetDir, 'SKILL.md'), 'utf8')).resolves.toBe('# welcome\n');
+  });
+
+  it('pushSkillDirectory discards the staging tree when promote-skill fails', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
+    tempDirs.push(homeDir);
+    const sourceDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+    const promoteError = new Error('promote-skill exited with code 1');
+    const runtime = createRuntime();
+    const exec = vi
+      .fn<TransportRuntime['exec']>()
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // rsync
+      .mockRejectedValueOnce(promoteError) // promote-skill
+      .mockResolvedValue({ stdout: '', stderr: '' }); // cleanup
+    runtime.exec = exec;
+
+    await expect(
+      pushSkillDirectory({ name: 'alpha', host: 'alpha.example.com', remote_agents: {} }, sourceDir, 'welcome', runtime)
+    ).rejects.toBe(promoteError);
+
+    // Issue #426: rsync wrote a staging tree that promote could not consume; the transport asks the
+    // receiver to remove it and still surfaces the promote error.
+    expect(exec.mock.calls.map(([file]) => file)).toEqual(['rsync', 'ssh', 'ssh']);
+    expect(exec.mock.calls[1]![1]).toContain('promote-skill');
+    expect(exec.mock.calls[2]![1]).toContain('remove-staging');
+    expect(exec.mock.calls[2]![1].at(-1)).toContain('.welcome.staging-');
+  });
+
+  it('pruneRemoteStaging asks the receiver for stale staging trees and passes the flags through', async () => {
+    const runtime = createRuntime({
+      'ssh alpha.example.com node "$HOME/.syncskill/sync_receiver.mjs" prune-staging --apply --older-than-ms 86400000': JSON.stringify({
+        applied: true,
+        pruned: [{ skill: 'welcome', name: '.welcome.staging-x', path: '$HOME/.syncskill/skills/.welcome.staging-x', age_ms: 90000000, bytes: 12 }],
+        skipped: []
+      })
+    });
+
+    const result = await pruneRemoteStaging({ name: 'alpha', host: 'alpha.example.com', remote_agents: {} }, runtime, {
+      apply: true,
+      olderThanMs: 86_400_000
+    });
+
+    expect(result.applied).toBe(true);
+    expect(result.pruned.map((entry) => entry.name)).toEqual(['.welcome.staging-x']);
+    const args = runtime.calls[0]!.args;
+    expect(args).toContain('prune-staging');
+    expect(args).toContain('--apply');
+    expect(args).toContain('--older-than-ms');
+    expect(args).toContain('86400000');
+  });
+
+  it('receiver promote-skill removes the staging tree it could not consume', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+    const syncRoot = join(homeDir, '.syncskill');
+    const stagingDir = join(syncRoot, 'skills', '.welcome.staging-x');
+    await mkdir(join(syncRoot, 'skills'), { recursive: true });
+    // A file with the staging name fails the directory check after validation.
+    await writeFile(stagingDir, 'not a directory', 'utf8');
+
+    await expect(
+      withMockedHomeDir(homeDir, async () => {
+        const argv = process.argv.slice();
+        process.argv = ['node', receiverPath, 'promote-skill', 'welcome', stagingDir];
+        try {
+          await importReceiverModule();
+        } finally {
+          process.argv = argv;
+        }
+      })
+    ).rejects.toThrow('Staging directory is not a directory');
+
+    // Issue #426: the failed promote leaves nothing behind.
+    await expect(access(stagingDir)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('receiver remove-staging only removes a staging tree', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+    const syncRoot = join(homeDir, '.syncskill');
+    const liveDir = join(syncRoot, 'skills', 'welcome');
+    const stagingDir = join(syncRoot, 'skills', '.welcome.staging-x');
+    await mkdir(liveDir, { recursive: true });
+    await writeFile(join(liveDir, 'SKILL.md'), '# live\n', 'utf8');
+    await mkdir(stagingDir, { recursive: true });
+    await writeFile(join(stagingDir, 'SKILL.md'), '# half\n', 'utf8');
+
+    await expect(runReceiverCommandWithOutput(homeDir, 'remove-staging', [liveDir])).rejects.toThrow(
+      'Refusing to remove a non-staging path'
+    );
+    await expect(access(liveDir)).resolves.toBeUndefined();
+
+    await runReceiverCommandWithOutput(homeDir, 'remove-staging', [stagingDir]);
+    await expect(access(stagingDir)).rejects.toMatchObject({ code: 'ENOENT' });
+    // Idempotent: the transport cleanup runs best-effort and may race the receiver's own cleanup.
+    await runReceiverCommandWithOutput(homeDir, 'remove-staging', [stagingDir]);
+  });
+
+  it('receiver prune-staging lists only old staging trees and --apply removes them', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+    const syncRoot = join(homeDir, '.syncskill');
+    const skillsDir = join(syncRoot, 'skills');
+    const oldStaging = join(skillsDir, '.gone.staging-old');
+    const freshStaging = join(skillsDir, '.busy.staging-new');
+    const liveDir = join(skillsDir, 'gone');
+    const backupDir = join(skillsDir, '.gone.backup-x');
+    for (const [dir, contents] of [
+      [oldStaging, 'stale'],
+      [freshStaging, 'busy'],
+      [liveDir, 'live'],
+      [backupDir, 'backup']
+    ] as const) {
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, 'SKILL.md'), contents, 'utf8');
+    }
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 3600_000);
+    await utimes(oldStaging, twoDaysAgo, twoDaysAgo);
+
+    const { stdout } = await runReceiverCommandWithOutput(homeDir, 'prune-staging', ['--older-than-ms', '86400000']);
+    const listed = JSON.parse(stdout);
+    expect(listed.applied).toBe(false);
+    expect(listed.pruned.map((entry: { name: string }) => entry.name)).toEqual(['.gone.staging-old']);
+    expect(listed.skipped.map((entry: { name: string }) => entry.name)).toEqual(['.busy.staging-new']);
+    // Live and backup trees are never candidates.
+    const mentioned = [...listed.pruned, ...listed.skipped].map((entry: { path: string }) => entry.path);
+    expect(mentioned).not.toContain(liveDir);
+    expect(mentioned).not.toContain(backupDir);
+
+    const { stdout: appliedOut } = await runReceiverCommandWithOutput(homeDir, 'prune-staging', [
+      '--older-than-ms',
+      '86400000',
+      '--apply'
+    ]);
+    expect(JSON.parse(appliedOut).applied).toBe(true);
+    await expect(access(oldStaging)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(freshStaging)).resolves.toBeUndefined();
+    await expect(access(liveDir)).resolves.toBeUndefined();
+    await expect(access(backupDir)).resolves.toBeUndefined();
+  });
+
+  it('receiver reports a corrupt manifest with a named error', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+    const syncRoot = join(homeDir, '.syncskill');
+    await mkdir(syncRoot, { recursive: true });
+    await writeFile(join(syncRoot, 'manifest.json'), '{"version": 1, "skills": {', 'utf8');
+
+    await expect(
+      withMockedHomeDir(homeDir, async () => {
+        const argv = process.argv.slice();
+        process.argv = ['node', receiverPath, 'manifest'];
+        try {
+          await importReceiverModule();
+        } finally {
+          process.argv = argv;
+        }
+      })
+    ).rejects.toThrow(/manifest-invalid: .*restore .*manifest\.json\.bak/);
+  });
+
+  it('receiver write-manifest replaces atomically and keeps the previous manifest as .bak', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+    const syncRoot = join(homeDir, '.syncskill');
+    const manifestFile = join(syncRoot, 'manifest.json');
+    const first = { version: 1, server: 'first', updated_at: '2026-11-21T00:00:00.000Z', skills: {} };
+    const second = { version: 1, server: 'second', updated_at: '2026-11-22T00:00:00.000Z', skills: {} };
+
+    await runReceiverCommandWithOutput(homeDir, 'write-manifest', [], JSON.stringify(first));
+    expect(JSON.parse(await readFile(manifestFile, 'utf8'))).toMatchObject({ server: 'first' });
+
+    await runReceiverCommandWithOutput(homeDir, 'write-manifest', [], JSON.stringify(second));
+    expect(JSON.parse(await readFile(manifestFile, 'utf8'))).toMatchObject({ server: 'second' });
+    // Issue #427: the previous good manifest is available for recovery.
+    expect(JSON.parse(await readFile(`${manifestFile}.bak`, 'utf8'))).toMatchObject({ server: 'first' });
+    // No half-written temp files survive a completed write.
+    expect((await readdir(syncRoot)).some((name) => name.startsWith('manifest.json.tmp-'))).toBe(false);
+  });
+
+  it('receiver write-manifest does not overwrite a good .bak with a corrupt manifest', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+    const syncRoot = join(homeDir, '.syncskill');
+    const manifestFile = join(syncRoot, 'manifest.json');
+    const first = { version: 1, server: 'first', updated_at: '2026-11-21T00:00:00.000Z', skills: {} };
+    const second = { version: 1, server: 'second', updated_at: '2026-11-22T00:00:00.000Z', skills: {} };
+    const third = { version: 1, server: 'third', updated_at: '2026-11-22T01:00:00.000Z', skills: {} };
+
+    await runReceiverCommandWithOutput(homeDir, 'write-manifest', [], JSON.stringify(first));
+    await runReceiverCommandWithOutput(homeDir, 'write-manifest', [], JSON.stringify(second));
+    await writeFile(manifestFile, '{"version": 1, "server": "trunc', 'utf8');
+
+    await runReceiverCommandWithOutput(homeDir, 'write-manifest', [], JSON.stringify(third));
+    expect(JSON.parse(await readFile(manifestFile, 'utf8'))).toMatchObject({ server: 'third' });
+    // The last parseable manifest is still recoverable.
+    expect(JSON.parse(await readFile(`${manifestFile}.bak`, 'utf8'))).toMatchObject({ server: 'first' });
   });
 });
