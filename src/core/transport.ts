@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
@@ -165,6 +165,16 @@ interface RsyncOptions {
   delete?: boolean;
 }
 
+/**
+ * Issue 424: rsync takes `-e` as one string and tokenizes it itself, so a plain `join(' ')` splits a
+ * path containing spaces (macOS `Application Support` is a real identity_file). Quote each word the
+ * way a POSIX shell would, and leave words without metacharacters untouched so existing argv text is
+ * unchanged (`\''` is the only escape a single-quoted string needs).
+ */
+function shellQuote(word: string): string {
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+}
+
 function buildRsyncArgs(server: ConfiguredServer, source: string, destination: string, options: RsyncOptions = {}): string[] {
   const sshParts = [
     'ssh',
@@ -177,7 +187,7 @@ function buildRsyncArgs(server: ConfiguredServer, source: string, destination: s
     '-az',
     ...(options.delete ? ['--delete'] : []),
     '-e',
-    sshParts.join(' '),
+    sshParts.map(shellQuote).join(' '),
     source,
     destination
   ];
@@ -616,13 +626,15 @@ export async function pushSkillDirectory(
   // Issue 421 review: the rsync fallback passes the name as a remote shell word. A local
   // directory called `a;id` would execute `id` remotely, and "my skill" would shift argv.
   if (!SAFE_SKILL_NAME.test(skill)) throw new Error(`Invalid skill name: ${skill}`);
+  // Issue #425: never rsync into the live directory. Transfer into a hidden sibling, then ask the receiver for an
+  // atomic rename; an interrupted transfer leaves the old tree in place and a half tree is never read as truth.
+  const staging = `${remoteSkillsDir(server)}/.${skill}.staging-${randomUUID()}`;
   try {
     await runtime.exec(
       'rsync',
-      buildRsyncArgs(server, `${sourceDir}/`, `${buildSshTarget(server)}:${quoteRemotePath(`${remoteSkillsDir(server)}/${skill}/`)}`, { delete: true }),
+      buildRsyncArgs(server, `${sourceDir}/`, `${buildSshTarget(server)}:${quoteRemotePath(`${staging}/`)}`, { delete: true }),
       {}
     );
-    return;
   } catch (error) {
     if (!shouldFallbackFromRsync(error)) {
       throw error;
@@ -631,7 +643,11 @@ export async function pushSkillDirectory(
     await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'import-skill', quoteRemotePath(skill)]), {
       stdin: JSON.stringify(await collectSkillData(sourceDir))
     });
+    return;
   }
+
+  // rsync's own failure may fall back; a failed promote is the receiver's answer and propagates as-is.
+  await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'promote-skill', quoteRemotePath(skill), quoteRemotePath(staging)]), {});
 }
 
 function shouldFallbackFromRsync(error: unknown): boolean {

@@ -98,7 +98,7 @@ describe('server transport configuration', () => {
 
     const rsync = runtime.calls.find((call) => call.file === 'rsync')!;
     expect(rsync.args).toContain('--delete');
-    expect(rsync.args.at(-1)).toBe('alpha.example.com:"/srv/root/skills/welcome/"');
+    expect(rsync.args.at(-1)).toContain('/srv/root/skills/.welcome.staging-');
   });
 
   it('quotes a remote root with spaces so rsync keeps one destination (issue 421)', async () => {
@@ -113,7 +113,7 @@ describe('server transport configuration', () => {
     await pullSkillDirectory({ name: 'alpha', host: 'alpha.example.com', remote_repo: '/srv/My Skills', remote_agents: {} }, 'welcome', join(homeDir, 'target'), runtime);
 
     const rsyncCalls = runtime.calls.filter((call) => call.file === 'rsync');
-    expect(rsyncCalls[0].args.at(-1)).toBe('alpha.example.com:"/srv/My Skills/skills/welcome/"');
+    expect(rsyncCalls[0].args.at(-1)).toContain('/srv/My Skills/skills/.welcome.staging-');
     expect(rsyncCalls[1].args.at(-2)).toBe('alpha.example.com:"/srv/My Skills/skills/welcome/"');
   });
 
@@ -128,7 +128,7 @@ describe('server transport configuration', () => {
     await pushSkillDirectory({ name: 'alpha', host: 'alpha.example.com', remote_repo: '/srv/$HOME', remote_agents: {} }, sourceDir, 'welcome', runtime);
 
     const rsync = runtime.calls.find((call) => call.file === 'rsync')!;
-    expect(rsync.args.at(-1)).toBe('alpha.example.com:"/srv/\\$HOME/skills/welcome/"');
+    expect(rsync.args.at(-1)).toContain('/srv/\\$HOME/skills/.welcome.staging-');
   });
 
   it('keeps the default root as the remote home (issue 421 regression)', async () => {
@@ -142,7 +142,7 @@ describe('server transport configuration', () => {
     await pushSkillDirectory({ name: 'alpha', host: 'alpha.example.com', remote_agents: {} }, sourceDir, 'welcome', runtime);
 
     const rsync = runtime.calls.find((call) => call.file === 'rsync')!;
-    expect(rsync.args.at(-1)).toBe('alpha.example.com:"$HOME/.syncskill/skills/welcome/"');
+    expect(rsync.args.at(-1)).toContain('"$HOME/.syncskill/skills/.welcome.staging-');
   });
 
   it('creates a non-default remote root before deploying the receiver (issue 422)', async () => {

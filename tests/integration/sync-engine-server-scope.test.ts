@@ -60,8 +60,9 @@ describe('a server only receives the skills it is included for', () => {
 
     expect(result.pushed_skills).toEqual(['linked']);
     const destinations = rsyncDestinations(runtime).join('\n');
-    expect(destinations).toContain('/linked/');
-    expect(destinations).not.toContain('/unlinked/');
+    // Issue #425: a push transfers into `.linked.staging-<id>/` and promotes it; the live path is never an rsync target.
+    expect(destinations).toContain('.linked.staging-');
+    expect(destinations).not.toContain('.unlinked.staging-');
   });
 
   it('per-server include narrows the set and orphan cleanup follows it (issue 404)', async () => {

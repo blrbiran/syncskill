@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -133,6 +134,19 @@ function createRuntime(stdoutByCommand: Record<string, string> = {}): TransportR
       return { stdout: '', stderr: '' };
     }
   };
+}
+
+/** rsync parses its `-e` value with a shell-like tokenizer; this reads the same words back for assertions. */
+function rshWords(rsh: string): string[] {
+  const printed = spawnSync('/bin/sh', ['-c', `printf '%s\\0' ${rsh}`], { encoding: 'utf8' }).stdout;
+  return printed.split('\0').slice(0, -1);
+}
+
+function rshOf(call: { file: string; args: string[] } | undefined): string {
+  expect(call?.file).toBe('rsync');
+  const index = call!.args.indexOf('-e');
+  expect(index).toBeGreaterThanOrEqual(0);
+  return call!.args[index + 1];
 }
 
 describe('transport', () => {
@@ -323,6 +337,100 @@ describe('transport', () => {
       ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'alpha.example.com', 'node', '"$HOME/.syncskill/sync_receiver.mjs"', 'import-skill', '"welcome"'],
       expect.objectContaining({ stdin: expect.stringContaining('SKILL.md') })
     );
+  });
+
+  it('quotes an identity_file containing spaces in the rsync -e string', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
+    tempDirs.push(homeDir);
+    const sourceDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+    const runtime = createRuntime();
+    await pushSkillDirectory(
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        identity_file: '/tmp/My Keys/id_ed25519',
+        remote_agents: {}
+      },
+      sourceDir,
+      'welcome',
+      runtime
+    );
+
+    const rsh = rshOf(runtime.calls[0]);
+    expect(rsh).toBe("ssh -i '/tmp/My Keys/id_ed25519' -o BatchMode=yes -o ConnectTimeout=15");
+    expect(rshWords(rsh)).toContain('/tmp/My Keys/id_ed25519');
+  });
+
+  it('quotes an identity_file containing a single quote in the rsync -e string', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
+    tempDirs.push(homeDir);
+    const sourceDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+    const runtime = createRuntime();
+    await pushSkillDirectory(
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        identity_file: "/tmp/My Keys/o'brien",
+        remote_agents: {}
+      },
+      sourceDir,
+      'welcome',
+      runtime
+    );
+
+    expect(rshWords(rshOf(runtime.calls[0]))).toContain("/tmp/My Keys/o'brien");
+  });
+
+  it('leaves an identity_file without shell metacharacters unquoted', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
+    tempDirs.push(homeDir);
+    const sourceDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+    const runtime = createRuntime();
+    await pushSkillDirectory(
+      {
+        name: 'alpha',
+        host: 'alpha.example.com',
+        identity_file: '/Users/demo/.ssh/id_syncskill',
+        remote_agents: {}
+      },
+      sourceDir,
+      'welcome',
+      runtime
+    );
+
+    expect(rshOf(runtime.calls[0])).toBe('ssh -i /Users/demo/.ssh/id_syncskill -o BatchMode=yes -o ConnectTimeout=15');
+  });
+
+  it('pushSkillDirectory transfers into a staging directory and promotes it', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
+    tempDirs.push(homeDir);
+    const sourceDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, 'SKILL.md'), '# welcome\n', 'utf8');
+
+    const runtime = createRuntime();
+    await pushSkillDirectory({ name: 'alpha', host: 'alpha.example.com', remote_agents: {} }, sourceDir, 'welcome', runtime);
+
+    expect(runtime.calls).toHaveLength(2);
+    const rsync = runtime.calls[0]!;
+    const destination = rsync.args[rsync.args.length - 1]!;
+    // mutation: rsync straight to the live directory -> the destination has no `.welcome.staging-`, red
+    expect(destination).toMatch(/^alpha\.example\.com:"?.+\.welcome\.staging-[0-9a-f-]+\/"?$/);
+    const promote = runtime.calls[1]!;
+    expect(promote.file).toBe('ssh');
+    expect(promote.args).toContain('promote-skill');
+    expect(promote.args).toContain('"welcome"');
+    // The promote names the same staging directory the transfer wrote.
+    expect(promote.args[promote.args.length - 1]).toContain('.welcome.staging-');
   });
 
   it('pushSkillDirectory does not fall back for rsync transfer errors', async () => {
@@ -768,6 +876,40 @@ describe('transport', () => {
         }
       })
     ).rejects.toThrow('Invalid skill entry: ../escape.txt');
+  });
+
+  it('receiver import-skill leaves the old tree intact when the new one is rejected', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+    const syncRoot = join(homeDir, '.syncskill');
+    const skillDir = join(syncRoot, 'skills', 'welcome');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# old\n', 'utf8');
+
+    await expect(
+      withMockedHomeDir(homeDir, async () => {
+        const argv = process.argv.slice();
+        const stdin = process.stdin;
+        const stream = Readable.from([
+          JSON.stringify({ files: {
+            'good.md': Buffer.from('new\n').toString('base64'),
+            '../escape.txt': Buffer.from('nope').toString('base64')
+          } })
+        ]);
+        Object.defineProperty(process, 'stdin', { value: stream, configurable: true });
+        process.argv = ['node', receiverPath, 'import-skill', 'welcome'];
+        try {
+          await importReceiverModule();
+        } finally {
+          process.argv = argv;
+          Object.defineProperty(process, 'stdin', { value: stdin, configurable: true });
+        }
+      })
+    ).rejects.toThrow('Invalid skill entry: ../escape.txt');
+
+    // mutation: delete the live tree before writing the new one -> SKILL.md is gone, red
+    await expect(readFile(join(skillDir, 'SKILL.md'), 'utf8')).resolves.toBe('# old\n');
+    await expect(readdir(join(syncRoot, 'skills'))).resolves.toEqual(['welcome']);
   });
 
   it('receiver import-skill creates symlinks from the new format', async () => {

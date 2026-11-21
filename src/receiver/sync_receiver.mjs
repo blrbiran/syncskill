@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
-import { access, lstat, mkdir, readFile, readdir, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { access, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import process from 'node:process';
@@ -157,29 +157,77 @@ function validateSymlinkTarget(targetDir, linkPath, target) {
   }
 }
 
+// Issue #425: a push used to rsync straight into the live skill directory. An interrupted transfer left a half tree,
+// and the next status/pull read it as the remote truth. Both write paths now build a sibling staging directory and swap
+// it in with rename(2); a rejected or interrupted build leaves the old tree untouched.
+function freshSibling(name, kind) {
+  return join(skillsDir, `.${name}.${kind}-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`);
+}
+
+async function swapSkillDirectory(name, preparedDir) {
+  const targetDir = join(skillsDir, name);
+  const backupDir = freshSibling(name, 'backup');
+  let hadTarget = false;
+  try {
+    await rename(targetDir, backupDir);
+    hadTarget = true;
+  } catch (error) {
+    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error;
+  }
+
+  try {
+    await rename(preparedDir, targetDir);
+  } catch (error) {
+    if (hadTarget) await rename(backupDir, targetDir).catch(() => {});
+    throw error;
+  }
+
+  if (hadTarget) await rm(backupDir, { recursive: true, force: true });
+}
+
 async function importSkill(name) {
   const data = JSON.parse(await readStdin());
-  const targetDir = join(skillsDir, name);
+  const stagingDir = freshSibling(name, 'staging');
 
-  await rm(targetDir, { recursive: true, force: true });
-  await mkdir(targetDir, { recursive: true });
+  await mkdir(skillsDir, { recursive: true });
+  await mkdir(stagingDir, { recursive: true });
 
   // Handle both new format (with files/symlinks) and legacy format (just files)
   const files = data.files ?? data;
   const symlinks = data.symlinks ?? {};
 
-  for (const [relativePath, base64] of Object.entries(files)) {
-    const destination = validateRelativePath(targetDir, relativePath);
-    await mkdir(dirname(destination), { recursive: true });
-    await writeFile(destination, Buffer.from(base64, 'base64'));
-  }
+  try {
+    for (const [relativePath, base64] of Object.entries(files)) {
+      const destination = validateRelativePath(stagingDir, relativePath);
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(destination, Buffer.from(base64, 'base64'));
+    }
 
-  for (const [relativePath, target] of Object.entries(symlinks)) {
-    const destination = validateRelativePath(targetDir, relativePath);
-    validateSymlinkTarget(targetDir, relativePath, target);
-    await mkdir(dirname(destination), { recursive: true });
-    await symlink(target, destination);
+    for (const [relativePath, target] of Object.entries(symlinks)) {
+      const destination = validateRelativePath(stagingDir, relativePath);
+      validateSymlinkTarget(stagingDir, relativePath, target);
+      await mkdir(dirname(destination), { recursive: true });
+      await symlink(target, destination);
+    }
+
+    await swapSkillDirectory(name, stagingDir);
+  } catch (error) {
+    await rm(stagingDir, { recursive: true, force: true });
+    throw error;
   }
+}
+
+// rsync performs the transfer itself, so it stages on the remote and asks the receiver to promote that directory.
+async function promoteSkill(name, stagingPath) {
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`Invalid skill name: ${name}`);
+  const stagingDir = resolve(stagingPath);
+  const skillsRoot = resolve(skillsDir);
+  if (dirname(stagingDir) !== skillsRoot || !stagingDir.startsWith(join(skillsRoot, `.${name}.staging-`))) {
+    throw new Error(`Invalid staging directory for ${name}: ${stagingPath}`);
+  }
+  const info = await lstat(stagingDir);
+  if (!info.isDirectory()) throw new Error(`Staging directory is not a directory: ${stagingPath}`);
+  await swapSkillDirectory(name, stagingDir);
 }
 
 async function exportSkill(name) {
@@ -452,7 +500,7 @@ async function applyLinks() {
   process.stdout.write(`${JSON.stringify(finalizedManifest)}\n`);
 }
 
-const [command, arg] = process.argv.slice(2);
+const [command, arg, arg2] = process.argv.slice(2);
 
 if (command === 'manifest') {
   process.stdout.write(`${JSON.stringify(await readManifest())}\n`);
@@ -460,6 +508,8 @@ if (command === 'manifest') {
   await writeManifestFromStdin();
 } else if (command === 'import-skill' && typeof arg === 'string') {
   await importSkill(arg);
+} else if (command === 'promote-skill' && typeof arg === 'string' && typeof arg2 === 'string') {
+  await promoteSkill(arg, arg2);
 } else if (command === 'export-skill' && typeof arg === 'string') {
   await exportSkill(arg);
 } else if (command === 'scan-skills') {
