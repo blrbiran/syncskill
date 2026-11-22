@@ -652,6 +652,33 @@ export async function pruneRemoteStaging(
   };
 }
 
+export interface RemoteBackupRecoverResult {
+  applied: boolean;
+  recovered: Array<{ skill: string; from: string; to: string }>;
+  skipped: Array<{ skill: string; reason: 'live-present' | 'ambiguous'; backups: string[] }>;
+}
+
+/**
+ * Issue #426 follow-up: a crash between the two renames of a swap leaves `.<skill>.backup-*` as the only copy and no
+ * live tree. The receiver puts such a backup back; this asks it to (reporting only unless `apply`) and returns the answer.
+ */
+export async function recoverRemoteBackups(
+  server: ConfiguredServer,
+  runtime: TransportRuntime,
+  options: { apply?: boolean } = {}
+): Promise<RemoteBackupRecoverResult> {
+  const remoteArgs = [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'recover-backup'];
+  if (options.apply) remoteArgs.push('--apply');
+  const result = await runtime.exec('ssh', buildSshArgs(server, remoteArgs));
+  const parsed = JSON.parse(result.stdout || '{}') as Partial<RemoteBackupRecoverResult>;
+
+  return {
+    applied: parsed.applied === true,
+    recovered: Array.isArray(parsed.recovered) ? parsed.recovered : [],
+    skipped: Array.isArray(parsed.skipped) ? parsed.skipped : []
+  };
+}
+
 export async function pushSkillDirectory(
   server: ConfiguredServer,
   sourceDir: string,

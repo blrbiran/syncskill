@@ -128,7 +128,7 @@ import {
 import { initializeRepo } from './repo.js';
 import { getPullBackupDir, getRestorePreBackupDir, restoreSkillFromPullBackup } from './utils/backup.js';
 import { pathExists } from './utils/utils.js';
-import { createTransportRuntime, pruneRemoteStaging, takeOverRemoteSkill, type RemoteStagingPruneResult } from './core/transport.js';
+import { createTransportRuntime, pruneRemoteStaging, recoverRemoteBackups, takeOverRemoteSkill, type RemoteBackupRecoverResult, type RemoteStagingPruneResult } from './core/transport.js';
 import {
   autoRefreshManifests,
   buildStatusJson,
@@ -3317,11 +3317,12 @@ export function createProgram(homeDir?: string): Command {
 
   program
     .command('prune [server]')
-    .description('Remove stale staging trees an interrupted push left on the remote (dry run unless --apply)')
+    .description('Remove stale staging trees an interrupted push left on the remote, and put back a crash-orphaned backup (dry run unless --apply)')
     .option('--all', 'Prune all configured servers')
-    .option('--apply', 'Delete the staged trees instead of listing them')
+    .option('--apply', 'Delete the staged trees, or restore the backups, instead of listing them')
     .option('--older-than <hours>', 'Only prune staging trees older than this many hours', parseInteger, 24)
-    .action(async (server: string | undefined, options: { all?: boolean; apply?: boolean; olderThan?: number }) => {
+    .option('--recover-backups', 'Also restore a .<skill>.backup-* tree whose live tree a crash between renames removed')
+    .action(async (server: string | undefined, options: { all?: boolean; apply?: boolean; olderThan?: number; recoverBackups?: boolean }) => {
       try {
         const noInteractive = isNoInteractive(program);
         const targetServers = await prepareSyncTargetServers(resolvedHomeDir, server, options, 'prune', noInteractive);
@@ -3331,11 +3332,15 @@ export function createProgram(homeDir?: string): Command {
         const runtime = createTransportRuntime();
         const hours = typeof options.olderThan === 'number' && Number.isFinite(options.olderThan) ? options.olderThan : 24;
         const olderThanMs = Math.max(0, hours) * 3_600_000;
-        const results: Array<{ server: string; result: RemoteStagingPruneResult }> = [];
+        const results: Array<{ server: string; result: RemoteStagingPruneResult; backups?: RemoteBackupRecoverResult }> = [];
         for (const name of targetServers) {
+          const configured = getConfiguredServer(config, name);
           results.push({
             server: name,
-            result: await pruneRemoteStaging(getConfiguredServer(config, name), runtime, { apply: options.apply, olderThanMs })
+            result: await pruneRemoteStaging(configured, runtime, { apply: options.apply, olderThanMs }),
+            ...(options.recoverBackups === true
+              ? { backups: await recoverRemoteBackups(configured, runtime, { apply: options.apply }) }
+              : {})
           });
         }
 
@@ -3357,6 +3362,16 @@ export function createProgram(homeDir?: string): Command {
           for (const row of result.pruned) {
             total += row.bytes;
             console.log(`${name}: ${options.apply ? 'removed' : 'would remove'} ${row.name} (${formatAge(row.age_ms)}, ${row.bytes} B)`);
+          }
+        }
+        for (const { server: name, backups } of results) {
+          if (backups === undefined) continue;
+          for (const row of backups.recovered) {
+            console.log(`${name}: ${options.apply ? 'restored' : 'would restore'} ${row.skill} from ${row.from} (its live tree is gone)`);
+          }
+          for (const row of backups.skipped) {
+            // A live tree is real content; two backups are a judgement call. Neither is code's to delete.
+            console.log(`${name}: left ${row.skill} alone (${row.reason}); backups: ${row.backups.join(', ')}`);
           }
         }
         if (!options.apply && total > 0) {

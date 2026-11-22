@@ -99,6 +99,7 @@ import {
   pullSkillDirectory,
   pushManifest,
   pushSkillDirectory,
+  recoverRemoteBackups,
   refreshRemoteManifestFromServer,
   scanRemoteAgents,
   type TransportRuntime
@@ -1584,6 +1585,72 @@ describe('transport', () => {
     expect(JSON.parse(await readFile(`${manifestFile}.bak`, 'utf8'))).toMatchObject({ server: 'first' });
     // No half-written temp files survive a completed write.
     expect((await readdir(syncRoot)).some((name) => name.startsWith('manifest.json.tmp-'))).toBe(false);
+  });
+
+  it('receiver recover-backup restores the only backup when the live tree is gone', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+    const syncRoot = join(homeDir, '.syncskill');
+    const skillsDir = join(syncRoot, 'skills');
+    const backupDir = join(skillsDir, '.welcome.backup-123-abc');
+    const liveDir = join(skillsDir, 'welcome');
+    await mkdir(backupDir, { recursive: true });
+    await writeFile(join(backupDir, 'SKILL.md'), '# recovered\n', 'utf8');
+
+    // Dry run names the recovery and moves nothing.
+    const { stdout: dry } = await runReceiverCommandWithOutput(homeDir, 'recover-backup');
+    expect(JSON.parse(dry)).toEqual({ applied: false, recovered: [{ skill: 'welcome', from: backupDir, to: liveDir }], skipped: [] });
+    await expect(access(liveDir)).rejects.toMatchObject({ code: 'ENOENT' });
+    // With --apply it puts the only copy back.
+    const { stdout: performed } = await runReceiverCommandWithOutput(homeDir, 'recover-backup', ['--apply']);
+    const applied = JSON.parse(performed);
+    expect(applied).toEqual({ applied: true, recovered: [{ skill: 'welcome', from: backupDir, to: liveDir }], skipped: [] });
+    // The interrupted swap left the backup as the only copy; the live tree is the backup's tree again.
+    expect(await readFile(join(liveDir, 'SKILL.md'), 'utf8')).toBe('# recovered\n');
+    await expect(access(backupDir)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    // Nothing left to recover is a quiet no-op, so a repeat is safe.
+    const { stdout: again } = await runReceiverCommandWithOutput(homeDir, 'recover-backup', ['--apply']);
+    expect(JSON.parse(again)).toEqual({ applied: true, recovered: [], skipped: [] });
+  });
+
+  it('receiver recover-backup never touches a live tree and refuses an ambiguous backup set', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir);
+    const syncRoot = join(homeDir, '.syncskill');
+    const skillsDir = join(syncRoot, 'skills');
+    const liveDir = join(skillsDir, 'welcome');
+    const one = join(skillsDir, '.welcome.backup-1-a');
+    const two = join(skillsDir, '.welcome.backup-2-b');
+    const orphan = join(skillsDir, '.lonely.backup-3-c');
+    for (const dir of [liveDir, one, two, orphan]) await mkdir(dir, { recursive: true });
+    await writeFile(join(liveDir, 'SKILL.md'), '# live\n', 'utf8');
+    await writeFile(join(one, 'SKILL.md'), '# one\n', 'utf8');
+    await writeFile(join(two, 'SKILL.md'), '# two\n', 'utf8');
+    await writeFile(join(orphan, 'SKILL.md'), '# orphan\n', 'utf8');
+
+    const { stdout: dry } = await runReceiverCommandWithOutput(homeDir, 'recover-backup', ['--apply']);
+    const answer = JSON.parse(dry);
+    // A live tree is never replaced, whatever backups sit beside it.
+    expect(await readFile(join(liveDir, 'SKILL.md'), 'utf8')).toBe('# live\n');
+    expect(answer.recovered.map((entry: { skill: string }) => entry.skill)).toEqual(['lonely']);
+    expect(answer.skipped).toEqual([
+      { skill: 'welcome', reason: 'live-present', backups: [one, two] }
+    ]);
+    await expect(access(orphan)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(join(liveDir, 'SKILL.md'), 'utf8')).toBe('# live\n');
+
+    // Two backups and no live tree: which one is the truth is a guess, so it stays and is named.
+    const homeDir2 = await mkdtemp(join(tmpdir(), 'syncskill-receiver-'));
+    tempDirs.push(homeDir2);
+    const skills2 = join(homeDir2, '.syncskill', 'skills');
+    const a = join(skills2, '.welcome.backup-1-a');
+    const b = join(skills2, '.welcome.backup-2-b');
+    await mkdir(a, { recursive: true }); await mkdir(b, { recursive: true });
+    const { stdout: ambiguous } = await runReceiverCommandWithOutput(homeDir2, 'recover-backup', ['--apply']);
+    expect(JSON.parse(ambiguous)).toEqual({ applied: true, recovered: [], skipped: [{ skill: 'welcome', reason: 'ambiguous', backups: [a, b] }] });
+    await expect(access(a)).resolves.toBeUndefined();
+    await expect(access(b)).resolves.toBeUndefined();
   });
 
   it('receiver write-manifest does not overwrite a good .bak with a corrupt manifest', async () => {

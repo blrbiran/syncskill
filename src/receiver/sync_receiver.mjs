@@ -302,6 +302,62 @@ async function removeStaging(stagingPath) {
 
 const DEFAULT_STAGING_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 
+// Issue #426 follow-up: swapSkillDirectory renames the live tree to a `.<skill>.backup-*` sibling, then renames
+// the prepared tree in; a crash between the two renames leaves that backup as the only copy and no live tree.
+// `recover-backup` puts such a backup back. It never replaces a live tree (that is a real skill, not a corpse),
+// and it never guesses between two backups of one skill -- which is the truth is not code's call.
+async function pathExists(target) {
+  try {
+    await access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function recoverBackup(args) {
+  const apply = args.includes('--apply');
+  const recovered = [];
+  const skipped = [];
+  let entries;
+  try {
+    entries = await readdir(skillsDir, { withFileTypes: true });
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      process.stdout.write(`${JSON.stringify({ recovered, skipped })}\n`);
+      return;
+    }
+    throw error;
+  }
+
+  const backupsBySkill = new Map();
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const match = /^\.([A-Za-z0-9_-]+)\.backup-/.exec(entry.name);
+    if (!match) continue;
+    const list = backupsBySkill.get(match[1]) ?? [];
+    list.push(join(skillsDir, entry.name));
+    backupsBySkill.set(match[1], list);
+  }
+
+  for (const skill of [...backupsBySkill.keys()].sort()) {
+    const backups = backupsBySkill.get(skill).sort();
+    const liveDir = join(skillsDir, skill);
+    if (await pathExists(liveDir)) {
+      skipped.push({ skill, reason: 'live-present', backups });
+      continue;
+    }
+    if (backups.length > 1) {
+      skipped.push({ skill, reason: 'ambiguous', backups });
+      continue;
+    }
+    if (apply) await rename(backups[0], liveDir);
+    recovered.push({ skill, from: backups[0], to: liveDir });
+  }
+
+  process.stdout.write(`${JSON.stringify({ applied: apply, recovered, skipped })}\n`);
+}
+
 async function directorySize(dirPath) {
   let total = 0;
   for (const entry of await readdir(dirPath, { withFileTypes: true })) {
@@ -663,6 +719,8 @@ if (command === 'manifest') {
   await removeStaging(arg);
 } else if (command === 'prune-staging') {
   await pruneStaging(process.argv.slice(3));
+} else if (command === 'recover-backup') {
+  await recoverBackup(process.argv.slice(3));
 } else if (command === 'export-skill' && typeof arg === 'string') {
   await exportSkill(arg);
 } else if (command === 'scan-skills') {
