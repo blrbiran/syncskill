@@ -4,6 +4,19 @@
 
 ---
 
+## v2.7.5（2026-11-24 — Orca 会话 `221948a1`，测试者 #449）
+
+`push` 会 `ssh … rm -rf` 删远端技能目录，而三个只读面都看不见：`--dry-run` 在计算 orphan 之前就 return（打 `(no changes)`）、`PushResult` 没有删除字段（`PullResult` 有 `deleted_skills`）、没有 `--plan` 预警。
+
+- `pushSetOf` 改成 `includeStateOf` 三态：`unset`（回落到 link 矩阵）/ `empty`（该 server 不带技能，**不构成删除授权**）/ `list`。`include: []` 旧语义是「每个远端技能都成 orphan」，授权后 `rm -rf` 全部；只有手改配置或一次编辑器往返才能产生（UI 在未选任何技能时是 unset）。**决策：按三态**，`include: []` 时不删、带 `no-skills-configured` 告警。
+- `orphansForCleanup` 是 dry-run 与真清理共用的**唯一**计算，计划不再可能和实际不一致。
+- `PushResult` 增 `deleted_skills?: string[]` 与 `warnings?: string[]`；成功与 dry-run 两个返回都填；`--json` 的 summary 报 `deleted` 计数与删除行，`changes[]` 增加 `op: 'delete'`；人读摘要打印 dry-run 将删的技能。
+- 判据 `tests/integration/push-deletion-visibility.test.ts`（3 条，fake transport）：dry-run 列出将删的 orphan 且不删；授权后报出实际删除；`include: []` 不删并告警。两个变异（dry-run 不报、`[]` 退回空 Set）各自打红自己那条。
+
+未做：`--plan` 的独立预警码（`--dry-run --json` 已能读到同一份 `deleted_skills`，是否还要一个离线近似留给下一轮）。
+
+---
+
 ## v2.7.4（2026-06-02 — 草案，待 user 批准 + 实施）
 
 v2.7.3 落地后第四轮 audit 的实施版本。基于 critic（Opus）三角度审查（必要性 / 合理性 / AI agent CLI 一等公民）的 14 项 + 一项 API 稳定性承诺机制（A5）。
