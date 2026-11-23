@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readlink, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -96,11 +96,8 @@ describe('config CLI', () => {
     const loggedOutput = consoleLog.mock.calls.map(c => c[0]).join('\n');
     expect(loggedOutput).toContain('✓ Removed agents from shared-remove');
     await expect(readlink(join(homeDir, '.agents', 'skills', 'shared-remove'))).rejects.toThrow();
-    await expect(loadConfig(homeDir)).resolves.toMatchObject({
-      links: {
-        'shared-remove': []
-      }
-    });
+    const updatedConfig = await loadConfig(homeDir);
+    expect(Object.hasOwn(updatedConfig.links, 'shared-remove')).toBe(false);
   });
 
   it('link build --dry-run previews without linking', async () => {
@@ -254,6 +251,219 @@ describe('config CLI', () => {
     await expect(loadConfig(homeDir)).resolves.toMatchObject({
       links: {}
     });
+  });
+
+  it('skill remove deletes the managed tree, links, and final config entry', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-skill-remove-'));
+    tempDirs.push(homeDir);
+    const skillPath = join(getSyncPaths(homeDir).skillsDir, 'remove-me');
+    const agentSkills = join(homeDir, '.claude', 'skills');
+
+    await mkdir(skillPath, { recursive: true });
+    await mkdir(agentSkills, { recursive: true });
+    await writeFile(join(skillPath, 'SKILL.md'), '# Remove me', 'utf8');
+    await saveConfig({
+      ...createDefaultConfig(homeDir, { claude: agentSkills }),
+      links: { 'remove-me': ['claude'] }
+    }, homeDir);
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', '--no-refresh', '--no-interactive', '--yes-destructive', 'skill', 'remove', 'remove-me'],
+      { from: 'node' }
+    );
+
+    await expect(readFile(join(skillPath, 'SKILL.md'), 'utf8')).rejects.toThrow();
+    await expect(readlink(join(agentSkills, 'remove-me'))).rejects.toThrow();
+    expect(Object.hasOwn((await loadConfig(homeDir)).links, 'remove-me')).toBe(false);
+  });
+
+  it('skill remove --keep-files removes links and config but preserves the managed tree', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-skill-remove-'));
+    tempDirs.push(homeDir);
+    const skillPath = join(getSyncPaths(homeDir).skillsDir, 'keep-me');
+    const agentSkills = join(homeDir, '.claude', 'skills');
+
+    await mkdir(skillPath, { recursive: true });
+    await mkdir(agentSkills, { recursive: true });
+    await writeFile(join(skillPath, 'SKILL.md'), '# Keep me', 'utf8');
+    await saveConfig({
+      ...createDefaultConfig(homeDir, { claude: agentSkills }),
+      links: { 'keep-me': ['claude'] }
+    }, homeDir);
+    await symlink(skillPath, join(agentSkills, 'keep-me'));
+
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', '--no-refresh', '--no-interactive', 'skill', 'remove', 'keep-me', '--keep-files'],
+      { from: 'node' }
+    );
+
+    await expect(readFile(join(skillPath, 'SKILL.md'), 'utf8')).resolves.toBe('# Keep me');
+    await expect(readlink(join(agentSkills, 'keep-me'))).rejects.toThrow();
+    expect(Object.hasOwn((await loadConfig(homeDir)).links, 'keep-me')).toBe(false);
+  });
+
+  it('skill remove --dry-run leaves files, links, and config unchanged', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-skill-remove-'));
+    tempDirs.push(homeDir);
+    const skillPath = join(getSyncPaths(homeDir).skillsDir, 'preview-me');
+    const agentSkills = join(homeDir, '.claude', 'skills');
+
+    await mkdir(skillPath, { recursive: true });
+    await mkdir(agentSkills, { recursive: true });
+    await writeFile(join(skillPath, 'SKILL.md'), '# Preview me', 'utf8');
+    await saveConfig({
+      ...createDefaultConfig(homeDir, { claude: agentSkills }),
+      links: { 'preview-me': ['claude'] }
+    }, homeDir);
+    await symlink(skillPath, join(agentSkills, 'preview-me'));
+
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', '--no-interactive', 'skill', 'remove', 'preview-me', '--dry-run'],
+      { from: 'node' }
+    );
+
+    await expect(readFile(join(skillPath, 'SKILL.md'), 'utf8')).resolves.toBe('# Preview me');
+    await expect(readlink(join(agentSkills, 'preview-me'))).resolves.toBe(skillPath);
+    expect((await loadConfig(homeDir)).links['preview-me']).toEqual(['claude']);
+  });
+
+  it('skill remove --json --dry-run returns a structured result without text output', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-skill-remove-'));
+    tempDirs.push(homeDir);
+    const skillPath = join(getSyncPaths(homeDir).skillsDir, 'json-preview');
+    await mkdir(skillPath, { recursive: true });
+    await writeFile(join(skillPath, 'SKILL.md'), '# JSON preview', 'utf8');
+    await saveConfig(createDefaultConfig(homeDir), homeDir);
+
+    const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', '--json', '--dry-run', 'skill', 'remove', 'json-preview'],
+      { from: 'node' }
+    );
+
+    expect(stderr).not.toHaveBeenCalled();
+    expect(stdout.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([{
+      type: 'result',
+      command: 'skill remove',
+      ok: true,
+      data_schema_version: 1,
+      summary: {
+        skill: 'json-preview',
+        dry_run: true,
+        keep_files: false,
+        unlinked_agents: [],
+        files_deleted: false
+      }
+    }]);
+    await expect(readFile(join(skillPath, 'SKILL.md'), 'utf8')).resolves.toBe('# JSON preview');
+  });
+
+  it('skill remove --json --yes-destructive returns a structured result without text output', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-skill-remove-'));
+    tempDirs.push(homeDir);
+    const skillPath = join(getSyncPaths(homeDir).skillsDir, 'json-remove');
+    await mkdir(skillPath, { recursive: true });
+    await writeFile(join(skillPath, 'SKILL.md'), '# JSON remove', 'utf8');
+    await saveConfig(createDefaultConfig(homeDir), homeDir);
+
+    const stdout = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const stderr = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', '--json', '--yes-destructive', 'skill', 'remove', 'json-remove'],
+      { from: 'node' }
+    );
+
+    expect(stderr).not.toHaveBeenCalled();
+    expect(stdout.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([{
+      type: 'result',
+      command: 'skill remove',
+      ok: true,
+      data_schema_version: 1,
+      summary: {
+        skill: 'json-remove',
+        dry_run: false,
+        keep_files: false,
+        unlinked_agents: [],
+        files_deleted: true
+      }
+    }]);
+    await expect(readFile(join(skillPath, 'SKILL.md'), 'utf8')).rejects.toThrow();
+  });
+
+  it('skill remove rejects a symlinked managed root without touching its outside target', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-skill-remove-'));
+    tempDirs.push(homeDir);
+    const skillsDir = getSyncPaths(homeDir).skillsDir;
+    const outsideSkillsDir = join(homeDir, 'outside-skills');
+    const outsideSkillPath = join(outsideSkillsDir, 'root-escape');
+    await mkdir(outsideSkillPath, { recursive: true });
+    await writeFile(join(outsideSkillPath, 'sentinel.txt'), 'keep', 'utf8');
+    await saveConfig(createDefaultConfig(homeDir), homeDir);
+    await symlink(outsideSkillsDir, skillsDir);
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', '--no-refresh', '--no-interactive', '--yes-destructive', 'skill', 'remove', 'root-escape'],
+      { from: 'node' }
+    );
+
+    expect(processExit).toHaveBeenCalled();
+    expect(consoleError.mock.calls.flat().join(' ')).toContain('managed skills root');
+    await expect(readFile(join(outsideSkillPath, 'sentinel.txt'), 'utf8')).resolves.toBe('keep');
+  });
+
+  it('non-interactive skill removal requires --yes-destructive before deleting files', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-skill-remove-'));
+    tempDirs.push(homeDir);
+    const skillPath = join(getSyncPaths(homeDir).skillsDir, 'guarded');
+    await mkdir(skillPath, { recursive: true });
+    await writeFile(join(skillPath, 'SKILL.md'), '# Guarded', 'utf8');
+    await saveConfig(createDefaultConfig(homeDir), homeDir);
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process.exit ${code}`) as never;
+    });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await expect(createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', '--no-refresh', '--no-interactive', 'skill', 'remove', 'guarded'],
+      { from: 'node' }
+    )).rejects.toThrow('process.exit');
+
+    expect(processExit).toHaveBeenCalled();
+    expect(consoleError.mock.calls.flat().join(' ')).toContain('--yes-destructive');
+    await expect(readFile(join(skillPath, 'SKILL.md'), 'utf8')).resolves.toBe('# Guarded');
+  });
+
+  it('skill remove rejects traversal and symlink escape outside the managed root', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-skill-remove-'));
+    tempDirs.push(homeDir);
+    const skillsDir = getSyncPaths(homeDir).skillsDir;
+    const outsideDir = join(homeDir, 'outside-skill');
+    await mkdir(skillsDir, { recursive: true });
+    await mkdir(outsideDir, { recursive: true });
+    await writeFile(join(outsideDir, 'sentinel.txt'), 'keep', 'utf8');
+    await symlink(outsideDir, join(skillsDir, 'escape'));
+    await saveConfig(createDefaultConfig(homeDir), homeDir);
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', '--no-refresh', '--no-interactive', '--yes-destructive', 'skill', 'remove', '../outside-skill'],
+      { from: 'node' }
+    );
+    expect(processExit).toHaveBeenCalled();
+    expect(consoleError.mock.calls.flat().join(' ')).toContain('Invalid skill name');
+
+    processExit.mockClear();
+    consoleError.mockClear();
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', '--no-refresh', '--no-interactive', '--yes-destructive', 'skill', 'remove', 'escape'],
+      { from: 'node' }
+    );
+    expect(processExit).toHaveBeenCalled();
+    expect(consoleError.mock.calls.flat().join(' ')).toContain('symlink');
+    await expect(readFile(join(outsideDir, 'sentinel.txt'), 'utf8')).resolves.toBe('keep');
   });
 
   const tempDirs = useTempDirs();

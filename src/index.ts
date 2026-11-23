@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { cp, readFile, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { cp, lstat, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { checkbox, select, confirm } from '@inquirer/prompts';
 import { Command, InvalidArgumentError, Option } from 'commander';
@@ -185,7 +185,8 @@ function shouldSkipCommandPreflight(command: Command): boolean {
     'config remote',
     'refresh',
     'doctor',
-    'restore'
+    'restore',
+    'skill remove'
   ];
   return skipCommands.includes(commandPath);
 }
@@ -2004,7 +2005,11 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      config.links[skill] = nextTargets;
+      if (nextTargets.length === 0) {
+        delete config.links[skill];
+      } else {
+        config.links[skill] = nextTargets;
+      }
       await saveConfig(config, resolvedHomeDir);
       for (const agent of agents) {
         await unlinkSkillFromAgent(resolvedHomeDir, skill, agent);
@@ -2099,7 +2104,125 @@ export function createProgram(homeDir?: string): Command {
       });
     });
 
+  program
+    .command('skill')
+    .description('Manage installed skills')
+    .command('remove <name>')
+    .description('Remove a managed skill and its agent links')
+    .option('--keep-files', 'Remove links and config entry but keep managed skill files')
+    .option('--dry-run', 'Preview removal without making changes')
+    .action(async (name: string, options: { keepFiles?: boolean; dryRun?: boolean }) => {
+      if (!isSafeSkillName(name)) {
+        return failWithOutputError('E_USAGE_SKILL_NAME', `Invalid skill name: ${JSON.stringify(name)}`);
+      }
+
+      const config = await ensureLinkCommandReady();
+      const { skillsDir } = getSyncPaths(resolvedHomeDir);
+      const managedRoot = resolve(skillsDir);
+      const managedPath = join(managedRoot, name);
+      let existingManagedPath: string | null = null;
+
+      try {
+        let rootStats;
+        try {
+          rootStats = await lstat(managedRoot);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+
+        if (rootStats?.isSymbolicLink()) {
+          return failWithOutputError('E_SKILL_PATH_ESCAPE', `Refusing to remove skill because the managed skills root is a symlink: ${managedRoot}`);
+        }
+        if (rootStats && !rootStats.isDirectory()) {
+          return failWithOutputError('E_SKILL_PATH_INVALID', `Managed skills root is not a directory: ${managedRoot}`);
+        }
+
+        if (rootStats) {
+          const realManagedRoot = await realpath(managedRoot);
+          let targetStats;
+          try {
+            targetStats = await lstat(managedPath);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          }
+
+          if (targetStats) {
+            if (targetStats.isSymbolicLink()) {
+              return failWithOutputError('E_SKILL_PATH_ESCAPE', `Refusing to remove skill path outside managed skills tree: ${managedPath} (symlink)`);
+            }
+            if (!targetStats.isDirectory()) {
+              return failWithOutputError('E_SKILL_PATH_INVALID', `Managed skill path is not a directory: ${managedPath}`);
+            }
+
+            const realManagedPath = await realpath(managedPath);
+            const relativeManagedPath = relative(realManagedRoot, realManagedPath);
+            if (relativeManagedPath === '' || relativeManagedPath === '..' || relativeManagedPath.startsWith(`..${sep}`) || isAbsolute(relativeManagedPath)) {
+              return failWithOutputError('E_SKILL_PATH_ESCAPE', `Refusing to remove skill path outside managed skills tree: ${managedPath}`);
+            }
+            existingManagedPath = managedPath;
+          }
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+
+      const agents = getLinkedAgentsForSkill(config, name);
+      if (options.dryRun) {
+        if (hasJsonOutputEnabled(program)) {
+          getGlobalOutput().result(true, {
+            skill: name,
+            dry_run: true,
+            keep_files: Boolean(options.keepFiles),
+            unlinked_agents: agents,
+            files_deleted: false
+          });
+          return;
+        }
+        console.log(`[dry-run] Would unlink ${name} from agents (${agents.join(', ')})`);
+        console.log(`[dry-run] Would ${options.keepFiles ? 'keep' : 'remove'} managed skill files for ${name}`);
+        console.log(`[dry-run] Would remove "${name}" from config links.`);
+        return;
+      }
+
+      const nonInteractive = isNoInteractive(program) === true || hasJsonOutputEnabled(program) || !process.stdin.isTTY;
+      if (!options.keepFiles) {
+        ensureDestructiveVerbAllowed(program, 'skill remove', { yes: nonInteractive });
+      }
+
+      if (!nonInteractive) {
+        const confirmed = await confirm({
+          message: `Remove skill "${name}" and unlink it from all agents (${agents.join(', ')})?`,
+          default: false
+        });
+        if (!confirmed) {
+          console.log('Cancelled.');
+          return;
+        }
+      }
+
+      for (const agent of agents) {
+        await unlinkSkillFromAgent(resolvedHomeDir, name, agent);
+      }
+      if (!options.keepFiles && existingManagedPath) {
+        await rm(existingManagedPath, { recursive: true, force: true });
+      }
+      delete config.links[name];
+      await saveConfig(config, resolvedHomeDir);
+      if (hasJsonOutputEnabled(program)) {
+        getGlobalOutput().result(true, {
+          skill: name,
+          dry_run: false,
+          keep_files: Boolean(options.keepFiles),
+          unlinked_agents: agents,
+          files_deleted: !options.keepFiles && existingManagedPath !== null
+        });
+        return;
+      }
+      console.log(`✓ Removed skill "${name}"${options.keepFiles ? ' (files kept)' : ''}`);
+    });
+
   const profileCommand = program.command('profile').description('Manage named skill profiles');
+
 
   profileCommand
     .command('set <name> <skills...>')

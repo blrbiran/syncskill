@@ -126,6 +126,14 @@ describe('help output', () => {
     expect(options).toEqual(expect.arrayContaining(['--apply', '--older-than', '--all']));
   });
 
+  it('skill remove help exposes the file-preservation and preview options', () => {
+    const program = createProgram('/tmp');
+    const skillCommand = program.commands.find(command => command.name() === 'skill');
+    const removeCommand = skillCommand?.commands.find(command => command.name() === 'remove');
+
+    expect(removeCommand?.options.map(option => option.long)).toEqual(expect.arrayContaining(['--keep-files', '--dry-run']));
+  });
+
   it('link command does not expose a --list flag', () => {
     const program = createProgram('/tmp');
     const linkCmd = program.commands.find(c => c.name() === 'link');
