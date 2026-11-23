@@ -59,12 +59,13 @@ describe('sync CLI', () => {
       }
     ]);
 
-    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', 'alpha'], { from: 'node' });
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--no-refresh', 'push', 'alpha', '--on-conflict', 'skip'], { from: 'node' });
 
     expect(pushToServersSpy).toHaveBeenCalledWith(homeDir, ['alpha'], {
       dryRun: undefined,
       noRefresh: true,
       timeout: undefined,
+      onConflict: 'skip',
       yes: undefined,
       noInteractive: undefined,
       yesDestructive: false,
@@ -74,6 +75,40 @@ describe('sync CLI', () => {
       ['welcome\talpha\tpush\tin-sync'],
       ['docs\talpha\tpush\tin-sync']
     ]);
+  });
+
+  it('push rejects an invalid conflict policy', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('process.exit called');
+    }) as typeof process.exit);
+    const program = createProgram(homeDir);
+    await expect(
+      program.parseAsync(
+        ['node', 'syncskill', 'push', 'alpha', '--on-conflict', 'invalid'],
+        { from: 'node' }
+      )
+    ).rejects.toThrow('process.exit called');
+    expect(processExit).toHaveBeenCalledWith(1);
   });
 
   it('sync --all preserves configured server order for execution', async () => {

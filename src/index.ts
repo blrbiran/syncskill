@@ -3088,9 +3088,10 @@ export function createProgram(homeDir?: string): Command {
     .option('--all', 'Push to all configured servers')
     .option('--dry-run', 'Preview changes without pushing')
     .option('--timeout <seconds>', 'Per-server SSH timeout in seconds', parseInteger)
+    .option('--on-conflict <policy>', 'How to resolve per-server conflicts: keep-local, keep-remote, skip, abort', parseOnConflict)
     .option('-y, --yes', 'Skip confirmation prompts')
     .addOption(new Option('--on-local-deletion <policy>').hideHelp())
-    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; yes?: boolean; onLocalDeletion?: string }) => {
+    .action(async (server: string | undefined, options: { all?: boolean; dryRun?: boolean; timeout?: number; onConflict?: 'keep-local' | 'keep-remote' | 'skip' | 'abort'; yes?: boolean; onLocalDeletion?: string }) => {
       try {
         // Issue 411: the mature CLI's push/sync took --on-local-deletion. Here the same need is served
         // by --yes-destructive (or the prompt), and the pull direction has --on-remote-deletion; say so
@@ -3111,6 +3112,7 @@ export function createProgram(homeDir?: string): Command {
           dryRun: options.dryRun,
           noRefresh: !program.opts<{ refresh: boolean }>().refresh,
           timeout: options.timeout,
+          onConflict: options.onConflict,
           yes: options.yes,
           noInteractive,
           yesDestructive: isYesDestructiveEnabled(program),
