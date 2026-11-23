@@ -116,7 +116,20 @@ export interface PushResult {
   skipped_skills: string[];
   conflicted_skills: string[];
   manifest: ServerManifest;
+  /**
+   * Tester #449: the remote skills this push deleted (or, under --dry-run, WOULD delete). `pull` already reported its
+   * counterpart; without this a `--json` consumer could not tell that a push removed anything.
+   */
+  deleted_skills?: string[];
+  /** Tester #449: reasons a person should read before trusting the plan (`no-skills-configured`, ...). */
+  warnings?: string[];
 }
+
+/**
+ * Tester #449: the three states of `servers.<name>.skills.include` — `unset` (fall back to the link matrix), `empty`
+ * (the person configured "no skills" — NOT a licence to delete every remote skill), `list`.
+ */
+export type IncludeState = { kind: 'unset' } | { kind: 'empty' } | { kind: 'list'; skills: Set<string> };
 
 export interface PullBackupRecord {
   skill: string;
@@ -485,8 +498,10 @@ async function pushToServer(
 
   {
     const server = getConfiguredServer(config, serverName);
-    const pushSet = pushSetOf(config, serverName);
+    const includeState = includeStateOf(config, serverName);
+    const pushSet = includeState.kind === 'list' ? includeState.skills : includeState.kind === 'unset' ? null : new Set<string>();
     const included = (skill: string): boolean => pushSet === null || pushSet.has(skill);
+    const includeWarnings: string[] = includeState.kind === 'empty' ? ['no-skills-configured'] : [];
     let receiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
     if (receiverBackup) {
       const mergedBackup = mergeConfiguredLinksIntoReceiverBackup(
@@ -555,6 +570,9 @@ async function pushToServer(
     // Dry-run mode: show what would happen without executing
     if (options.dryRun) {
       console.log(`\n[dry-run] push to ${serverName}:\n`);
+      // Tester #449: the cleanup below deletes remote skills, and this branch used to return before it ran, so a plan
+      // that would remove half the remote skills printed `(no changes)`. The orphan set is computed here the same way.
+      const wouldDelete = orphansForCleanup(remoteSkillListForCleanup ?? await listRemoteSkills(server, runtime), manifest, included, includeState);
 
       let totalAdded = 0;
       let totalModified = 0;
@@ -581,7 +599,14 @@ async function pushToServer(
         console.log(`  ! ${skill} (conflict)`);
       }
 
-      if (finalPushedSkills.length === 0 && conflictedSkills.length === 0) {
+      if (wouldDelete.length > 0) {
+        console.log(`  Remote skills that would be removed (no longer in local config):`);
+        for (const skill of wouldDelete) console.log(`  - ${skill}`);
+      }
+      if (includeState.kind === 'empty') {
+        console.log('  warning: this server\'s skills.include is empty; nothing is carried to it (and that alone deletes nothing)');
+      }
+      if (finalPushedSkills.length === 0 && conflictedSkills.length === 0 && wouldDelete.length === 0) {
         console.log('  (no changes)');
       } else {
         // Summary line
@@ -604,7 +629,9 @@ async function pushToServer(
           ...(options.onConflict === 'skip' ? conflictedSkills : [])
         ]),
         conflicted_skills: conflictedSkills,
-        manifest
+        manifest,
+        deleted_skills: wouldDelete,
+        ...(includeWarnings.length === 0 ? {} : { warnings: includeWarnings })
       };
     }
 
@@ -621,8 +648,10 @@ async function pushToServer(
       Object.keys(manifest.skills).filter(skill => manifest.skills[skill]?.local_hash !== null && included(skill))
     );
 
-    // Remote skills not in local config
-    const orphanSkills = remoteSkillsForCleanup.filter(skill => !localSkillSet.has(skill));
+    // Remote skills not in local config. Tester #449: an explicitly empty include authorises no deletion -- it says the
+    // server carries no skills, not that whatever is on it should be destroyed.
+    const orphanSkills = orphansForCleanup(remoteSkillsForCleanup, manifest, included, includeState);
+    let deletedSkills: string[] = [];
 
     if (orphanSkills.length > 0 && !options.dryRun) {
       console.log(`\nRemote skills to remove (no longer in local config):`);
@@ -647,6 +676,7 @@ async function pushToServer(
 
       if (shouldDelete) {
         await deleteRemoteSkills(server, orphanSkills, runtime);
+        deletedSkills = [...orphanSkills];
         console.log(`  Removed ${orphanSkills.length} remote skill(s)`);
       } else {
         console.log(cleanupSkippedMessage(updated.previousManifest, serverName, orphanSkills));
@@ -661,6 +691,8 @@ async function pushToServer(
     return {
       server: server.name,
       pushed_skills: finalPushedSkills,
+      deleted_skills: deletedSkills,
+      ...(includeWarnings.length === 0 ? {} : { warnings: includeWarnings }),
       skipped_skills: uniqueSorted([
         ...pullSkills,
         ...(options.onConflict === 'skip' ? conflictedSkills : [])
@@ -1206,14 +1238,32 @@ function getIncludedServerSkills(config: SyncSkillConfig, serverName: string): s
  * one the link matrix (`config.links` keys) is the set. A config that declares neither keeps the old
  * behaviour -- every local skill, since nothing said which subset was meant. `null` means no limit.
  */
-function pushSetOf(config: SyncSkillConfig, serverName: string): Set<string> | null {
+/** Tester #449: the remote skills a push would remove -- ONE computation for the dry run and the real cleanup. */
+function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, included: (skill: string) => boolean, includeState: IncludeState): string[] {
+  if (includeState.kind === 'empty') return [];
+  const localSkillSet = new Set(
+    Object.keys(manifest.skills).filter((skill) => manifest.skills[skill]?.local_hash !== null && included(skill))
+  );
+  return remoteSkills.filter((skill) => !localSkillSet.has(skill));
+}
+
+function includeStateOf(config: SyncSkillConfig, serverName: string): IncludeState {
   const serverRecord = config.servers[serverName] as Record<string, unknown> | undefined;
   const serverSkills = serverRecord?.skills as { include?: unknown } | undefined;
   if (Array.isArray(serverSkills?.include)) {
-    return new Set(serverSkills.include.filter((skill): skill is string => typeof skill === 'string'));
+    const skills = new Set(serverSkills.include.filter((skill): skill is string => typeof skill === 'string'));
+    // Tester #449: an explicitly empty include means "this server carries no skills", which is not the same statement as
+    // "delete whatever is there". Reachable only by hand-editing the config (the UI unsets instead), and it used to
+    // authorise `ssh rm -rf` of every remote skill.
+    return skills.size === 0 ? { kind: 'empty' } : { kind: 'list', skills };
   }
   const linkNames = Object.keys(config.links);
-  return linkNames.length > 0 ? new Set(linkNames) : null;
+  return linkNames.length > 0 ? { kind: 'list', skills: new Set(linkNames) } : { kind: 'unset' };
+}
+
+function pushSetOf(config: SyncSkillConfig, serverName: string): Set<string> | null {
+  const state = includeStateOf(config, serverName);
+  return state.kind === 'list' ? state.skills : state.kind === 'unset' ? null : new Set();
 }
 
 function getSkillsDir(homeDir: string): string {

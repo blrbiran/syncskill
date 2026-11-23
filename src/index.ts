@@ -634,6 +634,8 @@ function formatPullRows(result: PullResult): string[] {
 function formatPushRows(result: PushResult): string[] {
   return [
     ...result.pushed_skills.map((skill: string) => `${skill}\t${result.server}\tpush\tin-sync`),
+    // Tester #449: a push can delete remote skills; pull already printed its own deletions this way.
+    ...(result.deleted_skills ?? []).map((skill: string) => `${skill}\t${result.server}\tdelete\tin-sync`),
     ...result.conflicted_skills.map((skill: string) => `${skill}\t${result.server}\tconflict\tconflict`)
   ];
 }
@@ -646,6 +648,9 @@ function formatSkillRows(action: 'pull' | 'push', result: PullResult | PushResul
 
 function summarizePushResults(results: PushResult[]): Record<string, unknown> {
   const pushed = results.flatMap((result) => result.pushed_skills.map((skill) => ({ skill, server: result.server })));
+  // Tester #449: what this push removed (or would, under --dry-run), and any warning behind it.
+  const deleted = results.flatMap((result) => (result.deleted_skills ?? []).map((skill) => ({ skill, server: result.server })));
+  const warnings = results.flatMap((result) => (result.warnings ?? []).map((code) => ({ code, server: result.server })));
   const skipped = results.flatMap((result) => result.skipped_skills.map((skill) => ({ skill, server: result.server })));
   const conflicts = results.flatMap((result) => result.conflicted_skills.map((skill) => ({ skill, server: result.server })));
   const servers = results.map((result) => ({
@@ -653,6 +658,7 @@ function summarizePushResults(results: PushResult[]): Record<string, unknown> {
     ok: true,
     pushed: result.pushed_skills.length,
     pulled: 0,
+    deleted: (result.deleted_skills ?? []).length,
     skipped: result.skipped_skills.length,
     conflicts: result.conflicted_skills.length
   }));
@@ -660,18 +666,20 @@ function summarizePushResults(results: PushResult[]): Record<string, unknown> {
   return {
     pushed: pushed.length,
     pulled: 0,
+    deleted: deleted.length,
     skipped: skipped.length,
     conflicts: conflicts.length,
-    warnings: 0,
+    warnings: warnings.length,
     data: {
       servers,
       pushed,
       pulled: [],
-      deleted: [],
+      // Tester #449: pull already listed its deletions here; push reports its own now.
+      deleted,
       skipped,
       conflicts,
       failed: [],
-      changes: pushed.map((entry) => ({ op: 'push', ...entry })),
+      changes: [...pushed.map((entry) => ({ op: 'push', ...entry })), ...deleted.map((entry) => ({ op: 'delete', ...entry }))],
       backups: []
     }
   };
