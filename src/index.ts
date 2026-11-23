@@ -3349,7 +3349,11 @@ export function createProgram(homeDir?: string): Command {
         const json = program.opts<{ json?: boolean }>().json === true;
         if (json) {
           getGlobalOutput().result(true, {
-            servers: results.map(({ server: name, result }) => ({ server: name, ...result }))
+            servers: results.map(({ server: name, result, backups }) => ({
+              server: name,
+              ...result,
+              ...(backups === undefined ? {} : { backups })
+            }))
           });
           return;
         }

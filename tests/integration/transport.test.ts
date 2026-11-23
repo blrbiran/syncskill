@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig } from '../../src/config/config.js';
+import { createProgram } from '../../src/index.js';
 import { createEmptyManifest } from '../../src/core/manifest.js';
 
 const receiverPath = new URL('../../src/receiver/sync_receiver.mjs', import.meta.url).pathname;
@@ -1456,6 +1457,66 @@ describe('transport', () => {
     expect(args).toContain('--apply');
     expect(args).toContain('--older-than-ms');
     expect(args).toContain('86400000');
+  });
+
+  it.each([
+    { mode: 'dry-run', args: [], expectedApplied: false },
+    { mode: 'apply', args: ['--apply'], expectedApplied: true }
+  ])('prune --recover-backups --json includes per-server backup outcomes in $mode mode', async ({ args, expectedApplied }) => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
+    tempDirs.push(homeDir);
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: { alpha: { host: 'alpha.example.com', remote_agents: {} } },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const runtime = {
+      async exec(_file: string, commandArgs: string[]) {
+        const command = commandArgs.join(' ');
+        if (command.includes('recover-backup')) {
+          return {
+            stdout: JSON.stringify({
+              applied: expectedApplied,
+              recovered: [{ skill: 'welcome', from: '.welcome.backup-crash', to: 'welcome' }],
+              skipped: [{ skill: 'docs', reason: 'live-present', backups: ['.docs.backup-crash'] }]
+            }),
+            stderr: ''
+          };
+        }
+        return { stdout: JSON.stringify({ applied: expectedApplied, pruned: [], skipped: [] }), stderr: '' };
+      }
+    };
+    vi.spyOn(await import('../../src/core/transport.js'), 'createTransportRuntime').mockReturnValue(runtime);
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', '--json', 'prune', ...args, 'alpha', '--recover-backups'],
+      { from: 'node' }
+    );
+
+    const resultEvent = consoleLog.mock.calls
+      .map(([line]) => JSON.parse(line as string))
+      .find((event) => event.type === 'result');
+    expect(resultEvent.summary.servers).toEqual([
+      {
+        server: 'alpha',
+        applied: expectedApplied,
+        pruned: [],
+        skipped: [],
+        backups: {
+          applied: expectedApplied,
+          recovered: [{ skill: 'welcome', from: '.welcome.backup-crash', to: 'welcome' }],
+          skipped: [{ skill: 'docs', reason: 'live-present', backups: ['.docs.backup-crash'] }]
+        }
+      }
+    ]);
   });
 
   it('receiver promote-skill removes the staging tree it could not consume', async () => {
