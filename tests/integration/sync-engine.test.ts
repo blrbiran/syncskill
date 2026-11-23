@@ -443,6 +443,163 @@ describe('sync engine orchestration', () => {
     expect(manifest.skills.welcome.status).toBe('conflict');
   });
 
+  it('pushToServers skips conflicts when explicitly requested despite keep-local config', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'keep-local',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# local version\n', 'utf8');
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        skills: {
+          welcome: {
+            local_hash: null,
+            remote_hash: 'remote-version',
+            recorded_hash: 'base-version',
+            direction: 'skip',
+            status: 'in-sync'
+          }
+        }
+      })
+    });
+
+    const [result] = await pushToServers(homeDir, ['alpha'], {
+      runtime,
+      now: '2026-05-01T03:00:00.000Z',
+      onConflict: 'skip'
+    });
+
+    expect(result.pushed_skills).toEqual([]);
+    expect(result.skipped_skills).toEqual(['welcome']);
+    expect(runtime.calls.some((call) => call.file === 'rsync')).toBe(false);
+  });
+
+  it('pushToServers aborts conflicts despite keep-local config', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'keep-local',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# local version\n', 'utf8');
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        skills: {
+          welcome: {
+            local_hash: null,
+            remote_hash: 'remote-version',
+            recorded_hash: 'base-version',
+            direction: 'skip',
+            status: 'in-sync'
+          }
+        }
+      })
+    });
+
+    await expect(
+      pushToServers(homeDir, ['alpha'], {
+        runtime,
+        now: '2026-05-01T03:00:00.000Z',
+        onConflict: 'abort'
+      })
+    ).rejects.toThrow('Content conflict on alpha: welcome');
+    expect(runtime.calls.some((call) => call.file === 'rsync')).toBe(false);
+  });
+
+  it('pushToServers preserves configured keep-local behavior when no override is given', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'keep-local',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# local version\n', 'utf8');
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({
+        version: 1,
+        server: 'alpha',
+        updated_at: '2026-05-01T00:00:00.000Z',
+        skills: {
+          welcome: {
+            local_hash: null,
+            remote_hash: 'remote-version',
+            recorded_hash: 'base-version',
+            direction: 'skip',
+            status: 'in-sync'
+          }
+        }
+      })
+    });
+
+    const [result] = await pushToServers(homeDir, ['alpha'], {
+      runtime,
+      now: '2026-05-01T03:00:00.000Z'
+    });
+
+    expect(result.pushed_skills).toEqual(['welcome']);
+    expect(result.skipped_skills).toEqual([]);
+    expect(runtime.calls.some((call) => call.file === 'rsync')).toBe(true);
+  });
+
   it('pullFromServer resolves conflicts toward push when keep-local policy is configured', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
     tempDirs.push(homeDir);

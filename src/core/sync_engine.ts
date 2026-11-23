@@ -160,6 +160,10 @@ function resolveSingleServerConflictPolicy(
     return 'keep-remote';
   }
 
+  if (override === 'skip' || override === 'abort') {
+    return 'manual';
+  }
+
   return configuredPolicy;
 }
 
@@ -595,7 +599,10 @@ async function pushToServer(
       return {
         server: serverName,
         pushed_skills: [],
-        skipped_skills: uniqueSorted(pullSkills),
+        skipped_skills: uniqueSorted([
+          ...pullSkills,
+          ...(options.onConflict === 'skip' ? conflictedSkills : [])
+        ]),
         conflicted_skills: conflictedSkills,
         manifest
       };
@@ -654,7 +661,10 @@ async function pushToServer(
     return {
       server: server.name,
       pushed_skills: finalPushedSkills,
-      skipped_skills: uniqueSorted(pullSkills),
+      skipped_skills: uniqueSorted([
+        ...pullSkills,
+        ...(options.onConflict === 'skip' ? conflictedSkills : [])
+      ]),
       conflicted_skills: conflictedSkills,
       manifest: finalizedManifest
     };
