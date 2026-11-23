@@ -18,6 +18,72 @@ describe('sync CLI', () => {
     delete process.env.SYNCSKILL_STRICT;
   });
 
+  async function runKeepLocalConflictPush(options: string[]) {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'keep-local',
+        agents: {},
+        links: {},
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# local version\n', 'utf8');
+
+    const calls: Array<{ file: string; args: string[]; stdin?: string }> = [];
+    const runtime = {
+      calls,
+      async exec(file: string, args: string[], execOptions: { stdin?: string } = {}) {
+        calls.push({ file, args, stdin: execOptions.stdin });
+        if (file === 'ssh' && args.at(-1) === 'manifest') {
+          return {
+            stdout: JSON.stringify({
+              version: 1,
+              server: 'alpha',
+              updated_at: '2026-05-01T00:00:00.000Z',
+              skills: {
+                welcome: {
+                  local_hash: null,
+                  remote_hash: 'remote-version',
+                  recorded_hash: 'base-version',
+                  direction: 'skip',
+                  status: 'in-sync'
+                }
+              }
+            }),
+            stderr: ''
+          };
+        }
+        return { stdout: '', stderr: '' };
+      }
+    };
+    vi.spyOn(await import('../../src/core/transport.js'), 'createTransportRuntime').mockReturnValue(runtime);
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    await createProgram(homeDir).parseAsync(
+      ['node', 'syncskill', '--json', 'push', 'alpha', ...options],
+      { from: 'node' }
+    );
+
+    const events = consoleLog.mock.calls.map((call) => JSON.parse(call[0] as string));
+    const resultEvent = events.find((event) => event.type === 'result');
+    return { calls, processExit, summary: resultEvent.summary };
+  }
+
   it('push <server> prints one tab-separated line per pushed skill', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
     tempDirs.push(homeDir);
@@ -78,72 +144,20 @@ describe('sync CLI', () => {
   });
 
   it('push --on-conflict skip does not upload a real conflict with keep-local config', async () => {
-    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-cli-'));
-    tempDirs.push(homeDir);
+    const { calls, processExit, summary } = await runKeepLocalConflictPush(['--on-conflict', 'skip']);
 
-    await saveConfig(
-      {
-        version: 1,
-        conflict_resolution: 'keep-local',
-        agents: {},
-        links: {},
-        servers: {
-          alpha: {
-            host: 'alpha.example.com',
-            remote_agents: {}
-          }
-        },
-        sources: {}
-      },
-      homeDir
-    );
-
-    const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
-    await mkdir(skillDir, { recursive: true });
-    await writeFile(join(skillDir, 'SKILL.md'), '# local version\n', 'utf8');
-
-    const calls: Array<{ file: string; args: string[]; stdin?: string }> = [];
-    const runtime = {
-      calls,
-      async exec(file: string, args: string[], options: { stdin?: string } = {}) {
-        calls.push({ file, args, stdin: options.stdin });
-        if (file === 'ssh' && args.at(-1) === 'manifest') {
-          return {
-            stdout: JSON.stringify({
-              version: 1,
-              server: 'alpha',
-              updated_at: '2026-05-01T00:00:00.000Z',
-              skills: {
-                welcome: {
-                  local_hash: null,
-                  remote_hash: 'remote-version',
-                  recorded_hash: 'base-version',
-                  direction: 'skip',
-                  status: 'in-sync'
-                }
-              }
-            }),
-            stderr: ''
-          };
-        }
-        return { stdout: '', stderr: '' };
-      }
-    };
-    vi.spyOn(await import('../../src/core/transport.js'), 'createTransportRuntime').mockReturnValue(runtime);
-
-    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    await createProgram(homeDir).parseAsync(
-      ['node', 'syncskill', '--json', 'push', 'alpha', '--on-conflict', 'skip'],
-      { from: 'node' }
-    );
-
-    const events = consoleLog.mock.calls.map((call) => JSON.parse(call[0] as string));
-    const resultEvent = events.find((event) => event.type === 'result');
-    expect(resultEvent.summary.skipped).toBe(1);
-    expect(resultEvent.summary.data.skipped).toEqual([{ skill: 'welcome', server: 'alpha' }]);
+    expect(summary.skipped).toBe(1);
+    expect(summary.data.skipped).toEqual([{ skill: 'welcome', server: 'alpha' }]);
     expect(calls.some((call) => call.file === 'rsync')).toBe(false);
     expect(processExit).toHaveBeenCalledWith(ExitCode.DIRTY_SKIP);
+  });
+
+  it('push without --on-conflict preserves configured keep-local behavior', async () => {
+    const { calls, summary } = await runKeepLocalConflictPush([]);
+
+    expect(summary.pushed).toBe(1);
+    expect(summary.data.pushed).toEqual([{ skill: 'welcome', server: 'alpha' }]);
+    expect(calls.some((call) => call.file === 'rsync')).toBe(true);
   });
 
   it('push rejects an invalid conflict policy', async () => {
