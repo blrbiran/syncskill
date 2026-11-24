@@ -320,6 +320,129 @@ describe('remote CLI', () => {
     });
   });
 
+  // Tester #457: `remote add` rebuilt `config.servers[name]` from the flags it was given, so a call that changed one
+  // field silently wiped every field it did not repeat -- including `skills.include`, which is what limits what a
+  // later `--yes-destructive` push may delete.
+  const fullServer = {
+    host: 'alpha.example.com',
+    user: 'deploy',
+    port: 2222,
+    identity_file: '/Users/demo/.ssh/id_syncskill',
+    remote_repo: '/srv/syncskill',
+    node_bin: '/home/deploy/.nvm/versions/node/v22.23.4/bin/node',
+    connect_timeout_ms: 30_000,
+    skills: { include: ['alpha', 'beta'] },
+    remote_agents: { claude: '/srv/.claude/skills' }
+  };
+
+  const seedFullServer = async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
+    tempDirs.push(homeDir);
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: { alpha: fullServer },
+        sources: {}
+      },
+      homeDir
+    );
+    return homeDir;
+  };
+
+  it('remote add amends an existing remote instead of rebuilding it (#457)', async () => {
+    const homeDir = await seedFullServer();
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync([
+      'node', 'syncskill', '--no-refresh', 'remote', 'add', 'alpha', '--host', 'alpha.example.com'
+    ], { from: 'node' });
+
+    // mutation: rebuild `config.servers[name]` from the flags -> everything except host/remote_agents is gone, red
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({
+      servers: { alpha: fullServer }
+    });
+    expect(consoleLog).toHaveBeenCalled();
+  });
+
+  it('remote add can change one field without repeating --host (#457)', async () => {
+    const homeDir = await seedFullServer();
+
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync([
+      'node', 'syncskill', '--no-refresh', 'remote', 'add', 'alpha', '--port', '3333'
+    ], { from: 'node' });
+
+    // mutation: keep `--host` a requiredOption -> commander refuses the call before it runs, red
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({
+      servers: { alpha: { ...fullServer, port: 3333 } }
+    });
+  });
+
+  it('remote add still requires --host when the remote is new (#457)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
+    tempDirs.push(homeDir);
+    await saveConfig(
+      { version: 1, conflict_resolution: 'manual', agents: {}, links: {}, servers: {}, sources: {} },
+      homeDir
+    );
+
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync([
+      'node', 'syncskill', '--no-refresh', 'remote', 'add', 'beta', '--user', 'deploy'
+    ], { from: 'node' });
+
+    // mutation: make --host optional unconditionally -> this call writes a hostless entry and exits 0, red
+    expect(processExit).toHaveBeenCalledWith(ExitCode.USAGE_ERROR);
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({ servers: {} });
+  });
+
+  it('remote add reports the fields it changed in text and JSON (#457)', async () => {
+    const homeDir = await seedFullServer();
+
+    const textLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync([
+      'node', 'syncskill', '--no-refresh', 'remote', 'add', 'alpha', '--port', '3333'
+    ], { from: 'node' });
+    // mutation: print the bare name as before -> the person cannot see which field was written, red
+    expect(textLog.mock.calls.map((call) => String(call[0])).join('\n')).toContain('port');
+    textLog.mockRestore();
+
+    const jsonLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    await createProgram(homeDir).parseAsync([
+      'node', 'syncskill', '--json', '--no-refresh', 'remote', 'add', 'alpha', '--user', 'ops'
+    ], { from: 'node' });
+    const result = jsonLog.mock.calls
+      .map((call) => String(call[0]))
+      .map((line) => JSON.parse(line) as { type: string; summary?: { changed_fields?: string[] } })
+      .find((event) => event.type === 'result');
+
+    // mutation: omit changed_fields from the JSON summary -> a script cannot tell what an update touched, red
+    expect(result?.summary?.changed_fields).toEqual(['user']);
+  });
+
+  // Tester #456: an unreadable remote must end the command with the network exit code, not a stack trace.
+  it('push exits with NETWORK_ERROR when the remote cannot be read (#456)', async () => {
+    const homeDir = await seedFullServer();
+    const engine = await import('../../src/core/sync_engine.js');
+    vi.spyOn(engine, 'pushToServers').mockRejectedValue(
+      new Error('E_REMOTE_TRANSPORT: cannot list the skills on alpha: ssh exited with code 255')
+    );
+    const processExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync([
+      'node', 'syncskill', '--no-refresh', 'push', 'alpha', '--dry-run'
+    ], { from: 'node' });
+
+    // mutation: drop the E_REMOTE_TRANSPORT branch from handleSyncCommandError -> the error is rethrown, red
+    expect(processExit).toHaveBeenCalledWith(ExitCode.NETWORK_ERROR);
+  });
+
   it('remote rm removes a configured remote endpoint', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
     tempDirs.push(homeDir);

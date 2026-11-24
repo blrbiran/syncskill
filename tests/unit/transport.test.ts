@@ -103,13 +103,13 @@ describe('listRemoteSkills', () => {
     expect(result).toEqual(['skill-a', 'skill-b', 'skill-c']);
   });
 
-  it('returns empty array when directory is empty or missing', async () => {
+  it('returns empty array only when the remote says the directory does not exist', async () => {
     const runtime: TransportRuntime = {
       calls: [],
       async exec(file, args) {
         this.calls?.push({ file, args });
         if (args.some(a => a === 'ls')) {
-          throw new Error('No such file or directory');
+          throw new Error('ssh exited with code 2: ls: /home/u/.syncskill/skills: No such file or directory');
         }
         return { stdout: '', stderr: '' };
       }
@@ -117,6 +117,65 @@ describe('listRemoteSkills', () => {
 
     const result = await listRemoteSkills(mockServer, runtime);
     expect(result).toEqual([]);
+  });
+
+  // Tester #456: `catch { return [] }` turned an unreachable remote into "the remote is empty", so a
+  // dry run and a destructive push both reported `deleted_skills: []` with exit 0.
+  it('propagates a transport failure instead of reporting an empty remote', async () => {
+    const runtime: TransportRuntime = {
+      calls: [],
+      async exec(file, args) {
+        this.calls?.push({ file, args });
+        if (args.some(a => a === 'ls')) {
+          throw new Error('ssh exited with code 255: Host key verification failed.');
+        }
+        return { stdout: '', stderr: '' };
+      }
+    };
+
+    await expect(listRemoteSkills(mockServer, runtime)).rejects.toThrow('E_REMOTE_TRANSPORT');
+  });
+
+  it('propagates when ssh itself cannot be spawned', async () => {
+    const runtime: TransportRuntime = {
+      calls: [],
+      async exec() {
+        throw Object.assign(new Error('spawn ssh ENOENT'), { code: 'ENOENT' });
+      }
+    };
+
+    await expect(listRemoteSkills(mockServer, runtime)).rejects.toThrow('E_REMOTE_TRANSPORT');
+  });
+
+  it('propagates a permission failure, which is not "the directory does not exist"', async () => {
+    const runtime: TransportRuntime = {
+      calls: [],
+      async exec(file, args) {
+        this.calls?.push({ file, args });
+        if (args.some(a => a === 'ls')) {
+          throw new Error("ssh exited with code 2: ls: cannot open directory '/home/u/.syncskill/skills': Permission denied");
+        }
+        return { stdout: '', stderr: '' };
+      }
+    };
+
+    await expect(listRemoteSkills(mockServer, runtime)).rejects.toThrow('E_REMOTE_TRANSPORT');
+  });
+
+  it('reads an ssh failure as transport even when its stderr also says "No such file"', async () => {
+    const runtime: TransportRuntime = {
+      calls: [],
+      async exec(file, args) {
+        this.calls?.push({ file, args });
+        if (args.some(a => a === 'ls')) {
+          throw new Error("ssh exited with code 255: Warning: Identity file /home/u/.ssh/gone.pem not accessible: No such file or directory");
+        }
+        return { stdout: '', stderr: '' };
+      }
+    };
+
+    // mutation: drop the `!isTransportFailure(...)` guard -> this is misread as an absent directory and resolved [], red
+    await expect(listRemoteSkills(mockServer, runtime)).rejects.toThrow('E_REMOTE_TRANSPORT');
   });
 });
 

@@ -55,10 +55,17 @@ function remoteConfigPath(server: ConfiguredServer): string {
 }
 
 /** Issue 408: nvm/fnm/volta installs are not on a non-login ssh PATH, so the receiver's interpreter is
- * configurable (`remote add --node-bin`). */
+ * configurable. There is no `remote add --node-bin`; set `servers.<name>.node_bin` in config.json. */
 function remoteNode(server: ConfiguredServer): string {
   const configured = typeof server.node_bin === 'string' ? server.node_bin.trim() : '';
   return configured === '' ? 'node' : configured;
+}
+
+/** Exit 255 is ssh's own failure (unreachable host, refused key, reset connection); the errno names
+ * cover a missing ssh binary and the network errnos Node reports. A remote command that fails for a
+ * reason of its own (exit 2, "Permission denied" on a directory) is not in this set. */
+function isTransportFailure(message: string): boolean {
+  return /exited with code 255|ENOENT|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|ENETUNREACH/i.test(message);
 }
 
 function connectTimeoutSeconds(server: ConfiguredServer): number {
@@ -380,7 +387,7 @@ export async function deployReceiver(
     const message = error instanceof Error ? error.message : String(error);
     // A transport failure is not a writability fact. Exit 255 is ssh's own failure (unreachable
     // host, refused key); naming the root would send the operator to the wrong place.
-    if (/exited with code 255|ENOENT|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|ENETUNREACH/i.test(message)) {
+    if (isTransportFailure(message)) {
       throw new Error(`E_REMOTE_TRANSPORT: cannot reach ${server.name} to prepare ${root}: ${message}`);
     }
     throw new Error(
@@ -415,6 +422,10 @@ export async function applyRemoteLinks(
   await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'apply']));
 }
 
+/** A missing skills directory (first push to a server) is an empty list; anything else means the
+ * remote could not be read, and callers must not treat "could not read" as "nothing is there". */
+const ABSENT_SKILLS_DIR = /No such file or directory/i;
+
 export async function listRemoteSkills(server: ConfiguredServer, runtime: TransportRuntime): Promise<string[]> {
   try {
     const result = await runtime.exec('ssh', buildSshArgs(server, ['ls', quoteRemotePath(remoteSkillsDir(server))]));
@@ -423,9 +434,14 @@ export async function listRemoteSkills(server: ConfiguredServer, runtime: Transp
       .split('\n')
       .filter(name => name.length > 0)
       .sort();
-  } catch {
-    // Directory doesn't exist or is empty
-    return [];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Tester #456: this used to be `return []` for every failure, so an unreachable host looked like
+    // an empty remote and a push reported `deleted_skills: []` with exit 0 even under --dry-run.
+    if (!isTransportFailure(message) && ABSENT_SKILLS_DIR.test(message)) {
+      return [];
+    }
+    throw new Error(`E_REMOTE_TRANSPORT: cannot list the skills on ${server.name}: ${message}`);
   }
 }
 

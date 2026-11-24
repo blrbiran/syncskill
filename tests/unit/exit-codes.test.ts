@@ -28,6 +28,10 @@ describe('exit-codes', () => {
       expect(errorCodeToExitCode('E_TIMEOUT')).toBe(ExitCode.NETWORK_ERROR);
     });
 
+    it('maps E_REMOTE_TRANSPORT to NETWORK_ERROR', () => {
+      expect(errorCodeToExitCode('E_REMOTE_TRANSPORT')).toBe(ExitCode.NETWORK_ERROR);
+    });
+
     it('maps E_CONFLICT to CONFLICT_UNRESOLVED', () => {
       expect(errorCodeToExitCode('E_CONFLICT')).toBe(ExitCode.CONFLICT_UNRESOLVED);
     });

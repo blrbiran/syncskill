@@ -74,6 +74,54 @@ describe('push discloses the remote deletions it would make (#449)', () => {
     expect(runtime.deletes).toHaveLength(1);
   });
 
+  // Tester #456: `listRemoteSkills` caught every error and returned `[]`, so an unreachable remote looked exactly
+  // like an empty one and both surfaces below reported "nothing to delete" with exit 0.
+  const failingListingRuntime = (message: string) => {
+    const runtime = createRuntime([]);
+    const exec = runtime.exec.bind(runtime);
+    runtime.exec = async (file, args, options) => {
+      if (file === 'ssh' && args.includes('ls')) throw new Error(message);
+      return exec(file, args, options);
+    };
+    return runtime;
+  };
+
+  it('a dry run fails loudly when the remote listing is unavailable', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
+    tempDirs.push(home);
+    await saveConfig(config(['keepme']), home);
+    await localSkill(home, 'keepme');
+    const runtime = failingListingRuntime('ssh exited with code 255: Connection reset by peer');
+    // mutation: restore `catch { return [] }` -> this resolves with deleted_skills [] instead of rejecting, red
+    await expect(pushToServers(home, ['alpha'], { runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' }))
+      .rejects.toThrow('E_REMOTE_TRANSPORT');
+    expect(runtime.deletes).toHaveLength(0);
+  });
+
+  it('an authorised destructive push deletes nothing when it cannot list the remote', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
+    tempDirs.push(home);
+    await saveConfig(config(['keepme']), home);
+    await localSkill(home, 'keepme');
+    const runtime = failingListingRuntime('spawn ssh ENOENT');
+    // mutation: restore `catch { return [] }` -> this resolves with no error and never deletes, red
+    await expect(pushToServers(home, ['alpha'], { runtime, yes: true, yesDestructive: true, now: '2026-05-01T00:00:00.000Z' }))
+      .rejects.toThrow('E_REMOTE_TRANSPORT');
+    expect(runtime.deletes).toHaveLength(0);
+  });
+
+  it('an absent remote skills directory is still an empty list, not an error', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
+    tempDirs.push(home);
+    await saveConfig(config(['keepme']), home);
+    await localSkill(home, 'keepme');
+    const runtime = failingListingRuntime("ssh exited with code 2: ls: cannot access '/home/u/.syncskill/skills': No such file or directory");
+    // mutation: treat every failure as an error -> this rejects, red (a first push must not be blocked)
+    const [result] = await pushToServers(home, ['alpha'], { runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' });
+    expect(result.deleted_skills ?? []).toEqual([]);
+    expect(runtime.deletes).toHaveLength(0);
+  });
+
   it('an empty include is not a licence to delete every remote skill', async () => {
     const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
     tempDirs.push(home);

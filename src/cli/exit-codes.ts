@@ -44,7 +44,8 @@ export function errorCodeToExitCode(errorCode: string): ExitCodeValue {
       errorCode === 'E_BACKUP_NOT_FOUND') {
     return ExitCode.CONFIG_ERROR;
   }
-  if (errorCode === 'E_NETWORK' || errorCode === 'E_TIMEOUT' || errorCode === 'E_TAKEOVER_FAILED') {
+  if (errorCode === 'E_NETWORK' || errorCode === 'E_TIMEOUT' || errorCode === 'E_TAKEOVER_FAILED' ||
+      errorCode === 'E_REMOTE_TRANSPORT') {
     return ExitCode.NETWORK_ERROR;
   }
   if (errorCode === 'E_SOURCE_DIRTY') {

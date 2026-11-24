@@ -965,6 +965,12 @@ function handleSyncCommandError(error: unknown): never {
     return failWithOutputError(parsed.code, parsed.message);
   }
 
+  // Tester #456: a remote that cannot be read must fail the command, not print a stack trace. The
+  // exit code comes from errorCodeToExitCode (E_REMOTE_TRANSPORT -> NETWORK_ERROR).
+  if (parsed.code === 'E_REMOTE_TRANSPORT' || parsed.code === 'E_REMOTE_ROOT') {
+    return failWithOutputError(parsed.code, parsed.message);
+  }
+
   throw error;
 }
 
@@ -2643,33 +2649,66 @@ export function createProgram(homeDir?: string): Command {
 
   remoteCommand
     .command('add <name>')
-    .description('Add a configured remote endpoint')
-    .requiredOption('--host <host>', 'SSH host')
+    .description('Add a configured remote endpoint, or amend an existing one')
+    .option('--host <host>', 'SSH host (required for a new remote)')
     .option('--user <user>', 'SSH user')
     .option('--port <port>', 'SSH port', parseInteger)
     .option('--identity-file <path>', 'SSH identity file')
     .option('--remote-repo <path>', 'Remote syncskill repository path')
-    .action(async (name: string, options: { host: string; user?: string; port?: number; identityFile?: string; remoteRepo?: string }) => {
+    .action(async (name: string, options: { host?: string; user?: string; port?: number; identityFile?: string; remoteRepo?: string }) => {
       const config = await loadConfig(resolvedHomeDir);
       const existing = config.servers[name];
       const existingRecord = typeof existing === 'object' && existing !== null && !Array.isArray(existing)
         ? existing as Record<string, unknown>
         : null;
-      const existingRemoteAgents = existingRecord?.remote_agents;
-      const remoteAgents = typeof existingRemoteAgents === 'object' && existingRemoteAgents !== null && !Array.isArray(existingRemoteAgents)
-        ? Object.fromEntries(Object.entries(existingRemoteAgents).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
-        : {};
 
-      config.servers[name] = {
-        host: options.host,
-        ...(typeof options.user === 'string' ? { user: options.user } : {}),
-        ...(typeof options.port === 'number' ? { port: options.port } : {}),
-        ...(typeof options.identityFile === 'string' ? { identity_file: options.identityFile } : {}),
-        ...(typeof options.remoteRepo === 'string' ? { remote_repo: options.remoteRepo } : {}),
-        remote_agents: remoteAgents
+      if (existingRecord === null && typeof options.host !== 'string') {
+        return failWithOutputError(
+          'E_USAGE',
+          `--host is required for a new remote: ${name}`,
+          `Re-run with --host <host> to add \`${name}\`; an existing remote can be amended without it`
+        );
+      }
+
+      // Tester #457: amend the stored entry instead of rebuilding it from this call's flags. The old
+      // rebuild dropped every field not re-supplied -- including `skills.include`, which is what
+      // bounds what a later `--yes-destructive` push may delete.
+      const server: Record<string, unknown> = { ...(existingRecord ?? {}) };
+      const changedFields: string[] = [];
+      const setField = (field: string, value: unknown): void => {
+        if (value === undefined || server[field] === value) return;
+        server[field] = value;
+        changedFields.push(field);
       };
+
+      setField('host', options.host);
+      setField('user', options.user);
+      setField('port', options.port);
+      setField('identity_file', options.identityFile);
+      setField('remote_repo', options.remoteRepo);
+      if (existingRecord === null) {
+        server.remote_agents = {};
+      }
+
+      config.servers[name] = server;
       await saveConfig(config, resolvedHomeDir);
-      console.log(name);
+
+      const op = existingRecord === null ? 'remote.add' : 'remote.update';
+      if (hasJsonOutputEnabled(program)) {
+        getGlobalOutput().result(true, {
+          name,
+          op,
+          mode: existingRecord === null ? 'create' : 'merge',
+          changed_fields: changedFields,
+          data: { server }
+        });
+        return;
+      }
+
+      const summary = changedFields.length === 0 ? 'no fields changed' : changedFields.join(', ');
+      console.log(existingRecord === null
+        ? `Added remote "${name}": ${summary}`
+        : `Updated remote "${name}" (merge): ${summary}`);
     });
 
   remoteCommand
