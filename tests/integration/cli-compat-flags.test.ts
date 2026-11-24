@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -88,6 +88,18 @@ describe('mature-CLI compatibility flags', () => {
     const run = await runCli(homeDir, ['--json', '--quiet', 'config', 'show']);
     expect(errorCodeOf(run)).toBe('E_USAGE_GLOBAL_FLAG');
     expect(run.stdout + run.stderr).toContain('--json');
+  });
+
+  // Tester #473: -V/--version was missing, so neither a person nor a script could tell installed builds apart.
+  it('-V and --version print the package version and exit 0', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-version-'));
+    const { version } = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8')) as { version: string };
+    for (const flag of ['-V', '--version']) {
+      const run = await runCli(homeDir, [flag]);
+      // mutation: drop program.version(...) -> commander's unknown option, exit 1, red
+      expect(run.code, run.stderr).toBe(0);
+      expect(run.stdout.trim()).toBe(version);
+    }
   });
 
   it('--on-local-deletion on push is refused with a next step', async () => {

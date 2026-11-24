@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 
 import { checkbox, select, confirm } from '@inquirer/prompts';
 import { Command, InvalidArgumentError, Option } from 'commander';
+import { createRequire } from 'node:module';
 import { createOutput, setGlobalOutput, getGlobalOutput } from './cli/index.js';
 import { loadEnvConfig, mergeWithFlags } from './cli/env.js';
 import { ExitCode, errorCodeToExitCode } from './cli/exit-codes.js';
@@ -1387,11 +1388,17 @@ function buildHelpIntrospection(command: Command): object {
   return command.parent ? buildCommandIntrospection(command) : buildCliIntrospection(command);
 }
 
+function packageVersion(): string {
+  return (createRequire(import.meta.url)('../package.json') as { version: string }).version;
+}
+
 export function createProgram(homeDir?: string): Command {
   const resolvedHomeDir = homeDir ?? process.env.HOME ?? '';
   const program = new Command()
     .name('syncskill')
     .description('Multi-device AI Agent Skill sync tool. No args: show local dashboard summary')
+    // Tester #473: src/ and dist/ both sit one level below package.json.
+    .version(packageVersion(), '-V, --version', 'Print the syncskill version')
     .option('--json', 'Output in JSONL format for machine consumption')
     .option('--no-interactive', 'Disable interactive prompts')
     .option('--yes-destructive', 'Allow destructive actions in non-interactive mode')
