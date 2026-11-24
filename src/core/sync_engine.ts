@@ -635,12 +635,13 @@ async function pushToServer(
       };
     }
 
+    // Cleanup's view of the remote, read before any upload (tester #456 follow-up): a listing that fails aborts the
+    // push with nothing written, as CHANGELOG says, instead of after the skills were already sent.
+    const remoteSkillsForCleanup = remoteSkillListForCleanup ?? await listRemoteSkills(server, runtime);
+
     for (const skill of finalPushedSkills) {
       await pushSkillDirectory(server, join(getSkillsDir(homeDir), skill), skill, runtime);
     }
-
-    // Cleanup: remove remote skills not in current local config
-    const remoteSkillsForCleanup = remoteSkillListForCleanup ?? await listRemoteSkills(server, runtime);
 
     // Local skills this server is included for and that still have content (issue 404: a skill
     // removed from the link matrix / include is cleaned up remotely, not carried along).

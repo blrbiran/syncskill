@@ -110,6 +110,26 @@ describe('push discloses the remote deletions it would make (#449)', () => {
     expect(runtime.deletes).toHaveLength(0);
   });
 
+  // Tester #456 follow-up: the listing ran after the uploads, so a failed listing aborted with skill content already
+  // pushed (and no manifest written) -- while CHANGELOG said push lists the remote "before any write".
+  it('a push whose remote listing fails uploads nothing', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
+    tempDirs.push(home);
+    await saveConfig(config(['keepme']), home);
+    await localSkill(home, 'keepme');
+    const runtime = failingListingRuntime('ssh exited with code 255: Connection reset by peer');
+    const rsyncs: string[] = [];
+    const exec = runtime.exec.bind(runtime);
+    runtime.exec = async (file, args, options) => {
+      if (file === 'rsync') rsyncs.push(args.join(' '));
+      return exec(file, args, options);
+    };
+    await expect(pushToServers(home, ['alpha'], { runtime, yes: true, yesDestructive: true, now: '2026-05-01T00:00:00.000Z' }))
+      .rejects.toThrow('E_REMOTE_TRANSPORT');
+    // mutation: list the remote after the upload loop again -> keepme was rsynced before the failure, red
+    expect(rsyncs.filter((a) => a.includes('keepme'))).toEqual([]);
+  });
+
   it('an absent remote skills directory is still an empty list, not an error', async () => {
     const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
     tempDirs.push(home);
