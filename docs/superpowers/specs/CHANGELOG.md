@@ -4,6 +4,15 @@
 
 ---
 
+## v2.7.6（2026-11-24 — Orca 会话 `221948a1`，测试者 #456 #457）
+
+- **`remote add <name>` 对已存在的名字改为合并**（#457）：基线是 `config.servers[name]` 的现有记录，只有本次显式给出的 flag 会覆盖；`--host` 只在新建时必传（缺失 → `E_USAGE` exit 2）。旧实现按本次 flag **重建**，未重复的字段全部丢失 —— 实测一次 `remote add srv --host h1` 丢掉 `user`/`port`/`remote_repo`/`node_bin`/`connect_timeout_ms`/**`skills.include`**，而 `skills.include` 是 `includeStateOf` 里唯一能收窄 orphan 集的东西，等于悄悄改写了下一次 `--yes-destructive` 的删除授权范围。输出改为 `Added remote "x"` / `Updated remote "x" (merge): <changed fields>`，`--json` 的 summary 带 `op`/`mode`/`changed_fields`/`server`。
+  - 未加 `--replace` 与 `--node-bin`：清除字段仍靠 `remote rm` + 重新 add 或手改 config.json；`transport.ts` 中承诺 `--node-bin` 的注释已改成指向 `servers.<name>.node_bin`（该 flag 从未存在）。
+- **远端列不出技能时 push 失败，而不是报“远端为空”**（#456）：`listRemoteSkills` 过去 `catch { return [] }`，ssh 抖动时 `--dry-run` 与 `--yes-destructive` 都得到 `deleted_skills: []`、exit 0；现在只有 `ls` 明确回 `No such file or directory`（首次 push）才是 `[]`，其余失败一律抛 `E_REMOTE_TRANSPORT`。`push` 在写任何东西之前列出远端，失败即中止且不执行 `rm`；`E_REMOTE_TRANSPORT` 映射到 `ExitCode.NETWORK_ERROR = 5`，`handleSyncCommandError` 输出结构化错误而不是堆栈。
+- 判据：`tests/unit/transport.test.ts`（三态）、`tests/integration/push-deletion-visibility.test.ts`（dry-run/授权/目录不存在）、`tests/integration/server-cli.test.ts`（合并、`--host` 规则、文本/JSON 输出、push 退出码）、`tests/unit/exit-codes.test.ts`。每个分支都用“还原修复 → 判据变红”验证过。
+
+---
+
 ## v2.7.5（2026-11-24 — Orca 会话 `221948a1`，测试者 #449）
 
 `push` 会 `ssh … rm -rf` 删远端技能目录，而三个只读面都看不见：`--dry-run` 在计算 orphan 之前就 return（打 `(no changes)`）、`PushResult` 没有删除字段（`PullResult` 有 `deleted_skills`）、没有 `--plan` 预警。

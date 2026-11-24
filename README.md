@@ -134,7 +134,7 @@ Repeated installs from the same git or HTTP source reuse the existing source ent
 | Command | Description |
 |---------|-------------|
 | `syncskill remote` | Open skill → remote sync matrix editor |
-| `syncskill remote add <name> --host <host> [--user <user> --port <port> --identity-file <path> --remote-repo <path>]` | Add a configured remote endpoint |
+| `syncskill remote add <name> [--host <host>] [--user <user> --port <port> --identity-file <path> --remote-repo <path>]` | Add a configured remote endpoint, or amend an existing one (`--host` is required only for a new remote; fields not given are kept) |
 | `syncskill remote rm <name>` | Remove a configured remote endpoint |
 | `syncskill remote list` / `ls` | List configured remotes |
 | `syncskill remote show <name>` | Show the local receiver backup for one remote |

@@ -496,6 +496,8 @@ syncskill config remote
 
 # Add or inspect configured remotes
 syncskill remote add alpha --host alpha.example.com --user alice --remote-repo /srv/syncskill
+# Amend one field; every field not named here is kept (--host is only required for a new remote)
+syncskill remote add alpha --port 2222
 syncskill remote list
 syncskill remote show alpha
 ```

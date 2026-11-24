@@ -564,7 +564,7 @@ Run `syncskill --help` for all commands.
 | 命令 | 说明 |
 |------|------|
 | `remote` | 进入 skills × servers 矩阵编辑器 |
-| `remote add <name> --host=... [--user=... --port=... --identity-file=... --remote-repo=...]` | v2.7.4 PR 5b：注册 SSH 端点；写 `config.servers[<name>]`（替代旧 `server add`）；`--host` 必传，缺失 → `E_USAGE` exit 2 |
+| `remote add <name> [--host=...] [--user=... --port=... --identity-file=... --remote-repo=...]` | v2.7.4 PR 5b：注册 SSH 端点；写 `config.servers[<name>]`（替代旧 `server add`）。v2.7.6：已存在的名字按 flag **合并**（未给的字段保留，含 `skills.include`），`--host` 只在新建时必传，缺失 → `E_USAGE` exit 2 |
 | `remote rm <name>` | v2.7.4 PR 5b：删除 SSH 端点（替代旧 `server rm`）；不存在 → `E_REMOTE_NOT_FOUND` exit 2 |
 | `remote list` / `remote ls` | v2.7.4 PR 5b：列出所有已配置的 SSH 端点（替代旧 `server list`） |
 | `remote show <server>` | 打印本地备份内容（remote_agents + links 矩阵）。backup 不存在 → **in-memory 返回空 backup，不写盘**（只读命令不应该有副作用） |

@@ -108,7 +108,7 @@ In v2, `source add`, `source update`, and `source restore` are removed. Use `ins
 | Command | Description |
 |---------|-------------|
 | `remote` | Open the skill → remote sync matrix editor |
-| `remote add <name> --host <host> [--user <user> --port <port> --identity-file <path> --remote-repo <path>]` | Add a configured remote endpoint |
+| `remote add <name> [--host <host>] [--user <user> --port <port> --identity-file <path> --remote-repo <path>]` | Add a configured remote endpoint, or amend an existing one (`--host` is required only for a new remote; fields not given are kept) |
 | `remote rm <name>` | Remove a configured remote endpoint |
 | `remote list` / `remote ls` | List configured remotes |
 | `remote show <name>` | Show the local receiver backup for one remote |
