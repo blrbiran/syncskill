@@ -6,6 +6,7 @@ import type { SyncSkillConfig } from '../config/types.js';
 import { buildSkillsRegistry } from '../source.js';
 import { applyResolution, reconcileManifest } from './conflict.js';
 import {
+  createEmptyManifest,
   applyRemoteSnapshot,
   buildLocalSkillHashes,
   collectRemoteHistoryEntries,
@@ -516,7 +517,8 @@ async function pushToServer(
       }
     }
     const receiverConfig = buildReceiverConfigPayload(server, receiverBackup);
-    const updated = await prepareManifest(homeDir, server, runtime, options.now);
+    const updated = await prepareManifest(homeDir, server, runtime, options.now, options.dryRun === true);
+    if (updated.remoteUnknown) includeWarnings.push(`remote-state-unknown: no syncskill receiver on ${serverName}; a dry run does not install one`);
     let manifest = applyConflictPolicy(updated.manifest, configuredConflictPolicy, updated.updatedAt);
 
     const preferredLocalSkills = options.preferLocalSkillsByServer?.[serverName] ?? [];
@@ -712,7 +714,8 @@ async function pullFromServerWork(homeDir: string, serverName: string, options: 
   const config = await loadConfig(homeDir);
   const server = getConfiguredServer(config, serverName);
   const runtime = options.runtime ?? createTransportRuntime();
-  const updated = await prepareManifest(homeDir, server, runtime, options.now);
+  const updated = await prepareManifest(homeDir, server, runtime, options.now, options.dryRun === true);
+  if (updated.remoteUnknown) console.log(`  warning: remote-state-unknown: no syncskill receiver on ${serverName}; a dry run does not install one`);
   let manifest = applyConflictPolicy(
     updated.manifest,
     resolveSingleServerConflictPolicy(config.conflict_resolution, options.onConflict),
@@ -931,12 +934,13 @@ async function prepareManifest(
   homeDir: string,
   server: ConfiguredServer,
   runtime: TransportRuntime,
-  now?: string
-): Promise<{ previousManifest: ServerManifest; manifest: ServerManifest; updatedAt: string }> {
+  now?: string,
+  readOnly = false
+): Promise<{ previousManifest: ServerManifest; manifest: ServerManifest; updatedAt: string; remoteUnknown: boolean }> {
   const updatedAt = now ?? new Date().toISOString();
   const previousManifest = await loadServerManifest(homeDir, server.name);
   const localHashes = await buildLocalSkillHashes(homeDir);
-  const remoteManifest = await fetchRemoteState(server, runtime);
+  const { manifest: remoteManifest, unknown: remoteUnknown } = await fetchRemoteState(server, runtime, readOnly);
   const nextManifest = reconcileManifest({
     ...applyRemoteSnapshot(
       {
@@ -968,13 +972,28 @@ async function prepareManifest(
   return {
     previousManifest,
     manifest: nextManifest,
-    updatedAt
+    updatedAt,
+    remoteUnknown
   };
 }
 
-async function fetchRemoteState(server: ConfiguredServer, runtime: TransportRuntime): Promise<ServerManifest> {
-  await deployReceiver(server, runtime);
-  return fetchRemoteManifest(server, runtime);
+async function fetchRemoteState(server: ConfiguredServer, runtime: TransportRuntime, readOnly = false): Promise<{ manifest: ServerManifest; unknown: boolean }> {
+  if (!readOnly) {
+    await deployReceiver(server, runtime);
+    return { manifest: await fetchRemoteManifest(server, runtime), unknown: false };
+  }
+  // Tester #471: a dry run only reads -- the installed receiver's manifest. No mkdir, no bootstrap, no receiver upload
+  // and no receiver_config.json write. A transport failure still fails; a remote with no (working) receiver has no
+  // state to read, and the plan says so instead of installing one.
+  try {
+    return { manifest: await fetchRemoteManifest(server, runtime), unknown: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/exited with code 255|ENOENT|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|ENETUNREACH/i.test(message)) {
+      throw new Error(`E_REMOTE_TRANSPORT: cannot reach ${server.name} to read its manifest: ${message}`);
+    }
+    return { manifest: createEmptyManifest(server.name), unknown: true };
+  }
 }
 
 function applyConflictPolicy(
@@ -1247,9 +1266,11 @@ function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, inc
   );
   return remoteSkills.filter((skill) => {
     if (localSkillSet.has(skill)) return false;
-    // Tester #472: an included skill this machine has no content for is deleted only when the manifest recorded it as
+    // Tester #472: a skill the include list names that this machine has no content for is deleted only when the manifest recorded it as
     // synced (a local deletion to carry); on a fresh machine or a wrong --sync-dir it is kept and named.
-    if (included(skill) && !manifest.skills[skill]?.recorded_hash) {
+    // An explicit include list only: with include and links both unset (#404's legacy mode) every remote skill is
+    // "included", and an orphan there is what it always was -- a remote skill with no local content.
+    if (includeState.kind === 'list' && included(skill) && !manifest.skills[skill]?.recorded_hash) {
       if (!warnings.includes(`included-not-local:${skill}`)) warnings.push(`included-not-local:${skill}`);
       return false;
     }

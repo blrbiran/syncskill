@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 import { saveConfig } from '../../src/config/config.js';
-import { pushToServers } from '../../src/core/sync_engine.js';
+import { pullFromServer, pushToServers } from '../../src/core/sync_engine.js';
 import type { TransportRuntime } from '../../src/core/transport.js';
 
 /**
@@ -161,6 +161,49 @@ describe('push discloses the remote deletions it would make (#449)', () => {
     // mutation: never delete an included skill -> the local deletion is not carried, red
     expect(result.deleted_skills).toEqual(['dropped']);
     expect(runtime.deletes).toHaveLength(1);
+  });
+
+  // Tester #471 (human 2026-11-24 「同意你的建议」): --dry-run ran prepareManifest -> deployReceiver before its branch:
+  // mkdir -p on the remote, the bootstrap, the receiver upload and a receiver_config.json overwrite (with the default
+  // payload, dropping the backup links). A dry run now only reads: the installed receiver's manifest and the listing.
+  const writes = (calls: string[][]) => calls.filter((a) => a.some((w) => /\bmkdir\b|cat >/.test(w)) || (a.includes('sh') && a.includes('-s')));
+  function recordingRuntime(remoteSkills: string[], receiverPresent = true) {
+    const runtime = createRuntime(remoteSkills);
+    const calls: string[][] = [];
+    const exec = runtime.exec.bind(runtime);
+    runtime.exec = async (file, args, options) => {
+      if (file === 'ssh') calls.push(args);
+      if (!receiverPresent && file === 'ssh' && args.includes('manifest')) throw new Error("ssh exited with code 1: Error: Cannot find module '/home/u/.syncskill/receiver.mjs'");
+      return exec(file, args, options);
+    };
+    return { runtime, calls };
+  }
+
+  it('a dry-run push and pull write nothing on the remote', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
+    tempDirs.push(home);
+    await saveConfig(config(['keepme']), home);
+    await localSkill(home, 'keepme');
+    const push = recordingRuntime(['keepme', 'stale-a']);
+    const [result] = await pushToServers(home, ['alpha'], { runtime: push.runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' });
+    // mutation: deploy the receiver in a dry run again -> mkdir/bootstrap/cat > calls, red
+    expect(writes(push.calls)).toEqual([]);
+    expect(result.deleted_skills).toEqual(['stale-a']);
+    const pull = recordingRuntime(['keepme']);
+    await pullFromServer(home, 'alpha', { runtime: pull.runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' });
+    expect(writes(pull.calls)).toEqual([]);
+  });
+
+  it('a dry run against a remote with no receiver installs none and says the plan is unknown', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
+    tempDirs.push(home);
+    await saveConfig(config(['keepme']), home);
+    await localSkill(home, 'keepme');
+    const { runtime, calls } = recordingRuntime([], false);
+    const [result] = await pushToServers(home, ['alpha'], { runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' });
+    expect(writes(calls)).toEqual([]);
+    // mutation: treat a missing receiver as an empty remote silently -> no warning, red
+    expect(result.warnings).toContain('remote-state-unknown: no syncskill receiver on alpha; a dry run does not install one');
   });
 
   it('an absent remote skills directory is still an empty list, not an error', async () => {
