@@ -1113,7 +1113,7 @@ async function executeInstallPlan(
   } else {
     output.info(`Installed ${result.installedSkills.length} skill(s)`);
     for (const skill of result.installedSkills) {
-      output.change('add', 'skill', skill, { target: join(skillsDir, skill) });
+      output.change('add', 'skill', skill, { target: await resolveConfiguredSkillSourceDir(homeDir, skill) });
     }
   }
 

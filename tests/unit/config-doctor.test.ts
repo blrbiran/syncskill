@@ -197,6 +197,15 @@ describe('checkAgentReferences', () => {
 
     expect(items).toEqual([]);
   });
+
+  // #462: install links the shared ~/.agents/skills target by default without registering it in config.agents.
+  it('accepts the shared agents target even when it is not registered in config.agents', () => {
+    const links = { 'skill-a': ['agents', 'claude'] };
+    const configuredAgents = new Set(['claude']);
+    const items = checkAgentReferences(links, configuredAgents);
+
+    expect(items).toEqual([]);
+  });
 });
 
 describe('checkSourcePaths', () => {

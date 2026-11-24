@@ -1,6 +1,6 @@
 import { access, copyFile, readFile, readdir, realpath } from 'node:fs/promises';
 
-import type { SyncSkillConfig } from './config.js';
+import { isKnownLinkTarget, type SyncSkillConfig } from './config.js';
 import { rebuildRegistryV2 } from '../core/registry-builder.js';
 import { discoverActiveSourceSkillNames } from '../source.js';
 import {
@@ -287,7 +287,7 @@ export function checkAgentReferences(
 
   for (const [skill, targets] of Object.entries(links)) {
     const missingAgents = targets.filter(
-      (agent) => agent !== '*' && !configuredAgents.has(agent)
+      (agent) => agent !== '*' && !isKnownLinkTarget(agent, configuredAgents)
     );
 
     for (const agent of missingAgents) {

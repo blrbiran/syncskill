@@ -217,10 +217,20 @@ export function expandTargetAgents(config: SyncSkillConfig, targets: string[]): 
   return [...new Set(targets)].filter((agent) => registeredAgents.has(agent)).sort();
 }
 
+/**
+ * A link target is valid when it is registered in config.agents or is the shared
+ * `agents` target (~/.agents/skills), which install links by default without
+ * registering it. The linker and doctor must both use this rule.
+ */
+export function isKnownLinkTarget(target: string, registeredAgents: ReadonlySet<string>): boolean {
+  return target === 'agents' || registeredAgents.has(target);
+}
+
 export function expandMaterializedTargetAgents(config: SyncSkillConfig, targets: string[]): string[] {
+  const registeredAgents = new Set(Object.keys(config.agents));
   const expanded = targets.includes('*')
     ? Object.keys(config.agents)
-    : targets.filter((agent) => agent === 'agents' || agent in config.agents);
+    : targets.filter((agent) => isKnownLinkTarget(agent, registeredAgents));
 
   return [...new Set(expanded)].sort();
 }
