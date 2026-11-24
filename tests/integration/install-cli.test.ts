@@ -6,6 +6,9 @@ import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const execFileAsync = promisify(execFile);
+// The repository's own tsx binary, not `npx tsx`: npx resolved the package on every one of 33 calls (2.5-4.3 s each
+// under load against a 5 s timeout; Orca test-time analysis 2026-11-24 §1.3).
+const TSX = join(import.meta.dirname, '../../node_modules/.bin/tsx');
 
 async function execWithInput(
   command: string,
@@ -93,21 +96,21 @@ describe('install CLI command', () => {
   });
 
   it('should show install command in help', async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', '--help'], {
+    const { stdout } = await execFileAsync(TSX, ['src/index.ts', '--help'], {
       env: { ...process.env, HOME: homeDir }
     });
     expect(stdout).toContain('install');
   });
 
   it('should accept i as alias for install', async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', 'i', '--help'], {
+    const { stdout } = await execFileAsync(TSX, ['src/index.ts', 'i', '--help'], {
       env: { ...process.env, HOME: homeDir }
     });
     expect(stdout).toContain('Install');
   });
 
   it('should show install options in help', async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', 'install', '--help'], {
+    const { stdout } = await execFileAsync(TSX, ['src/index.ts', 'install', '--help'], {
       env: { ...process.env, HOME: homeDir }
     });
     expect(stdout).toContain('--name');
@@ -118,7 +121,7 @@ describe('install CLI command', () => {
   });
 
   it('shows help when install is called without args in non-tty mode', async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', 'install'], {
+    const { stdout } = await execFileAsync(TSX, ['src/index.ts', 'install'], {
       env: { ...process.env, HOME: homeDir }
     });
 
@@ -128,7 +131,7 @@ describe('install CLI command', () => {
   });
 
   it('does not include --self in install help output', async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', 'install', '--help'], {
+    const { stdout } = await execFileAsync(TSX, ['src/index.ts', 'install', '--help'], {
       env: { ...process.env, HOME: homeDir }
     });
 
@@ -138,7 +141,7 @@ describe('install CLI command', () => {
 
   it('rejects the removed --self flag', async () => {
     await expect(
-      execFileAsync('npx', ['tsx', 'src/index.ts', 'install', '--self'], {
+      execFileAsync(TSX, ['src/index.ts', 'install', '--self'], {
         env: { ...process.env, HOME: homeDir }
       })
     ).rejects.toMatchObject({
@@ -148,7 +151,7 @@ describe('install CLI command', () => {
   });
 
   it('installs the built-in skill with self', { timeout: 20_000 }, async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', 'install', 'self'], {
+    const { stdout } = await execFileAsync(TSX, ['dist/index.js', 'install', 'self'], {
       cwd: join(import.meta.dirname, '../..'),
       env: { ...process.env, HOME: homeDir }
     });
@@ -160,7 +163,7 @@ describe('install CLI command', () => {
   });
 
   it('outputs plan JSON with --plan install self', async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', '--plan', 'install', 'self'], {
+    const { stdout } = await execFileAsync(TSX, ['dist/index.js', '--plan', 'install', 'self'], {
       cwd: join(import.meta.dirname, '../..'),
       env: { ...process.env, HOME: homeDir }
     });
@@ -193,8 +196,8 @@ describe('install CLI command', () => {
     };
 
     const { stdout } = await execWithInput(
-      'npx',
-      ['tsx', 'dist/index.js', '--json', '--apply-stdin', 'install', 'self'],
+      TSX,
+      ['dist/index.js', '--json', '--apply-stdin', 'install', 'self'],
       {
         cwd: join(import.meta.dirname, '../..'),
         env: { ...process.env, HOME: homeDir },
@@ -230,8 +233,8 @@ describe('install CLI command', () => {
     await writeFile(planPath, JSON.stringify(plan), 'utf8');
 
     const { stdout } = await execWithInput(
-      'npx',
-      ['tsx', 'dist/index.js', '--json', '--apply', planPath, '--resolutions-stdin', 'install', 'self'],
+      TSX,
+      ['dist/index.js', '--json', '--apply', planPath, '--resolutions-stdin', 'install', 'self'],
       {
         cwd: join(import.meta.dirname, '../..'),
         env: { ...process.env, HOME: homeDir },
@@ -248,7 +251,7 @@ describe('install CLI command', () => {
   });
 
   it('supports stdin shorthand flags in root help', async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', '--help'], {
+    const { stdout } = await execFileAsync(TSX, ['src/index.ts', '--help'], {
       env: { ...process.env, HOME: homeDir }
     });
 
@@ -260,7 +263,7 @@ describe('install CLI command', () => {
 
   it('rejects --plan install --self', async () => {
     await expect(
-      execFileAsync('npx', ['tsx', 'src/index.ts', '--plan', 'install', '--self'], {
+      execFileAsync(TSX, ['src/index.ts', '--plan', 'install', '--self'], {
         env: { ...process.env, HOME: homeDir }
       })
     ).rejects.toMatchObject({
@@ -269,7 +272,7 @@ describe('install CLI command', () => {
   });
 
   it('installs the built-in skill with self when no local ./self directory exists', async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'dist/index.js', 'install', 'self'], {
+    const { stdout } = await execFileAsync(TSX, ['dist/index.js', 'install', 'self'], {
       cwd: join(import.meta.dirname, '../..'),
       env: { ...process.env, HOME: homeDir }
     });
@@ -281,7 +284,7 @@ describe('install CLI command', () => {
   });
 
   it('emits a result hint when install is called without args in json mode', async () => {
-    const { stdout } = await execFileAsync('npx', ['tsx', 'src/index.ts', '--json', 'install'], {
+    const { stdout } = await execFileAsync(TSX, ['src/index.ts', '--json', 'install'], {
       env: { ...process.env, HOME: homeDir }
     });
 
@@ -299,7 +302,7 @@ describe('install CLI command', () => {
     await mkdir(join(import.meta.dirname, '../../self'), { recursive: true });
 
     try {
-      const { stdout, stderr } = await execFileAsync('npx', ['tsx', 'dist/index.js', 'install', 'self'], {
+      const { stdout, stderr } = await execFileAsync(TSX, ['dist/index.js', 'install', 'self'], {
         cwd: join(import.meta.dirname, '../..'),
         env: { ...process.env, HOME: homeDir }
       });
@@ -319,8 +322,8 @@ describe('install CLI command', () => {
     await writeFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), '# alpha');
 
     const { stdout } = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', 'install', sourceRoot, '--yes'],
+      TSX,
+      ['dist/index.js', 'install', sourceRoot, '--yes'],
       {
         cwd: join(import.meta.dirname, '../..'),
         env: { ...process.env, HOME: homeDir }
@@ -365,8 +368,8 @@ describe('install CLI command', () => {
     );
 
     const { stdout } = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
+      TSX,
+      ['dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
       {
         cwd: join(import.meta.dirname, '../..'),
         env: { ...process.env, HOME: homeDir }
@@ -386,8 +389,8 @@ describe('install CLI command', () => {
     await writeFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), '# alpha');
 
     const { stdout } = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', '--plan', 'install', sourceRoot],
+      TSX,
+      ['dist/index.js', '--plan', 'install', sourceRoot],
       {
         cwd: join(import.meta.dirname, '../..'),
         env: { ...process.env, HOME: homeDir }
@@ -413,8 +416,8 @@ describe('install CLI command', () => {
     await writeFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), '# alpha');
 
     const { stdout: planStdout } = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', '--plan', 'install', sourceRoot],
+      TSX,
+      ['dist/index.js', '--plan', 'install', sourceRoot],
       {
         cwd: join(import.meta.dirname, '../..'),
         env: { ...process.env, HOME: homeDir }
@@ -425,8 +428,8 @@ describe('install CLI command', () => {
     await writeFile(planPath, planStdout, 'utf8');
 
     const { stdout } = await execWithInput(
-      'npx',
-      ['tsx', 'dist/index.js', '--json', '--apply', planPath, '--resolutions-stdin', 'install', sourceRoot],
+      TSX,
+      ['dist/index.js', '--json', '--apply', planPath, '--resolutions-stdin', 'install', sourceRoot],
       {
         cwd: join(import.meta.dirname, '../..'),
         env: { ...process.env, HOME: homeDir },
@@ -466,8 +469,8 @@ describe('install CLI command', () => {
     await writeFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), '# alpha');
 
     const { stdout: planStdout } = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', '--plan', 'install', sourceRoot],
+      TSX,
+      ['dist/index.js', '--plan', 'install', sourceRoot],
       {
         cwd: join(import.meta.dirname, '../..'),
         env: { ...process.env, HOME: homeDir }
@@ -479,8 +482,8 @@ describe('install CLI command', () => {
 
     await expect(
       execFileAsync(
-        'npx',
-        ['tsx', 'dist/index.js', '--json', '--apply', planPath, 'install', sourceRoot],
+        TSX,
+        ['dist/index.js', '--json', '--apply', planPath, 'install', sourceRoot],
         {
           cwd: join(import.meta.dirname, '../..'),
           env: { ...process.env, HOME: homeDir }
@@ -498,8 +501,8 @@ describe('install CLI command', () => {
 
     await expect(
       execFileAsync(
-        'npx',
-        ['tsx', 'dist/index.js', '--json', 'install', sourceRoot],
+        TSX,
+        ['dist/index.js', '--json', 'install', sourceRoot],
         {
           cwd: join(import.meta.dirname, '../..'),
           env: { ...process.env, HOME: homeDir }
@@ -521,8 +524,8 @@ describe('install CLI command', () => {
     await writeFile(configPath, JSON.stringify(config, null, 2));
 
     const { stdout } = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', 'install', sourceRoot, '--yes'],
+      TSX,
+      ['dist/index.js', 'install', sourceRoot, '--yes'],
       {
         cwd: join(import.meta.dirname, '../..'),
         env: { ...process.env, HOME: homeDir }
@@ -547,15 +550,15 @@ describe('install CLI command', () => {
     };
 
     const first = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
+      TSX,
+      ['dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
       commonOptions
     );
     expect(first.stdout).toContain('Installed 1 skill(s)');
 
     const second = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
+      TSX,
+      ['dist/index.js', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
       commonOptions
     );
     expect(second.stdout).toContain('Already installed: arxiv');
@@ -576,14 +579,14 @@ describe('install CLI command', () => {
     };
 
     await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
+      TSX,
+      ['dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
       commonOptions
     );
 
     const { stdout } = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', '--json', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
+      TSX,
+      ['dist/index.js', '--json', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/research/arxiv', '--yes'],
       commonOptions
     );
 
@@ -610,15 +613,15 @@ describe('install CLI command', () => {
     };
 
     const first = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/alpha', '--yes'],
+      TSX,
+      ['dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/alpha', '--yes'],
       commonOptions
     );
     expect(first.stdout).toContain('Installed 1 skill(s)');
 
     const second = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/beta', '--yes'],
+      TSX,
+      ['dist/index.js', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/beta', '--yes'],
       commonOptions
     );
     expect(second.stdout).toContain('Installed 1 skill(s)');
@@ -653,14 +656,14 @@ describe('install CLI command', () => {
     };
 
     await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/alpha', '--yes'],
+      TSX,
+      ['dist/index.js', 'install', bareRepoDir, '--name', 'demo-source', '--type', 'git', '--path', 'skills/alpha', '--yes'],
       commonOptions
     );
 
     const { stdout: planStdout } = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', '--plan', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/beta'],
+      TSX,
+      ['dist/index.js', '--plan', 'install', bareRepoDir, '--type', 'git', '--path', 'skills/beta'],
       commonOptions
     );
 
@@ -671,8 +674,8 @@ describe('install CLI command', () => {
     await writeFile(planPath, planStdout, 'utf8');
 
     const { stdout } = await execFileAsync(
-      'npx',
-      ['tsx', 'dist/index.js', '--json', '--apply', planPath, 'install', bareRepoDir, '--type', 'git', '--path', 'skills/beta'],
+      TSX,
+      ['dist/index.js', '--json', '--apply', planPath, 'install', bareRepoDir, '--type', 'git', '--path', 'skills/beta'],
       commonOptions
     );
 
