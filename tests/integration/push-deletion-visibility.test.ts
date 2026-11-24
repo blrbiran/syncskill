@@ -130,6 +130,39 @@ describe('push discloses the remote deletions it would make (#449)', () => {
     expect(rsyncs.filter((a) => a.includes('keepme'))).toEqual([]);
   });
 
+  // Tester #472 (reshaped, human 2026-11-24 「同意你的建议」): a skill the include list names but this machine does not
+  // have -- a fresh machine, or a wrong --sync-dir -- counted as an orphan and was deleted remotely under
+  // --yes-destructive. Only a skill this machine synced before (the manifest recorded it) and then deleted locally is a
+  // local deletion to carry; anything else included is kept and named in warnings.
+  it('an included skill this machine never had is kept remotely and named, not deleted', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
+    tempDirs.push(home);
+    await saveConfig(config(['keepme', 'elsewhere']), home);
+    await localSkill(home, 'keepme');
+    const runtime = createRuntime(['keepme', 'elsewhere']);
+    const [result] = await pushToServers(home, ['alpha'], { runtime, yes: true, yesDestructive: true, now: '2026-05-01T00:00:00.000Z' });
+    // mutation: treat an included skill with no local content as an orphan again -> 'elsewhere' is rm -rf'd, red
+    expect(runtime.deletes).toEqual([]);
+    expect(result.deleted_skills).toEqual([]);
+    expect(result.warnings).toContain('included-not-local:elsewhere');
+  });
+
+  it('an included skill this machine synced and then deleted is still deleted remotely', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
+    tempDirs.push(home);
+    await saveConfig(config(['keepme', 'dropped']), home);
+    await localSkill(home, 'keepme');
+    await localSkill(home, 'dropped');
+    await pushToServers(home, ['alpha'], { runtime: createRuntime(['keepme', 'dropped']), yes: true, yesDestructive: true, now: '2026-05-01T00:00:00.000Z' });
+    const { rm } = await import('node:fs/promises');
+    await rm(join(home, '.syncskill', 'skills', 'dropped'), { recursive: true, force: true });
+    const runtime = createRuntime(['keepme', 'dropped']);
+    const [result] = await pushToServers(home, ['alpha'], { runtime, yes: true, yesDestructive: true, now: '2026-05-02T00:00:00.000Z' });
+    // mutation: never delete an included skill -> the local deletion is not carried, red
+    expect(result.deleted_skills).toEqual(['dropped']);
+    expect(runtime.deletes).toHaveLength(1);
+  });
+
   it('an absent remote skills directory is still an empty list, not an error', async () => {
     const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
     tempDirs.push(home);

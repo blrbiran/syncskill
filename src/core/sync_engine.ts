@@ -572,7 +572,7 @@ async function pushToServer(
       console.log(`\n[dry-run] push to ${serverName}:\n`);
       // Tester #449: the cleanup below deletes remote skills, and this branch used to return before it ran, so a plan
       // that would remove half the remote skills printed `(no changes)`. The orphan set is computed here the same way.
-      const wouldDelete = orphansForCleanup(remoteSkillListForCleanup ?? await listRemoteSkills(server, runtime), manifest, included, includeState);
+      const wouldDelete = orphansForCleanup(remoteSkillListForCleanup ?? await listRemoteSkills(server, runtime), manifest, included, includeState, includeWarnings);
 
       let totalAdded = 0;
       let totalModified = 0;
@@ -651,7 +651,7 @@ async function pushToServer(
 
     // Remote skills not in local config. Tester #449: an explicitly empty include authorises no deletion -- it says the
     // server carries no skills, not that whatever is on it should be destroyed.
-    const orphanSkills = orphansForCleanup(remoteSkillsForCleanup, manifest, included, includeState);
+    const orphanSkills = orphansForCleanup(remoteSkillsForCleanup, manifest, included, includeState, includeWarnings);
     let deletedSkills: string[] = [];
 
     if (orphanSkills.length > 0 && !options.dryRun) {
@@ -1240,12 +1240,21 @@ function getIncludedServerSkills(config: SyncSkillConfig, serverName: string): s
  * behaviour -- every local skill, since nothing said which subset was meant. `null` means no limit.
  */
 /** Tester #449: the remote skills a push would remove -- ONE computation for the dry run and the real cleanup. */
-function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, included: (skill: string) => boolean, includeState: IncludeState): string[] {
+function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, included: (skill: string) => boolean, includeState: IncludeState, warnings: string[] = []): string[] {
   if (includeState.kind === 'empty') return [];
   const localSkillSet = new Set(
     Object.keys(manifest.skills).filter((skill) => manifest.skills[skill]?.local_hash !== null && included(skill))
   );
-  return remoteSkills.filter((skill) => !localSkillSet.has(skill));
+  return remoteSkills.filter((skill) => {
+    if (localSkillSet.has(skill)) return false;
+    // Tester #472: an included skill this machine has no content for is deleted only when the manifest recorded it as
+    // synced (a local deletion to carry); on a fresh machine or a wrong --sync-dir it is kept and named.
+    if (included(skill) && !manifest.skills[skill]?.recorded_hash) {
+      if (!warnings.includes(`included-not-local:${skill}`)) warnings.push(`included-not-local:${skill}`);
+      return false;
+    }
+    return true;
+  });
 }
 
 function includeStateOf(config: SyncSkillConfig, serverName: string): IncludeState {
