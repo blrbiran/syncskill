@@ -11,7 +11,7 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config/config.js';
 import type { SyncSkillConfig } from '../../src/config/config.js';
-import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectArchiveFormatFromFilename, detectGitDefaultBranch, detectSourceType, discoverAllSkills, discoverMaterializedSkillEntries, discoverSourceSkills, DirtySourceQuitError, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSkillOwnershipState, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, parseContentDisposition, resolveLinkedSkillSourcePath, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
+import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectArchiveFormatFromFilename, detectGitDefaultBranch, detectSourceType, discoverActiveSourceSkillNames, discoverAllSkills, discoverMaterializedSkillEntries, discoverSourceSkills, DirtySourceQuitError, findExistingSourceByUrl, findOrphanSkills, getLocalMaterializedRoot, handleSameRepoMerge, listSources, loadSkillOwnershipState, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, parseContentDisposition, resolveLinkedSkillSourcePath, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
 import type { SkillsRegistry } from '../../src/source.js';
 import { normalizeSkillsRegistry } from '../../src/core/skills-registry.js';
 
@@ -2653,5 +2653,25 @@ describe('addSourceFromUrl with skills-registry', () => {
     const sourceConfig = config.sources['my-skills-pack'] as { type: string; archive_path?: string };
     expect(sourceConfig.type).toBe('local');
     expect(sourceConfig.archive_path).toBe(archiveFile);
+  });
+});
+
+describe('a local source configured with an absolute path', () => {
+  const tempDirs = useTempDirs();
+
+  it('a local source with an absolute path and no url is discovered (#486)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'src-abs-'));
+    tempDirs.push(root);
+    await mkdir(join(root, 'alpha'), { recursive: true });
+    await writeFile(join(root, 'alpha', 'SKILL.md'), '# alpha\n');
+    const names = await discoverActiveSourceSkillNames(root /* home */, {
+      // the shape syncskills writes: absolute path, no url
+      mine: { type: 'local', path: root }
+    });
+    expect([...names]).toContain('alpha');
+  });
+
+  it('a local source with an absolute path is not rejected as relative-only', () => {
+    expect(() => getLocalMaterializedRoot({ name: 'x', type: 'local', url: '/tmp/x', path: '/tmp/x' } as never)).not.toThrow();
   });
 });

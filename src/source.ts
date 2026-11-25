@@ -1471,15 +1471,18 @@ function normalizeSourceEntry(name: string, value: unknown): SourceEntry[] {
 
   // Support legacy 'store' field for backward compatibility
   const pathValue = typeof value.path === 'string' ? value.path : (value as Record<string, unknown>).store;
-  if (typeof value.url !== 'string' || typeof pathValue !== 'string') {
+  // Tester #486: syncskills writes a local source as {type:'local', path:'/abs'}; url is not part of that shape.
+  const legacyAbs = value.type === 'local' && typeof value.url !== 'string' && typeof pathValue === 'string' && isAbsolute(pathValue);
+  const url = legacyAbs ? pathValue : value.url;
+  if (typeof url !== 'string' || typeof pathValue !== 'string') {
     return [];
   }
 
   if (typeof value.branch === 'string') {
-    return [{ name, type: value.type, url: value.url, path: pathValue, branch: value.branch }];
+    return [{ name, type: value.type, url, path: legacyAbs ? '.' : pathValue, branch: value.branch }];
   }
 
-  return [{ name, type: value.type, url: value.url, path: pathValue }];
+  return [{ name, type: value.type, url, path: legacyAbs ? '.' : pathValue }];
 }
 
 export function normalizeSourceState(value: unknown): SourceState {
@@ -1841,9 +1844,10 @@ function getHttpCheckoutDir(homeDir: string, name: string): string {
   return join(getSyncPaths(homeDir).syncDir, '.sources', name, 'checkout');
 }
 
-function getLocalMaterializedRoot(source: SourceDefinition): string {
+export function getLocalMaterializedRoot(source: SourceDefinition): string {
+  // Tester #486: an absolute path is the root itself; treat it as '.' under that root.
   if (isAbsolute(source.path)) {
-    throw new Error('Local source path must be a relative path');
+    return source.path;
   }
 
   const sourceRoot = resolveHomePath(source.url);
