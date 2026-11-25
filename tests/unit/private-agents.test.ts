@@ -11,9 +11,11 @@ import { computeDefaultLinkTargets, ensureSharedSkillsDirectory } from '../../sr
 describe('computeDefaultLinkTargets', () => {
   const tempDirs = useTempDirs();
 
-  it('returns only agents when no private agents are detected', async () => {
+  it('returns only agents when the shared directory exists and no private agents are detected', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-private-agents-'));
     tempDirs.push(homeDir);
+
+    await mkdir(join(homeDir, '.agents', 'skills'), { recursive: true });
 
     const result = await computeDefaultLinkTargets(homeDir, {
       agents: {
@@ -44,8 +46,16 @@ describe('computeDefaultLinkTargets', () => {
     });
 
     expect(result).toEqual({
-      targets: ['agents', 'cursor']
+      targets: ['cursor']
     });
+  });
+
+  it('previews an explicit opt-in without creating a shared directory', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-private-agents-'));
+    tempDirs.push(homeDir);
+    expect((await computeDefaultLinkTargets(homeDir, { agents: {} })).targets).toEqual([]);
+    expect((await computeDefaultLinkTargets(homeDir, { agents: {} }, true)).targets).toEqual(['agents']);
+    await expect(access(join(homeDir, '.agents', 'skills'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   // #462: whatever install writes as default targets, doctor must not report as AGENT_NOT_CONFIGURED.
@@ -54,6 +64,7 @@ describe('computeDefaultLinkTargets', () => {
     tempDirs.push(homeDir);
     await mkdir(join(homeDir, '.claude', 'skills'), { recursive: true });
 
+    await mkdir(join(homeDir, '.agents', 'skills'), { recursive: true });
     const agents = { claude: '~/.claude/skills' };
     const { targets } = await computeDefaultLinkTargets(homeDir, { agents, private_agents: ['claude'] });
 

@@ -2517,15 +2517,19 @@ describe('scanSkillsInSource', () => {
 describe('addSourceFromUrl with skills-registry', () => {
   const tempDirs = useTempDirs();
 
-  it('restores skill from ignore list when same-repo detected', async () => {
+  it.each([
+    { existing: ['agents'], shared: false, expected: ['agents'] },
+    { existing: undefined, shared: false, expected: [] },
+    { existing: undefined, shared: true, expected: ['agents'] }
+  ])('restores an ignored skill with $expected targets (shared directory present: $shared)', async ({ existing, shared, expected }) => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-ignore-restore-'));
     tempDirs.push(homeDir);
-    const syncDir = join(homeDir, '.syncskill');
+    if (shared) await mkdir(join(homeDir, '.agents', 'skills'), { recursive: true });
 
     // Setup: Create config with existing source
     await saveConfig({
       ...createDefaultConfig(homeDir, {}),
-      links: { 'skill-a': ['*'] },
+      links: { 'skill-a': ['*'], ...(existing ? { 'skill-b': existing } : {}) },
       sources: {
         'org-repo': {
           type: 'git',
@@ -2557,7 +2561,7 @@ describe('addSourceFromUrl with skills-registry', () => {
 
     // Verify skill is in links
     expect('skill-b' in config.links).toBe(true);
-    expect(config.links['skill-b']).toEqual(['*']);
+    expect(config.links['skill-b']).toEqual(expected);
   });
 
   it('does not restore when skill is not in ignore list', async () => {

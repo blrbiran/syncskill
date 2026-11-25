@@ -46,12 +46,13 @@ describe('discoverSkills', () => {
     });
   });
 
-  it('adds wildcard targets when all-agents is used', async () => {
+  it('defaults to the existing shared directory when all-agents is used', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-scan-'));
     tempDirs.push(homeDir);
 
     await saveConfig(createDefaultConfig(homeDir, {}), homeDir);
 
+    await mkdir(join(homeDir, '.agents', 'skills'), { recursive: true });
     await mkdir(join(homeDir, '.syncskill', 'skills', 'beta'), { recursive: true });
     await mkdir(join(homeDir, '.syncskill', 'skills', 'alpha'), { recursive: true });
 

@@ -23,6 +23,7 @@ export interface ScanOptions {
 export interface LinkRequest {
   all: boolean;
   skillName?: string;
+  requireExistingSharedDirectory?: boolean;
 }
 
 export interface LinkStatus {
@@ -469,6 +470,10 @@ export async function linkConfiguredSkills(homeDir: string, request: LinkRequest
     for (const agent of agents) {
       const agentPath = resolveMaterializedAgentPath(config, agent, homeDir);
       try {
+        if (agent === 'agents' && request.requireExistingSharedDirectory && !await pathExists(agentPath)) {
+          results.push({ skill, agent, state: 'missing' });
+          continue;
+        }
         const state = await ensureLinkedDirectory(sourceDir, join(agentPath, skill));
         results.push({ skill, agent, state });
       } catch (error) {

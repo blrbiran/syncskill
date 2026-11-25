@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getGlobalOutput } from '../cli/output.js';
@@ -14,14 +14,17 @@ export interface ComputeLinkTargetsResult {
 }
 
 /**
- * Pure function: compute default link targets based on config.
- * Returns ["agents"] + detected private agents whose directories exist.
+ * Compute default link targets without creating directories.
  */
 export async function computeDefaultLinkTargets(
   homeDir: string,
-  config: ComputeLinkTargetsConfig
+  config: ComputeLinkTargetsConfig,
+  enableShared = false
 ): Promise<ComputeLinkTargetsResult> {
-  const targets: string[] = ['agents'];
+  const targets: string[] = [];
+  if (enableShared || await sharedSkillsDirectoryExists(homeDir)) {
+    targets.push('agents');
+  }
   const privateAgents = config.private_agents ?? [];
 
   for (const [agentName, agentPath] of Object.entries(config.agents)) {
@@ -53,11 +56,16 @@ export async function listSelectableAgentNames(
 ): Promise<string[]> {
   const names = new Set(Object.keys(config.agents));
 
-  if ([...referencedTargets].includes('agents') || await pathExists(join(homeDir, '.agents', 'skills'))) {
+  if ([...referencedTargets].includes('agents') || await sharedSkillsDirectoryExists(homeDir)) {
     names.add('agents');
   }
 
   return [...names].sort();
+}
+
+async function sharedSkillsDirectoryExists(homeDir: string): Promise<boolean> {
+  const info = await stat(join(homeDir, '.agents', 'skills')).catch(() => null);
+  return info?.isDirectory() === true;
 }
 
 export interface EnsureSharedDirResult {
@@ -76,16 +84,12 @@ function tryGetOutput() {
 const ENSURE_SHARED_DIR_TIMEOUT_MS = 2000;
 
 /**
- * Convenience wrapper: ensure ~/.agents/skills/ exists, then compute default link targets.
- * Use this in install/init migration/scan/update entry points that need to
- * "compute default link targets for new skills and make them immediately usable".
- * See spec §3.2.
+ * Return default link targets for a new skill.
  */
 export async function ensureDefaultLinkTargets(
   homeDir: string,
   config: ComputeLinkTargetsConfig
 ): Promise<string[]> {
-  await ensureSharedSkillsDirectory(homeDir);
   const result = await computeDefaultLinkTargets(homeDir, config);
   return result.targets;
 }
@@ -102,7 +106,7 @@ export async function ensureSharedSkillsDirectory(
 
   try {
     const existsResult = await Promise.race([
-      pathExists(sharedDir),
+      sharedSkillsDirectoryExists(homeDir),
       new Promise<'timeout'>((resolve) =>
         setTimeout(() => resolve('timeout'), ENSURE_SHARED_DIR_TIMEOUT_MS)
       )

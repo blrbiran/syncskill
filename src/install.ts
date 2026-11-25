@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { addAction, addUnresolved, createPlan, type Plan } from './cli/plan.js';
 import { resolveItem, type Resolutions } from './cli/resolution.js';
-import { getSyncPaths, loadConfig, saveConfig } from './config/config.js';
+import { expandMaterializedTargetAgents, getSyncPaths, loadConfig, saveConfig } from './config/config.js';
 import { computeDefaultLinkTargets, ensureDefaultLinkTargets } from './core/private-agents.js';
 import { linkConfiguredSkills, type LinkStatus } from './linker.js';
 import {
@@ -64,8 +64,8 @@ export async function installSyncskillSkill(homeDir: string): Promise<InstallSyn
     await saveConfig(config, homeDir);
   }
 
-  const linkResults = await linkConfiguredSkills(homeDir, { all: false, skillName: 'syncskill' });
-  const linkedAgents = [...new Set(linkResults.map((result) => result.agent))].sort();
+  const linkResults = await linkConfiguredSkills(homeDir, { all: false, skillName: 'syncskill', requireExistingSharedDirectory: true });
+  const linkedAgents = [...new Set(linkResults.filter((result) => result.state !== 'missing').map((result) => result.agent))].sort();
 
   return {
     alreadyInstalled: false,
@@ -100,6 +100,7 @@ interface ResolvedInstallSkills {
 }
 
 export interface ExternalInstallPlanOptions {
+  sharedAgents?: boolean;
   name?: string;
   path?: string;
   skillSubdir?: string;
@@ -443,7 +444,7 @@ async function linkInstalledSkills(homeDir: string, skillNames: Iterable<string>
   const linkStatuses: LinkStatus[] = [];
 
   for (const skillName of skillNames) {
-    const results = await linkConfiguredSkills(homeDir, { all: false, skillName });
+    const results = await linkConfiguredSkills(homeDir, { all: false, skillName, requireExistingSharedDirectory: true });
     for (const result of results) {
       if (result.state === 'linked') {
         linkedAgentSet.add(result.agent);
@@ -644,8 +645,10 @@ export async function buildExternalInstallPlan(
   const probe = await probeInstallSource(homeDir, urlOrPath, options);
   let plan = createPlan('install');
   const config = await loadConfig(homeDir);
-  const defaultAgents = (await computeDefaultLinkTargets(homeDir, config)).targets;
-  const plannedLinkAgents = probe.restoredFromIgnore ? Object.keys(config.agents).sort() : defaultAgents;
+  const defaultAgents = (await computeDefaultLinkTargets(homeDir, config, options.sharedAgents)).targets;
+  const plannedLinkAgents = probe.restoredSkill
+    ? expandMaterializedTargetAgents(config, config.links[probe.restoredSkill] ?? defaultAgents)
+    : defaultAgents;
   const source = probe.source;
 
   if (!probe.sameRepoMatch) {

@@ -205,7 +205,7 @@ describe('install module', () => {
         });
         expect(materializeSource).toHaveBeenCalledWith(homeDir, 'demo-source', source);
         expect(discoverMaterializedSkillEntries).toHaveBeenCalledWith('demo-source', source, join(homeDir, '.syncskill', '.sources', 'demo-source', 'checkout'));
-        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo' });
+        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo', requireExistingSharedDirectory: true });
         expect(result.installedSkills).toEqual(['demo']);
         expect(result.linkedAgents).toEqual(['claude', 'cursor']);
       } finally {
@@ -272,7 +272,7 @@ describe('install module', () => {
         const result = await mockedInstallFromSource(homeDir, 'https://example.com/demo.git');
 
         expect(linkConfiguredSkills).toHaveBeenCalledTimes(1);
-        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo' });
+        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo', requireExistingSharedDirectory: true });
         expect(result.installedSkills).toEqual(['demo']);
         expect(result.linkedAgents).toEqual(['claude']);
       } finally {
@@ -404,7 +404,7 @@ describe('install module', () => {
 
         expect(materializeSource).not.toHaveBeenCalled();
         expect(discoverMaterializedSkillEntries).not.toHaveBeenCalled();
-        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo' });
+        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo', requireExistingSharedDirectory: true });
         expect(result.installedSkills).toEqual(['demo']);
         expect(result.linkedAgents).toEqual(['claude', 'cursor']);
       } finally {
@@ -489,7 +489,7 @@ describe('install module', () => {
         expect(materializeSource).toHaveBeenNthCalledWith(1, homeDir, 'demo-source', source);
         expect(materializeSource).toHaveBeenNthCalledWith(2, homeDir, 'demo-source', { ...source, path: 'skills' });
         expect(discoverMaterializedSkillEntries).toHaveBeenCalledWith('demo-source', source, join(homeDir, '.syncskill', '.sources', 'demo-source', 'checkout'));
-        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'skill2' });
+        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'skill2', requireExistingSharedDirectory: true });
         expect(result.installedSkills).toEqual(['skill2']);
         expect(result.linkedAgents).toEqual(['claude', 'cursor']);
 
@@ -577,7 +577,7 @@ describe('install module', () => {
         expect(materializeSource).toHaveBeenNthCalledWith(1, homeDir, 'demo-source', source);
         expect(materializeSource).toHaveBeenNthCalledWith(2, homeDir, 'demo-source', { ...source, path: '.' });
         expect(discoverMaterializedSkillEntries).toHaveBeenCalledWith('demo-source', source, join(homeDir, '.syncskill', '.sources', 'demo-source', 'checkout'));
-        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo' });
+        expect(linkConfiguredSkills).toHaveBeenCalledWith(homeDir, { all: false, skillName: 'demo', requireExistingSharedDirectory: true });
         expect(result.installedSkills).toEqual(['demo']);
         expect(result.linkedAgents).toEqual(['claude', 'cursor']);
 

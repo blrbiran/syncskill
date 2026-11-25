@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, readFile, readlink, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readlink, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -160,6 +160,20 @@ describe('install CLI command', () => {
     expect(stdout).toContain(join(homeDir, '.syncskill', 'skills', 'syncskill'));
     const installedSkills = await readdir(join(homeDir, '.syncskill', 'skills'));
     expect(installedSkills).toContain('syncskill');
+  });
+
+  it('does not report a shared link when install self preserves a reference to a missing directory', async () => {
+    const configPath = join(homeDir, '.syncskill', 'config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    await writeFile(configPath, JSON.stringify({ ...config, links: { syncskill: ['agents', 'claude'] } }));
+
+    const { stdout } = await execFileAsync(TSX, ['dist/index.js', '--json', 'install', 'self'], {
+      cwd: join(import.meta.dirname, '../..'), env: { ...process.env, HOME: homeDir }
+    });
+
+    const events = stdout.trim().split('\n').map((line) => JSON.parse(line));
+    expect(events.find((event) => event.type === 'result')?.summary.linkedAgents).toEqual(['claude']);
+    await expect(access(join(homeDir, '.agents', 'skills'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('outputs plan JSON with --plan install self', async () => {
@@ -331,7 +345,8 @@ describe('install CLI command', () => {
     );
 
     expect(stdout).toContain('Installed 1 skill(s)');
-    expect(stdout).toContain('Linked to: agents, claude');
+    expect(stdout).toContain('Linked to: claude');
+    await expect(access(join(homeDir, '.agents', 'skills'))).rejects.toMatchObject({ code: 'ENOENT' });
 
     const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
     expect(config.sources['local-source']).toEqual({
@@ -339,9 +354,49 @@ describe('install CLI command', () => {
       url: sourceRoot,
       path: '.'
     });
-    expect(config.links.alpha).toEqual(['agents', 'claude']);
+    expect(config.links.alpha).toEqual(['claude']);
     await expect(readFile(join(sourceRoot, 'skills', 'alpha', 'SKILL.md'), 'utf8')).resolves.toBe('# alpha');
   });
+
+  it.each(['present', 'opt-in'])('links a new skill to agents when sharing is %s', async (mode) => {
+    const source = join(homeDir, 'source', 'alpha');
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, 'SKILL.md'), '# alpha');
+    const sharedDir = join(homeDir, '.agents', 'skills');
+    if (mode === 'present') await mkdir(sharedDir, { recursive: true });
+
+    await execFileAsync(TSX, ['dist/index.js', 'install', source, '--yes', ...(mode === 'opt-in' ? ['--shared-agents'] : [])], {
+      cwd: join(import.meta.dirname, '../..'), env: { ...process.env, HOME: homeDir }
+    });
+
+    const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
+    expect(config.links.alpha).toEqual(['agents', 'claude']);
+    await expect(readlink(join(sharedDir, 'alpha'))).resolves.toBe(source);
+  }, 15_000);
+
+  it('preserves an existing shared link when installing another skill writes config', async () => {
+    const existing = join(homeDir, '.syncskill', 'skills', 'existing');
+    const sharedDir = join(homeDir, '.agents', 'skills');
+    const configPath = join(homeDir, '.syncskill', 'config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    await mkdir(existing, { recursive: true });
+    await writeFile(join(existing, 'SKILL.md'), '# existing');
+    await mkdir(sharedDir, { recursive: true });
+    await symlink(existing, join(sharedDir, 'existing'));
+    await writeFile(configPath, JSON.stringify({ ...config, links: { existing: ['agents'] } }));
+    const source = join(homeDir, 'source', 'alpha');
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, 'SKILL.md'), '# alpha');
+
+    await execFileAsync(TSX, ['dist/index.js', 'install', source, '--yes'], {
+      cwd: join(import.meta.dirname, '../..'), env: { ...process.env, HOME: homeDir }
+    });
+
+    const updated = JSON.parse(await readFile(configPath, 'utf8'));
+    expect(updated.sources).toHaveProperty('alpha');
+    expect(updated.links.existing).toEqual(['agents']);
+    await expect(readlink(join(sharedDir, 'existing'))).resolves.toBe(existing);
+  }, 15_000);
 
   it('installs git tree skills with only the shared agents target without crashing result summary', async () => {
     const { bareRepoDir, workRepoDir } = await createGitSourceFixture(homeDir);
@@ -351,6 +406,7 @@ describe('install CLI command', () => {
     await commitAll(workRepoDir, 'Add arxiv skill');
     await git(['push', '-u', 'origin', 'main'], workRepoDir);
 
+    await mkdir(join(homeDir, '.agents', 'skills'), { recursive: true });
     await writeFile(
       join(homeDir, '.syncskill', 'config.json'),
       JSON.stringify(
@@ -417,12 +473,17 @@ describe('install CLI command', () => {
 
     const { stdout: planStdout } = await execFileAsync(
       TSX,
-      ['dist/index.js', '--plan', 'install', sourceRoot],
+      ['dist/index.js', '--plan', 'install', sourceRoot, '--shared-agents'],
       {
         cwd: join(import.meta.dirname, '../..'),
         env: { ...process.env, HOME: homeDir }
       }
     );
+
+    const plan = JSON.parse(planStdout);
+    expect(plan.actions).toContainEqual(expect.objectContaining({ op: 'enable-shared-agents' }));
+    expect(plan.actions).toContainEqual(expect.objectContaining({ op: 'link-skill', agents: ['agents', 'claude'] }));
+    await expect(access(join(homeDir, '.agents', 'skills'))).rejects.toMatchObject({ code: 'ENOENT' });
 
     const planPath = join(tempDir, 'install-local.plan.json');
     await writeFile(planPath, planStdout, 'utf8');
@@ -520,7 +581,7 @@ describe('install CLI command', () => {
 
     const configPath = join(homeDir, '.syncskill', 'config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
-    config.links['retry-skill'] = ['claude'];
+    config.links['retry-skill'] = ['agents', 'claude'];
     await writeFile(configPath, JSON.stringify(config, null, 2));
 
     const { stdout } = await execFileAsync(
@@ -534,6 +595,9 @@ describe('install CLI command', () => {
 
     expect(stdout).toContain('Installed 1 skill(s)');
     await expect(readFile(join(sourceRoot, 'skills', 'retry-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# retry');
+    await expect(access(join(homeDir, '.agents', 'skills'))).rejects.toMatchObject({ code: 'ENOENT' });
+    const updated = JSON.parse(await readFile(configPath, 'utf8'));
+    expect(updated.links['retry-skill']).toEqual(['agents', 'claude']);
   });
 
   it('reports already-installed skills when reinstalling the same git subdir skill', { timeout: 20_000 }, async () => {
@@ -625,19 +689,19 @@ describe('install CLI command', () => {
       commonOptions
     );
     expect(second.stdout).toContain('Installed 1 skill(s)');
-    expect(second.stdout).toContain('Linked to: agents, claude');
+    expect(second.stdout).toContain('Linked to: claude');
 
     const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
     expect(Object.keys(config.sources)).toHaveLength(1);
     expect(config.sources['demo-source'].path).toBe('skills');
     expect(config.sources['demo-source'].ignore).toBeUndefined();
-    expect(config.links.alpha).toEqual(['agents', 'claude']);
-    expect(config.links.beta).toEqual(['agents', 'claude']);
+    expect(config.links.alpha).toEqual(['claude']);
+    expect(config.links.beta).toEqual(['claude']);
     expect(Object.keys(config.sources)).toHaveLength(1);
     expect(config.sources['demo-source'].path).toBe('skills');
     expect(config.sources['demo-source'].ignore).toBeUndefined();
-    expect(config.links.alpha).toEqual(['agents', 'claude']);
-    expect(config.links.beta).toEqual(['agents', 'claude']);
+    expect(config.links.alpha).toEqual(['claude']);
+    expect(config.links.beta).toEqual(['claude']);
   }, 15000);
 
   it('does not require resolutions for planned same-repo install apply', async () => {
@@ -688,7 +752,7 @@ describe('install CLI command', () => {
 
     const config = JSON.parse(await readFile(join(homeDir, '.syncskill', 'config.json'), 'utf8'));
     expect(config.sources['demo-source'].path).toBe('skills');
-    expect(config.links.beta).toEqual(['agents', 'claude']);
+    expect(config.links.beta).toEqual(['claude']);
   }, 15000);
 
 });

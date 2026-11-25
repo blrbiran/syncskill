@@ -60,6 +60,8 @@
 
 ## Decision Log
 
+- **[2026-11-26]** 新技能只在共享目录已存在时默认链接到 `agents`。`install --shared-agents` 在执行阶段显式创建目录，plan 阶段只预览。已有技能的共享链接与配置引用应保留，安装不得因引用存在而重建缺失目录。
+
 - **[2026-05-07]** Main design spec is `docs/superpowers/specs/syncskill-design.md`.
 - **[2026-05-14]** Manifest 使用 3-field 模型（`local_hash`, `remote_hash`, `recorded_hash`）；`recorded_hash` 作为 3-way merge 基准点。
 - **[2026-05-16]** 数据优先级采用 `file truth > config > registry`；registry 是派生缓存。

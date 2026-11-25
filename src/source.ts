@@ -10,6 +10,7 @@ import { select } from '@inquirer/prompts';
 
 import type { SyncSkillConfig } from './config/config.js';
 import { getSyncPaths, loadConfig, saveConfig } from './config/config.js';
+import { ensureDefaultLinkTargets } from './core/private-agents.js';
 import {
   SkillsRegistry,
   SkillRegistryEntry,
@@ -2405,7 +2406,7 @@ export async function addSourceFromUrl(
           delete sourceRaw.ignore;
         }
 
-        config.links[requestedSkillName] = ['*'];
+        config.links[requestedSkillName] ??= await ensureDefaultLinkTargets(homeDir, config);
         await saveConfig(config, homeDir);
 
         return {

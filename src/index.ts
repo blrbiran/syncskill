@@ -96,7 +96,7 @@ async function prepareSyncTargetServers(
 }
 
 import { applyResolution, reconcileManifest } from './core/conflict.js';
-import { computeDefaultLinkTargets, listSelectableAgentNames } from './core/private-agents.js';
+import { computeDefaultLinkTargets, ensureSharedSkillsDirectory, listSelectableAgentNames } from './core/private-agents.js';
 import {
   autoDiagnoseConfig,
   diagnoseConfig,
@@ -1018,7 +1018,7 @@ interface InstallExecutionRuntimeOptions {
 async function buildInstallPlan(
   homeDir: string,
   urlOrPath: string | undefined,
-  options: { self?: boolean; yes?: boolean; name?: string; path?: string; skillSubdir?: string; type?: 'git' | 'http' | 'local'; branch?: string }
+  options: { self?: boolean; sharedAgents?: boolean; yes?: boolean; name?: string; path?: string; skillSubdir?: string; type?: 'git' | 'http' | 'local'; branch?: string }
 ): Promise<Plan> {
   let plan = createPlan('install');
   const { skillsDir } = getSyncPaths(homeDir);
@@ -1028,21 +1028,22 @@ async function buildInstallPlan(
     plan = addAction(plan, { op: 'install-self', to: targetPath } satisfies InstallAction);
 
     const config = await loadConfig(homeDir);
-    const targets = config.links['syncskill'] ?? (await computeDefaultLinkTargets(homeDir, config)).targets;
+    const targets = config.links['syncskill'] ?? (await computeDefaultLinkTargets(homeDir, config, options.sharedAgents)).targets;
     const agents = expandMaterializedTargetAgents(config, targets);
 
     if (agents.length > 0) {
       plan = addAction(plan, { op: 'link-skill', skill: 'syncskill', agents } satisfies InstallAction);
     }
 
-    return plan;
+    return options.sharedAgents ? addAction(plan, { op: 'enable-shared-agents' }) : plan;
   }
 
   if (!urlOrPath) {
     throw new Error('E_USAGE: install requires a URL/path or use "self"');
   }
 
-  return buildExternalInstallPlan(homeDir, urlOrPath, options);
+  plan = await buildExternalInstallPlan(homeDir, urlOrPath, options);
+  return options.sharedAgents ? addAction(plan, { op: 'enable-shared-agents' }) : plan;
 }
 
 async function executeInstallPlan(
@@ -1055,6 +1056,12 @@ async function executeInstallPlan(
   const output = getGlobalOutput();
   const installAction = plan.actions.find((action) => action.op === 'install-self');
   const linkAction = plan.actions.find((action) => action.op === 'link-skill' && action.skill === 'syncskill');
+
+  if (plan.actions.some((action) => action.op === 'enable-shared-agents')) {
+    if (!await ensureSharedSkillsDirectory(homeDir)) {
+      throw new Error('E_USAGE: Could not enable ~/.agents/skills');
+    }
+  }
 
   if (installAction && installAction.op === 'install-self') {
     const result = await installSyncskillSkill(homeDir);
@@ -1558,8 +1565,10 @@ export function createProgram(homeDir?: string): Command {
     .option('--skill-subdir <dir>', 'Alias for --path')
     .option('--type <type>', 'Source type: git, http, or local')
     .option('--branch <branch>', 'Git branch')
+    .option('--shared-agents', 'Enable ~/.agents/skills as a default target for new skills')
     .option('-y, --yes', 'Skip confirmation prompts')
     .action(async (urlOrPath: string | undefined, options: {
+      sharedAgents?: boolean;
       name?: string;
       path?: string;
       skillSubdir?: string;
