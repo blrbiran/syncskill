@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -208,17 +208,25 @@ describe('--plan (#484)', () => {
     // mutation: never refuse --plan -> config show runs and exits 0, red
     expect(result.exitCode).toBe(2);
     expect(result.lines.join('\n')).toContain('E_USAGE_GLOBAL_FLAG');
+    // the person typed --plan; naming --dry-run instead would point them at a flag they never passed
+    // mutation: report `${long}` instead of `${flag}` -> "--dry-run is not supported by", red
+    expect(result.lines.join('\n')).toContain('--plan is not supported by');
   });
 
-  it('--plan on install still prints install\'s own plan, not a refusal', async () => {
+  it('--plan on install is install\'s own plan: not refused, and nothing is installed', async () => {
     const home = await fixture();
     const source = await mkdtemp(join(tmpdir(), 'syncskill-plan-src-'));
     tempDirs.push(source);
     await mkdir(join(source, 'beta'), { recursive: true });
     await writeFile(join(source, 'beta', 'SKILL.md'), '---\nname: beta\ndescription: beta\n---\n# beta\n', 'utf8');
-    const result = await run(home, ['--plan', 'install', source]);
+    const configBefore = await readFile(join(home, '.syncskill', 'config.json'), 'utf8');
+    // -y keeps a mutated install from stopping at the interactive skill picker: it would hang, not fail on the checks below
+    const result = await run(home, ['--plan', 'install', source, '-y']);
     // mutation: drop install's exemption -> E_USAGE_GLOBAL_FLAG, exit 2, red
     expect(result.exitCode ?? 0, result.lines.join('\n')).toBe(0);
     expect(result.lines.join('\n')).not.toContain('E_USAGE_GLOBAL_FLAG');
+    // mutation: force install's planMode to false -> the source is registered and beta copied in, red
+    expect(await readFile(join(home, '.syncskill', 'config.json'), 'utf8')).toBe(configBefore);
+    expect((await readdir(join(home, '.syncskill', 'skills'))).sort()).toEqual(['alpha']);
   });
 });
