@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,6 +17,8 @@ import { createTransportRuntime, deployReceiver, listRemoteSkills } from '../../
  */
 const FAKE_SSH = `#!/bin/sh
 case "$*" in
+  *" remove-staging "*) exit 255 ;;
+  *" sh -s "*|*"cat > "*|*" write-manifest") cat >/dev/null; exit 0 ;;
   *" ls "*) mode="$FAKE_SSH_LS" ;;
   *mkdir*) mode="$FAKE_SSH_MKDIR" ;;
   *" manifest") mode="$FAKE_SSH_MANIFEST" ;;
@@ -94,6 +97,47 @@ describe('transport failures in the real execFile error shape (#456)', () => {
     await expect(deployReceiver(server, createTransportRuntime())).rejects.toThrow(/^E_REMOTE_TRANSPORT:/);
     process.env.FAKE_SSH_MKDIR = 'denied';
     await expect(deployReceiver(server, createTransportRuntime())).rejects.toThrow(/^E_REMOTE_ROOT:/);
+  });
+
+  describe('push transport failures through the real CLI (#482)', () => {
+    async function push(rsyncScript: string, ...flags: string[]) {
+      const home = await mkdtemp(join(tmpdir(), 'syncskill-transfer-'));
+      tempDirs.push(home);
+      await saveConfig({
+        version: 1, conflict_resolution: 'manual', agents: {}, links: {},
+        servers: { lab: { host: 'lab.example.invalid', remote_agents: {}, skills: { include: ['alpha'] } } }, sources: {},
+      }, home);
+      const skill = join(home, '.syncskill', 'skills', 'alpha');
+      await mkdir(skill, { recursive: true });
+      await writeFile(join(skill, 'SKILL.md'), '# alpha\n');
+      await writeFile(join(binDir, 'rsync'), `#!/bin/sh\n${rsyncScript}\n`, { mode: 0o755 });
+      return spawnSync(process.execPath, ['--import', 'tsx', 'src/index.ts', '--sync-dir', join(home, '.syncskill'),
+        '--json', '--no-interactive', 'push', 'lab', ...flags], {
+        env: { ...process.env, HOME: home }, encoding: 'utf8', timeout: 15_000
+      });
+    }
+
+    it('exits 5 with a JSON transport error when rsync exits 12', async () => {
+      const result = await push('printf "rsync: unexpected end of file\\n" >&2\nexit 12');
+      expect(result.status, result.stderr).toBe(5);
+      expect(result.stdout.trim().split('\n').map((line) => JSON.parse(line))).toContainEqual(expect.objectContaining({
+        type: 'error', code: 'E_REMOTE_TRANSPORT', message: expect.stringMatching(/^cannot send alpha to lab:[\s\S]*unexpected end of file/)
+      }));
+    });
+
+    it('names the leftover staging directory when cleanup fails', async () => {
+      const result = await push('exit 12');
+      expect(result.stderr).toMatch(/W_STAGING_LEFTOVER: .*\/skills\/\.alpha\.staging-[a-f0-9-]+/);
+    });
+
+    it('exits 5 on --timeout and discloses that the remote operation may continue', async () => {
+      const result = await push('sleep 3', '--timeout', '1');
+      expect(result.status, result.stderr).toBe(5);
+      expect(result.stdout.trim().split('\n').map((line) => JSON.parse(line))).toContainEqual(expect.objectContaining({
+        type: 'error', code: 'E_REMOTE_TRANSPORT',
+        message: expect.stringMatching(/Timeout: sync with lab exceeded 1s[\s\S]*may continue after the CLI exits/)
+      }));
+    });
   });
 
   describe('push --dry-run through the real runtime', () => {

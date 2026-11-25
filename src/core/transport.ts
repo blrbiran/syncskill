@@ -104,8 +104,8 @@ export function withTimeout<T>(
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error(
-        `Timeout: ${message} exceeded ${timeoutMs / 1000}s\n` +
-        `  Note: Background transfer may still be running. CLI has released, but the subprocess continues until completion or OS-level SSH timeout.`
+        `E_REMOTE_TRANSPORT: Timeout: ${message} exceeded ${timeoutMs / 1000}s\n` +
+        `  Running rsync, scp, or ssh operations (including remote deletions) may continue after the CLI exits.`
       ));
     }, timeoutMs);
 
@@ -743,7 +743,9 @@ export async function pushSkillDirectory(
     if (!shouldFallbackFromRsync(error)) {
       // Issue #426: a partial transfer must not leave a staging tree behind.
       await discardRemoteStaging(server, staging, runtime);
-      throw error;
+      const detail = (error as { message?: unknown } | null)?.message;
+      const message = typeof detail === 'string' ? detail : String(error);
+      throw new Error(`E_REMOTE_TRANSPORT: cannot send ${skill} to ${server.name}: ${message}`, { cause: error });
     }
 
     await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'import-skill', quoteRemotePath(skill)]), {
@@ -768,22 +770,17 @@ async function discardRemoteStaging(server: ConfiguredServer, staging: string, r
   try {
     await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'remove-staging', quoteRemotePath(staging)]));
   } catch {
-    // ignored on purpose
+    console.warn(`W_STAGING_LEFTOVER: ${staging} on ${server.name} (cleanup failed)`);
   }
 }
 
 function shouldFallbackFromRsync(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
+  if (!(error instanceof Error)) return false;
 
-  const anyError = error as Error & { code?: string; errno?: number; cause?: unknown };
-  if (anyError.code === 'ENOENT' || anyError.code === 'EACCES' || anyError.errno === -2 || anyError.errno === 13) {
-    return true;
-  }
+  const { code, errno, stderr } = error as Error & { code?: string | number; errno?: number; stderr?: string };
+  if (code === 'ENOENT' || code === 'EACCES' || errno === -2 || errno === -13) return true;
 
-  const message = error.message.toLowerCase();
-  return message.includes('enoent') || message.includes('eacces') || message.includes('not found');
+  return /^(?:[^\n]*sh[^:\n]*: (?:(?:line )?[0-9]+: )?)?rsync: (?:command )?not found\s*$/m.test(stderr || error.message);
 }
 
 function resolveSkillDestination(targetDir: string, relativePath: string): string {

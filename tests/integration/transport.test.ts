@@ -316,7 +316,10 @@ describe('transport', () => {
     });
   });
 
-  it('pushSkillDirectory prefers rsync and falls back to receiver import when rsync is unavailable', async () => {
+  it.each([
+    Object.assign(new Error('spawn rsync ENOENT'), { code: 'ENOENT' }),
+    Object.assign(new Error('rsync exited with code 12'), { code: 12, stderr: 'bash: line 1: rsync: command not found\n' })
+  ])('pushSkillDirectory falls back to receiver import when rsync is unavailable (%s)', async (rsyncUnavailable) => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
     tempDirs.push(homeDir);
     const sourceDir = join(homeDir, '.syncskill', 'skills', 'welcome');
@@ -324,7 +327,6 @@ describe('transport', () => {
     await writeFile(join(sourceDir, 'SKILL.md'), '# welcome\n', 'utf8');
 
     const runtime = createRuntime();
-    const rsyncUnavailable = Object.assign(new Error('spawn rsync ENOENT'), { code: 'ENOENT' });
     runtime.exec = vi
       .fn<TransportRuntime['exec']>()
       .mockRejectedValueOnce(rsyncUnavailable)
@@ -443,16 +445,20 @@ describe('transport', () => {
     expect(promote.args[promote.args.length - 1]).toContain('.welcome.staging-');
   });
 
-  it('pushSkillDirectory does not fall back for rsync transfer errors, and discards the staging tree', async () => {
+  it.each([
+    { code: 12, message: 'rsync: unexpected end of file' },
+    Object.assign(new Error('rsync: source file not found'), { code: 23 })
+  ])('pushSkillDirectory classifies rsync exit $code and discards the staging tree', async (transferError) => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-transport-'));
     tempDirs.push(homeDir);
     const sourceDir = join(homeDir, '.syncskill', 'skills', 'welcome');
     await mkdir(sourceDir, { recursive: true });
     await writeFile(join(sourceDir, 'SKILL.md'), '# welcome\n', 'utf8');
 
-    const transferError = new Error('rsync exited with code 23');
     const runtime = createRuntime();
-    const exec = vi.fn<TransportRuntime['exec']>().mockRejectedValue(transferError);
+    const exec = vi.fn<TransportRuntime['exec']>()
+      .mockRejectedValueOnce(transferError)
+      .mockResolvedValue({ stdout: '', stderr: '' });
     runtime.exec = exec;
 
     await expect(
@@ -466,7 +472,7 @@ describe('transport', () => {
         'welcome',
         runtime
       )
-    ).rejects.toBe(transferError);
+    ).rejects.toHaveProperty('message', `E_REMOTE_TRANSPORT: cannot send welcome to alpha: ${transferError.message}`);
 
     // Issue #426: the partial staging tree is cleaned up instead of being left on the remote. The
     // original transfer error still propagates and there is no import-skill fallback.

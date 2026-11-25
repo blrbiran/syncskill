@@ -205,8 +205,8 @@ describe('help output', () => {
     expect(installCmd?.options.find(o => o.long === '--path')?.description).toBe('Repo-relative subdirectory within source containing skills');
     expect(installCmd?.options.find(o => o.long === '--skill-subdir')?.description).toBe('Alias for --path');
     expect(installCmd?.options.find(o => o.long === '--type')?.description).toBe('Source type: git, http, or local');
-    expect(pushCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
-    expect(pullCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
-    expect(syncCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server SSH timeout in seconds');
+    expect(pushCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server timeout in seconds (running rsync, scp, or ssh may continue after the CLI exits)');
+    expect(pullCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server timeout in seconds (running rsync, scp, or ssh may continue after the CLI exits)');
+    expect(syncCmd?.options.find(o => o.long === '--timeout')?.description).toBe('Per-server timeout in seconds (running rsync, scp, or ssh may continue after the CLI exits)');
   });
 });
