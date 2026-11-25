@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process';
 import { access, lstat, mkdir, mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -81,11 +81,12 @@ let realBefore: string | string[];
 
 beforeAll(async () => {
   realBefore = await snapshotDir(realSyncskillDir);
-});
+  // A populated real ~/.syncskill (330 MB here) can exceed the 10 s default under load; this hook only reads metadata.
+}, 60_000);
 
 afterAll(async () => {
   expect(await snapshotDir(realSyncskillDir)).toEqual(realBefore);
-});
+}, 60_000);
 
 describe('syncskill --sync-dir / SYNCSKILL_DIR', () => {
   const tempDirs = useTempDirs();
@@ -161,7 +162,8 @@ describe('syncskill --sync-dir / SYNCSKILL_DIR', () => {
 
   /**
    * Tester #488: the sync dir relocates the runtime, but the home boundary used to stay on process.env.HOME, so a
-   * scratch `--sync-dir` scan adopted the real home's agent directories into the scratch tree.
+   * scratch `--sync-dir` scan adopted the real home's agent directories into the scratch tree. The default location
+   * is now contained in the override (`.agent-home`) and is not adopted without the explicit flag either.
    */
   it('scan in a scratch sync-dir imports nothing from the real home (#488)', async () => {
     const realHome = await tempDir('syncskill-syncdir-realhome-');
@@ -170,7 +172,8 @@ describe('syncskill --sync-dir / SYNCSKILL_DIR', () => {
 
     const scratch = await tempDir('syncskill-syncdir-scratch-');
     const syncDir = join(scratch, 'home', '.syncskill');
-    await mkdir(syncDir, { recursive: true });
+    await mkdir(join(syncDir, '.agent-home', '.claude', 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(syncDir, '.agent-home', '.claude', 'skills', 'alpha', 'SKILL.md'), '# default alpha', 'utf8');
     await writeFile(join(syncDir, 'config.json'), JSON.stringify({
       version: 1, conflict_resolution: 'manual', agents: {}, links: {}, servers: {}, sources: {}
     }), 'utf8');
@@ -180,6 +183,7 @@ describe('syncskill --sync-dir / SYNCSKILL_DIR', () => {
 
     const cfg = JSON.parse(await readFile(join(syncDir, 'config.json'), 'utf8')) as { links: Record<string, unknown> };
     // mutation: adopt the real home's agent directories again -> alpha is copied and linked, red
+    // mutation: drop the migrateUnmanaged gate -> the contained default alpha is adopted, red
     expect(Object.keys(cfg.links)).toEqual([]);
     expect(await exists(join(syncDir, 'skills', 'alpha'))).toBe(false);
     expect(run.stdout).not.toContain('Found new skills in sources');
@@ -203,8 +207,8 @@ describe('syncskill --sync-dir / SYNCSKILL_DIR', () => {
 
   /**
    * Tester #488: inside the relocated tree, adopting agent directories is exactly the silent import the override is
-   * supposed to avoid, so it waits for the flag the scan command already documents. The flag's target is the sync
-   * dir's grandparent -- the real home's own `.claude/skills` is not touched even then.
+   * supposed to avoid, so it waits for the flag the scan command already documents. The flag's target is the contained
+   * default home `<sync-dir>/.agent-home` -- neither the real home nor the override's ancestor is touched.
    */
   it('scan under --sync-dir adopts agent directories only with --migrate-unmanaged (#488)', async () => {
     const realHome = await tempDir('syncskill-syncdir-realhome-');
@@ -213,10 +217,14 @@ describe('syncskill --sync-dir / SYNCSKILL_DIR', () => {
 
     const scratch = await tempDir('syncskill-syncdir-scratch-');
     const syncDir = join(scratch, 'home', '.syncskill');
-    // The boundary is the sync dir's grandparent, so this is where agent directories are looked for.
-    await mkdir(join(scratch, '.claude', 'skills', 'alpha'), { recursive: true });
-    await writeFile(join(scratch, '.claude', 'skills', 'alpha', 'SKILL.md'), '# alpha', 'utf8');
-    await mkdir(syncDir, { recursive: true });
+    // The old ancestor boundary: a skill here must never be adopted.
+    const ancestor = dirname(dirname(syncDir));
+    await mkdir(join(ancestor, '.claude', 'skills', 'gamma'), { recursive: true });
+    await writeFile(join(ancestor, '.claude', 'skills', 'gamma', 'SKILL.md'), '# gamma', 'utf8');
+    // The contained default home the scan should use.
+    const syntheticHome = join(syncDir, '.agent-home');
+    await mkdir(join(syntheticHome, '.claude', 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(syntheticHome, '.claude', 'skills', 'alpha', 'SKILL.md'), '# alpha', 'utf8');
     await writeFile(join(syncDir, 'config.json'), JSON.stringify({
       version: 1, conflict_resolution: 'manual', agents: {}, links: {}, servers: {}, sources: {}
     }), 'utf8');
@@ -231,10 +239,12 @@ describe('syncskill --sync-dir / SYNCSKILL_DIR', () => {
     run = await runCli(realHome, ['--sync-dir', syncDir, 'scan', '--migrate-unmanaged']);
     expect(run.code).toBe(0);
     cfg = JSON.parse(await readFile(join(syncDir, 'config.json'), 'utf8')) as { links: Record<string, unknown> };
-    // mutation: put process.env.HOME back as the boundary -> beta is adopted and alpha is not, red
+    // mutation: put process.env.HOME back as the boundary -> beta is adopted, red
+    // mutation: use dirname(dirname(syncDir)) again -> gamma is adopted, red
     expect(Object.keys(cfg.links)).toEqual(['alpha']);
     expect(await exists(join(syncDir, 'skills', 'alpha'))).toBe(true);
     expect(await exists(join(syncDir, 'skills', 'beta'))).toBe(false);
+    expect(await exists(join(syncDir, 'skills', 'gamma'))).toBe(false);
   });
 
   it('--config and SYNCSKILL_CONFIG fail loudly instead of being ignored', async () => {

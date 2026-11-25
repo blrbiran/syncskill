@@ -1417,7 +1417,7 @@ export function createProgram(homeDir?: string): Command {
     .addOption(new Option('--apply-stdin').hideHelp())
     .option('--resolutions <path|->', 'Provide resolutions file or read resolutions from stdin')
     .addOption(new Option('--resolutions-stdin').hideHelp())
-    .option('--sync-dir <path>', 'Override ~/.syncskill directory')
+    .option('--sync-dir <path>', 'Override ~/.syncskill directory (agent directories resolve under <path>/.agent-home)')
     .option('--config <path>', 'Alias for --sync-dir when it names config.json or config.yaml')
     .option('--dry-run', 'Preview without making changes (on commands that support it)')
     .option('-y, --yes', 'Accept defaults without prompting (on commands that support it)')
@@ -1482,10 +1482,11 @@ export function createProgram(homeDir?: string): Command {
       }
       setSyncDirOverride(mergedConfig.syncDir === undefined ? undefined : resolve(mergedConfig.syncDir));
       syncDirOverrideActive = mergedConfig.syncDir !== undefined;
-      // Tester #488: with no explicit home, the sync dir's grandparent is the boundary, so ~/.claude/skills resolves
-      // inside the override's tree instead of the real home's.
+      // Tester #488: with no explicit home, agent directories default under a synthetic home *inside* the override.
+      // dirname(dirname(syncDir)) was an ancestor of the override and could leave the tree (e.g. /tmp/x -> /);
+      // a contained default keeps every `~`-relative location inside the relocated runtime.
       if (homeDir === undefined && mergedConfig.syncDir !== undefined) {
-        resolvedHomeDir = dirname(dirname(resolve(mergedConfig.syncDir)));
+        resolvedHomeDir = join(resolve(mergedConfig.syncDir), '.agent-home');
       }
 
       // Issue 411: the mature CLI accepted --dry-run / -y / --force before the command. They are
@@ -1777,8 +1778,8 @@ export function createProgram(homeDir?: string): Command {
         console.log('[dry-run] Scanning for skills...\n');
       }
 
-      // Discover skills from sources and manual directory. Tester #488: under --sync-dir the home boundary is a
-      // scratch tree, so adopting agent directories is opt-in via the explicit flag.
+      // Discover skills from sources and manual directory. Tester #488: under --sync-dir the home boundary is the
+      // contained `.agent-home` inside the override, so adopting agent directories is opt-in via the explicit flag.
       const migrateUnmanaged = syncDirOverrideActive ? options.migrateUnmanaged === true : true;
       const addedSkills = await discoverSkills(resolvedHomeDir, {
         allAgents: true,
