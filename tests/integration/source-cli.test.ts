@@ -101,7 +101,7 @@ describe('source CLI', () => {
         sources: {
           'local-source': { type: 'local', url: sourceRoot, path: 'skills' },
           'ssh-source': { type: 'git', url: 'ssh://git@example.com/repo.git', path: '.' },
-          remote: { type: 'git', url: 'https://user:token@example.com/repo.git', path: '.' }
+          remote: { type: 'git', url: 'https://user:token@example.com/repo.git?access_token=query-secret#private-fragment', path: '.' }
         }
       },
       homeDir

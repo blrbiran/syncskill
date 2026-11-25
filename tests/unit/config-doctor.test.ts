@@ -506,6 +506,27 @@ describe('diagnoseConfig', () => {
     expect(report.warnings).toEqual([]);
   });
 
+  it('finds linked skills from tilde sources inside the selected home (#487)', async () => {
+    const home = join(testDir, 'source-home');
+    const skillsDir = join(home, 'managed');
+    const legacy = join(home, 'legacy-skills', 'legacy');
+    const canonical = join(home, 'canonical-root', 'skills', 'canonical');
+    await Promise.all([skillsDir, legacy, canonical].map((dir) => mkdir(dir, { recursive: true })));
+    await Promise.all([legacy, canonical].map((dir) => writeFile(join(dir, 'SKILL.md'), '# Skill\n')));
+
+    const config: SyncSkillConfig = {
+      version: 1, conflict_resolution: 'manual', agents: { claude: '~/managed' },
+      links: { legacy: ['claude'], canonical: ['claude'] }, servers: {}, profiles: {}, private_agents: [],
+      sources: {
+        legacy: { type: 'local', path: '~/legacy-skills' },
+        canonical: { type: 'local', url: '~/canonical-root', path: 'skills' }
+      }
+    };
+    const report = await diagnoseConfig(config, skillsDir, home);
+    expect(report.unreadableSources).toBeUndefined();
+    expect(report.warnings).toEqual([]);
+  });
+
   it('treats top-level managed directories as existing local skills', async () => {
     const agentDir = join(testDir, 'claude-skills');
     const skillsDir = join(testDir, 'skills');

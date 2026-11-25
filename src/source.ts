@@ -480,21 +480,18 @@ function redactUrlCredentials(raw: string): string {
 
   try {
     const parsed = new URL(raw);
-    if (!parsed.username && !parsed.password) {
-      return raw;
-    }
-    // An ssh username (`git@host`) is part of the address, not a credential; only http(s) userinfo is opaque.
     const httpUrl = parsed.protocol === 'http:' || parsed.protocol === 'https:';
-    if (!httpUrl && !parsed.password) {
+    if (!parsed.password && !parsed.search && !parsed.hash && !(httpUrl && parsed.username)) {
       return raw;
     }
-    if (httpUrl) {
-      parsed.username = '';
-    }
+    // Keep SSH usernames. HTTP userinfo and URL parameters can hold credentials.
+    if (httpUrl) parsed.username = '';
     parsed.password = '';
+    parsed.search = '';
+    parsed.hash = '';
     return parsed.toString();
   } catch {
-    return raw.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]+@/i, '$1');
+    return '[invalid source URL]';
   }
 }
 
@@ -2545,7 +2542,7 @@ export async function discoverActiveSourceSkillNamesWithFailures(
   const unreadable: string[] = [];
 
   for (const [name, sourceDef] of Object.entries(sources)) {
-    const sourceEntry = normalizeSourceEntry(name, sourceDef)[0];
+    const sourceEntry = normalizeSourceEntry(name, sourceDef, homeDir)[0];
     if (!sourceEntry) {
       unreadable.push(name);
       continue;
@@ -2601,7 +2598,7 @@ export async function discoverAllSkills(
 
 function getMaterializedRootPath(homeDir: string, name: string, source: SourceEntry): string {
   if (source.type === 'local') {
-    return getLocalMaterializedRoot(source);
+    return getLocalMaterializedRoot(source, homeDir);
   }
 
   if (source.type === 'git') {
