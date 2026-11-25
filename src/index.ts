@@ -3362,6 +3362,7 @@ export function createProgram(homeDir?: string): Command {
     ) => {
       try {
         const noInteractive = isNoInteractive(program);
+        const json = program.opts<{ json?: boolean }>().json === true;
         const targetServers = await prepareSyncTargetServers(resolvedHomeDir, server, options, 'pull', noInteractive);
         if (!targetServers) return;
 
@@ -3371,12 +3372,13 @@ export function createProgram(homeDir?: string): Command {
           pullBackup: options.pullBackup,
           yes: options.yes,
           noInteractive,
+          json,
           crossServerPolicy: options.crossServerPolicy,
           onConflict: options.onConflict,
           onDeletion: options.onRemoteDeletion ?? options.onDeletion
         });
 
-        if (!program.opts<{ json?: boolean }>().json) {
+        if (!json) {
           for (const result of results) {
             for (const line of formatSkillRows('pull', result)) {
               console.log(line);

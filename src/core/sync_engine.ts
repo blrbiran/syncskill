@@ -547,8 +547,10 @@ async function pushToServer(
     }
 
     // Print warnings for skills that have remote changes (tester #477: not into --json's stdout)
-    for (const skill of options.json === true ? [] : pullSkills) {
-      console.log(`  Skipping ${skill}: remote has changes. Use \`syncskill pull\` to update local.`);
+    if (options.json !== true) {
+      for (const skill of pullSkills) {
+        console.log(`  Skipping ${skill}: remote has changes. Use \`syncskill pull\` to update local.`);
+      }
     }
 
     // Safety net: verify remote skills exist when --no-refresh is used
@@ -566,7 +568,7 @@ async function pushToServer(
       );
 
       if (missingRemotely.length > 0) {
-        console.log(`  Safety net: ${missingRemotely.length} skill(s) missing remotely, forcing push`);
+        if (options.json !== true) console.log(`  Safety net: ${missingRemotely.length} skill(s) missing remotely, forcing push`);
         // Force these to push by treating them as new local-only skills
         for (const skill of missingRemotely) {
           if (manifest.skills[skill]) {
@@ -628,13 +630,15 @@ async function pushToServer(
     let deletedSkills: string[] = [];
 
     if (orphanSkills.length > 0 && !options.dryRun) {
-      console.log(`\nRemote skills to remove (no longer in local config):`);
-      for (const skill of orphanSkills) {
-        console.log(`  - ${skill}`);
+      if (options.json !== true) {
+        console.log(`\nRemote skills to remove (no longer in local config):`);
+        for (const skill of orphanSkills) {
+          console.log(`  - ${skill}`);
+        }
       }
 
       cleanupEnsureAllowed(updated.previousManifest, serverName, orphanSkills, options);
-      cleanupRiskWarning(updated.previousManifest, serverName, orphanSkills);
+      if (options.json !== true) cleanupRiskWarning(updated.previousManifest, serverName, orphanSkills);
 
       let shouldDelete = cleanupShouldDelete(options);
       if (!shouldDelete && cleanupShouldPrompt(options)) {
@@ -651,9 +655,9 @@ async function pushToServer(
       if (shouldDelete) {
         await deleteRemoteSkills(server, orphanSkills, runtime);
         deletedSkills = [...orphanSkills];
-        console.log(`  Removed ${orphanSkills.length} remote skill(s)`);
+        if (options.json !== true) console.log(`  Removed ${orphanSkills.length} remote skill(s)`);
       } else {
-        console.log(cleanupSkippedMessage(updated.previousManifest, serverName, orphanSkills));
+        if (options.json !== true) console.log(cleanupSkippedMessage(updated.previousManifest, serverName, orphanSkills));
       }
     }
 
@@ -686,7 +690,7 @@ async function pullFromServerWork(homeDir: string, serverName: string, options: 
   const server = getConfiguredServer(config, serverName);
   const runtime = options.runtime ?? createTransportRuntime();
   const updated = await prepareManifest(homeDir, server, runtime, options.now, options.dryRun === true);
-  if (updated.remoteUnknown) console.log(`  warning: remote-state-unknown: no syncskill receiver on ${serverName}; a dry run does not install one`);
+  if (updated.remoteUnknown && options.json !== true) console.log(`  warning: remote-state-unknown: no syncskill receiver on ${serverName}; a dry run does not install one`);
   let manifest = applyConflictPolicy(
     updated.manifest,
     resolveSingleServerConflictPolicy(config.conflict_resolution, options.onConflict),
@@ -722,56 +726,58 @@ async function pullFromServerWork(homeDir: string, serverName: string, options: 
   ]);
 
   if (options.dryRun) {
-    console.log(`\n[dry-run] pull from ${serverName}:\n`);
+    if (options.json !== true) {
+      console.log(`\n[dry-run] pull from ${serverName}:\n`);
 
-    let totalAdded = 0;
-    let totalModified = 0;
-    let totalDeleted = 0;
+      let totalAdded = 0;
+      let totalModified = 0;
+      let totalDeleted = 0;
 
-    for (const skill of pulledContentSkills) {
-      const state = manifest.skills[skill];
-      const isNew = state.remote_hash && !state.local_hash;
+      for (const skill of pulledContentSkills) {
+        const state = manifest.skills[skill];
+        const isNew = state.remote_hash && !state.local_hash;
 
-      if (isNew) {
-        console.log(`  + ${skill} (new)`);
-        totalAdded++;
-      } else {
-        console.log(`  ~ ${skill} (modified)`);
-        totalModified++;
+        if (isNew) {
+          console.log(`  + ${skill} (new)`);
+          totalAdded++;
+        } else {
+          console.log(`  ~ ${skill} (modified)`);
+          totalModified++;
+        }
       }
-    }
 
-    for (const skill of deletedSkillsForExecution) {
-      console.log(`  - ${skill} (deleted)`);
-      totalDeleted++;
-    }
+      for (const skill of deletedSkillsForExecution) {
+        console.log(`  - ${skill} (deleted)`);
+        totalDeleted++;
+      }
 
-    for (const skill of keptLocalDeletionSkills) {
-      console.log(`  = ${skill} (kept local)`);
-    }
+      for (const skill of keptLocalDeletionSkills) {
+        console.log(`  = ${skill} (kept local)`);
+      }
 
-    for (const skill of reportedConflicts) {
-      console.log(`  ! ${skill} (conflict)`);
-    }
+      for (const skill of reportedConflicts) {
+        console.log(`  ! ${skill} (conflict)`);
+      }
 
-    if (
-      pulledContentSkills.length === 0 &&
-      deletedSkillsForExecution.length === 0 &&
-      keptLocalDeletionSkills.length === 0 &&
-      reportedConflicts.length === 0
-    ) {
-      console.log('  (no changes)');
-    } else {
-      const parts: string[] = [];
-      if (totalAdded > 0) parts.push(`${totalAdded} added`);
-      if (totalModified > 0) parts.push(`${totalModified} modified`);
-      if (totalDeleted > 0) parts.push(`${totalDeleted} deleted`);
-      if (keptLocalDeletionSkills.length > 0) parts.push(`${keptLocalDeletionSkills.length} kept local`);
-      if (reportedConflicts.length > 0) parts.push(`${reportedConflicts.length} conflict(s)`);
+      if (
+        pulledContentSkills.length === 0 &&
+        deletedSkillsForExecution.length === 0 &&
+        keptLocalDeletionSkills.length === 0 &&
+        reportedConflicts.length === 0
+      ) {
+        console.log('  (no changes)');
+      } else {
+        const parts: string[] = [];
+        if (totalAdded > 0) parts.push(`${totalAdded} added`);
+        if (totalModified > 0) parts.push(`${totalModified} modified`);
+        if (totalDeleted > 0) parts.push(`${totalDeleted} deleted`);
+        if (keptLocalDeletionSkills.length > 0) parts.push(`${keptLocalDeletionSkills.length} kept local`);
+        if (reportedConflicts.length > 0) parts.push(`${reportedConflicts.length} conflict(s)`);
 
-      const skillCount =
-        pulledContentSkills.length + deletedSkillsForExecution.length + keptLocalDeletionSkills.length + reportedConflicts.length;
-      console.log(`\nSummary: ${skillCount} skill(s), ${parts.join(', ')}`);
+        const skillCount =
+          pulledContentSkills.length + deletedSkillsForExecution.length + keptLocalDeletionSkills.length + reportedConflicts.length;
+        console.log(`\nSummary: ${skillCount} skill(s), ${parts.join(', ')}`);
+      }
     }
 
     return {

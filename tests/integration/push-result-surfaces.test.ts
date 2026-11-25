@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 import { createFakeSshBin } from '../helpers/fake-ssh.js';
 import { saveConfig } from '../../src/config/config.js';
-import { saveServerManifest, type ManifestSkillState } from '../../src/core/manifest.js';
+import { hashSkillDirectory, saveServerManifest, type ManifestSkillState } from '../../src/core/manifest.js';
 import { createProgram } from '../../src/index.js';
 
 /**
@@ -60,12 +60,12 @@ describe('push --dry-run: human output and --json report the same plan (#477)', 
     if (saved.listing === undefined) delete process.env.FAKE_SSH_LISTING; else process.env.FAKE_SSH_LISTING = saved.listing;
   });
 
-  async function run(argv: string[]): Promise<string[]> {
+  async function run(argv: string[], home?: string): Promise<string[]> {
     const lines: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { lines.push(args.map(String).join(' ')); });
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    await createProgram(await fixture(tempDirs)).parseAsync(['node', 'syncskill', ...argv], { from: 'node' });
+    await createProgram(home ?? await fixture(tempDirs)).parseAsync(['node', 'syncskill', ...argv], { from: 'node' });
     vi.restoreAllMocks();
     return lines;
   }
@@ -98,5 +98,54 @@ describe('push --dry-run: human output and --json report the same plan (#477)', 
     // mutation: stop printing warnings in the human plan -> the person never sees why `elsewhere` is kept, red
     expect(humanWarnings).toEqual(['warning: included-not-local: elsewhere']);
     expect(summary.warnings).toBe(humanWarnings.length);
+  });
+
+  /**
+   * Tester #481: `--json` promises JSONL on stdout. The engine's human lines (the remote-cleanup block among them)
+   * were written straight to stdout and made the stream unparseable. One result event is one line; that is the contract.
+   */
+  it.each([
+    [['--json', 'push', 'lab', '--dry-run']],
+    // The safety-net line is printed before the plan; --no-refresh reaches it without a real remote.
+    [['--json', 'push', 'lab', '--dry-run', '--no-refresh']],
+    [['--json', 'pull', 'lab', '--dry-run']],
+    [['--json', 'sync', 'lab', '--dry-run']],
+  ])('%j writes exactly one parseable JSON line (#481)', async (argv) => {
+    const jsonLines = await run(argv);
+    expect(jsonLines).toHaveLength(1);
+    expect(() => JSON.parse(jsonLines[0]!)).not.toThrow();
+    expect((JSON.parse(jsonLines[0]!) as { type: string }).type).toBe('result');
+  });
+
+  /**
+   * The remote-cleanup block only runs on a real push, so it needs its own fixture. Nothing is pushed here (no local
+   * skill content), which also keeps rsync out of the test: alpha is a remote-only skill the include list names and
+   * the baseline records, so it is kept; old-one is the orphan the cleanup block reports.
+   */
+  it('--json push keeps the remote-cleanup block out of stdout (#481)', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'syncskill-surfaces-cleanup-'));
+    tempDirs.push(home);
+    await saveConfig({
+      version: 1, conflict_resolution: 'manual', agents: {}, links: {},
+      servers: { lab: { host: 'lab.example.invalid', remote_agents: {}, skills: { include: ['alpha'] } } },
+      sources: {},
+    } as never, home);
+    // alpha is in sync (same hash on both sides), so nothing is pushed and rsync never runs.
+    await mkdir(join(home, '.syncskill', 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(home, '.syncskill', 'skills', 'alpha', 'SKILL.md'), '# alpha\n', 'utf8');
+    const hash = await hashSkillDirectory(join(home, '.syncskill', 'skills', 'alpha'));
+    await saveServerManifest(home, {
+      version: 1, server: 'lab', updated_at: '2026-01-01T00:00:00Z',
+      skills: { alpha: state(hash), 'old-one': state('ro') },
+    });
+    process.env.FAKE_SSH_MANIFEST_JSON = JSON.stringify({
+      version: 1, server: 'lab', updated_at: '2026-01-01T00:00:00Z',
+      skills: { alpha: state(hash), 'old-one': state('ro') },
+    });
+    process.env.FAKE_SSH_LISTING = 'alpha old-one';
+
+    const jsonLines = await run(['--json', 'push', 'lab'], home);
+    expect(jsonLines).toHaveLength(1);
+    expect(() => JSON.parse(jsonLines[0]!)).not.toThrow();
   });
 });
