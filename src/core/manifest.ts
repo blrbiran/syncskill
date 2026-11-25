@@ -4,7 +4,7 @@ import { join, relative } from 'node:path';
 
 import { getSyncPaths } from '../config/config.js';
 import { reconcileManifest } from './conflict.js';
-import { isNotFoundError } from '../utils/utils.js';
+import { isNotFoundError, writeJsonAtomic } from '../utils/utils.js';
 
 /** `create: false` (tester #474, read-only commands) reads a missing skills directory as empty instead of creating it. */
 export async function listLocalSkillNames(homeDir: string, create = true): Promise<string[]> {
@@ -107,29 +107,42 @@ export async function loadServerManifest(homeDir: string, server: string): Promi
   if (preview) return structuredClone(preview);
   const manifestFile = join(manifestsDir, `${server}.json`);
 
+  let rawText: string;
   try {
-    const raw = JSON.parse(await readFile(manifestFile, 'utf8')) as Partial<ServerManifest>;
-
-    return {
-      version: 1,
-      server,
-      updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : nowIso(),
-      skills: Object.fromEntries(
-        Object.entries(raw.skills ?? {}).map(([skill, state]) => [skill, normalizeSkillState(state)])
-      )
-    };
+    rawText = await readFile(manifestFile, 'utf8');
   } catch (error) {
     if (isNotFoundError(error)) {
       return createEmptyManifest(server);
     }
+
     throw error;
   }
+
+  let raw: Partial<ServerManifest>;
+  try {
+    raw = JSON.parse(rawText) as Partial<ServerManifest>;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+
+    throw new Error(
+      `manifest-invalid: ${manifestFile} is not valid JSON (${detail}); restore ${manifestFile}.bak or remove the file to start fresh`
+    );
+  }
+
+  return {
+    version: 1,
+    server,
+    updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : nowIso(),
+    skills: Object.fromEntries(
+      Object.entries(raw.skills ?? {}).map(([skill, state]) => [skill, normalizeSkillState(state)])
+    )
+  };
 }
 
 export async function saveServerManifest(homeDir: string, manifest: ServerManifest): Promise<void> {
   const { manifestsDir } = getSyncPaths(homeDir);
   await mkdir(manifestsDir, { recursive: true });
-  await writeFile(join(manifestsDir, `${manifest.server}.json`), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  await writeJsonAtomic(join(manifestsDir, `${manifest.server}.json`), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 export async function loadManifestHistory(homeDir: string): Promise<ManifestHistory> {

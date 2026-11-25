@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { lstat, readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { copyFile, lstat, open, readFile, rename } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -15,6 +16,33 @@ export const execFileAsync = promisify(execFile);
  */
 export function isNotFoundError(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+/**
+ * Write text to a file without ever leaving a half-written one behind: the bytes go to a sibling
+ * temp file, are fsync'd, and only then rename(2) into place. The previous file is kept as `.bak`
+ * so a corrupt current file still has a known-good copy to restore.
+ */
+export async function writeJsonAtomic(path: string, text: string): Promise<void> {
+  const temporary = `${path}.tmp-${randomUUID()}`;
+  const handle = await open(temporary, 'wx', 0o600);
+
+  try {
+    await handle.writeFile(text, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+
+  try {
+    await copyFile(path, `${path}.bak`);
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      throw error;
+    }
+  }
+
+  await rename(temporary, path);
 }
 
 /**

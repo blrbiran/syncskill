@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -91,6 +92,39 @@ describe('manifest hashing', () => {
     await saveServerManifest(homeDir, manifest);
 
     await expect(loadServerManifest(homeDir, 'dev')).resolves.toEqual(manifest);
+  });
+
+  it('saveServerManifest replaces atomically and keeps the previous manifest as .bak (#489)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-manifest-'));
+    tempDirs.push(homeDir);
+
+    const { manifestsDir } = getSyncPaths(homeDir);
+    const manifestFile = join(manifestsDir, 'dev.json');
+    const first = createEmptyManifest('dev', '2026-05-01T00:00:00.000Z');
+    const second = createEmptyManifest('dev', '2026-05-01T01:00:00.000Z');
+
+    await saveServerManifest(homeDir, first);
+    expect(existsSync(`${manifestFile}.bak`)).toBe(false);
+
+    await saveServerManifest(homeDir, second);
+
+    expect(JSON.parse(await readFile(manifestFile, 'utf8'))).toEqual(second);
+    expect(JSON.parse(await readFile(`${manifestFile}.bak`, 'utf8'))).toEqual(first);
+  });
+
+  it('a truncated server manifest is reported as manifest-invalid and points at the .bak (#489)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-manifest-'));
+    tempDirs.push(homeDir);
+
+    const { manifestsDir } = getSyncPaths(homeDir);
+    await mkdir(manifestsDir, { recursive: true });
+
+    const manifestFile = join(manifestsDir, 'dev.json');
+    await writeFile(manifestFile, '{"version":1,"server":"dev",', 'utf8');
+
+    await expect(loadServerManifest(homeDir, 'dev')).rejects.toThrow(
+      new RegExp(`manifest-invalid: .*dev\\.json is not valid JSON \\(.*\\); restore .*dev\\.json\\.bak`)
+    );
   });
 
   it('loadManifestHistory normalizes malformed history input to empty entries', async () => {

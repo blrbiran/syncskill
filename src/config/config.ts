@@ -1,10 +1,10 @@
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import YAML from 'yaml';
 
-import { isNotFoundError } from '../utils/utils.js';
+import { isNotFoundError, writeJsonAtomic } from '../utils/utils.js';
 
 // Re-export types from types.ts
 export type { SyncPaths, ConflictResolution, SyncSkillConfig, ConfiguredServer, SourceConfig } from './types.js';
@@ -134,7 +134,15 @@ export async function loadConfig(homeDir = homedir()): Promise<SyncSkillConfig> 
     const raw = await readFile(jsonPath, 'utf8');
     return validateConfig(JSON.parse(raw));
   } catch (jsonError) {
-    if (!isNotFoundError(jsonError) && !(jsonError instanceof SyntaxError)) {
+    // A config that parses as neither JSON nor (fallback) YAML must not be reported as missing:
+    // `init` would overwrite the corrupt file and its recoverable `.bak`.
+    if (jsonError instanceof SyntaxError) {
+      throw new Error(
+        `E_CONFIG_CORRUPT: ${jsonPath} is not valid JSON; the previous copy is at ${jsonPath}.bak. Do not run \`init\`: it would overwrite it.`
+      );
+    }
+
+    if (!isNotFoundError(jsonError)) {
       throw jsonError;
     }
   }
@@ -157,7 +165,7 @@ export async function saveConfig(config: SyncSkillConfig, homeDir = homedir()): 
   const yamlPath = join(syncDir, 'config.yaml');
 
   await mkdir(syncDir, { recursive: true });
-  await writeFile(jsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  await writeJsonAtomic(jsonPath, JSON.stringify(config, null, 2) + '\n');
 
   try {
     await rm(yamlPath);
