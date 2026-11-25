@@ -27,6 +27,7 @@ import {
   deleteRemoteSkills,
   deployReceiver,
   fetchRemoteManifest,
+  isTransportFailure,
   listRemoteSkills,
   pullSkillDirectory,
   pushManifest,
@@ -989,7 +990,7 @@ async function fetchRemoteState(server: ConfiguredServer, runtime: TransportRunt
     return { manifest: await fetchRemoteManifest(server, runtime), unknown: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (/exited with code 255|ENOENT|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|ENETUNREACH/i.test(message)) {
+    if (isTransportFailure(error)) {
       throw new Error(`E_REMOTE_TRANSPORT: cannot reach ${server.name} to read its manifest: ${message}`);
     }
     return { manifest: createEmptyManifest(server.name), unknown: true };

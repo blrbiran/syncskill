@@ -61,11 +61,21 @@ function remoteNode(server: ConfiguredServer): string {
   return configured === '' ? 'node' : configured;
 }
 
+const TRANSPORT_ERRNOS = new Set(['ENOENT', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ETIMEDOUT', 'ENETUNREACH']);
+
 /** Exit 255 is ssh's own failure (unreachable host, refused key, reset connection); the errno names
  * cover a missing ssh binary and the network errnos Node reports. A remote command that fails for a
- * reason of its own (exit 2, "Permission denied" on a directory) is not in this set. */
-function isTransportFailure(message: string): boolean {
-  return /exited with code 255|ENOENT|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|ENETUNREACH/i.test(message);
+ * reason of its own (exit 2, "Permission denied" on a directory) is not in this set.
+ *
+ * Tester #456: the real runtime's `execFile` error says `Command failed: ssh …` and carries the exit
+ * status in `error.code`, not in its text, so the code decides whenever there is one; the message is
+ * read only for an error without a code (a test runtime's text, a killed process). */
+export function isTransportFailure(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (typeof code === 'number') return code === 255;
+  if (typeof code === 'string') return TRANSPORT_ERRNOS.has(code);
+  const message = error instanceof Error ? error.message : String(error);
+  return /exited with code 255|ENOENT|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ETIMEDOUT|ENETUNREACH/i.test(message);
 }
 
 function connectTimeoutSeconds(server: ConfiguredServer): number {
@@ -145,7 +155,10 @@ export function createTransportRuntime(): TransportRuntime {
             return;
           }
 
-          reject(new Error(`${file} exited with code ${code ?? 'unknown'}${stderr === '' ? '' : `: ${stderr}`}`));
+          reject(Object.assign(
+            new Error(`${file} exited with code ${code ?? 'unknown'}${stderr === '' ? '' : `: ${stderr}`}`),
+            { code: code ?? undefined, stderr }
+          ));
         });
 
         child.stdin.end(options.stdin);
@@ -387,7 +400,7 @@ export async function deployReceiver(
     const message = error instanceof Error ? error.message : String(error);
     // A transport failure is not a writability fact. Exit 255 is ssh's own failure (unreachable
     // host, refused key); naming the root would send the operator to the wrong place.
-    if (isTransportFailure(message)) {
+    if (isTransportFailure(error)) {
       throw new Error(`E_REMOTE_TRANSPORT: cannot reach ${server.name} to prepare ${root}: ${message}`);
     }
     throw new Error(
@@ -423,8 +436,18 @@ export async function applyRemoteLinks(
 }
 
 /** A missing skills directory (first push to a server) is an empty list; anything else means the
- * remote could not be read, and callers must not treat "could not read" as "nothing is there". */
-const ABSENT_SKILLS_DIR = /No such file or directory/i;
+ * remote could not be read, and callers must not treat "could not read" as "nothing is there".
+ * Tester #456: only `ls`'s own report about the skills directory counts (BSD `ls: <dir>: No such …`,
+ * GNU `ls: cannot access '<dir>': No such …`); ssh's "Identity file … No such file or directory"
+ * warning is not it. */
+function isAbsentSkillsDir(error: unknown, server: ConfiguredServer): boolean {
+  if (isTransportFailure(error)) return false;
+  const stderr = (error as { stderr?: unknown } | null)?.stderr;
+  const text = typeof stderr === 'string' && stderr !== '' ? stderr : error instanceof Error ? error.message : String(error);
+  const tail = remoteSkillsDir(server).replace(/^~\//, '');
+  return [...text.matchAll(/(?:^|: )ls: (?:cannot access )?'?([^'\n]*?)'?: No such file or directory/gm)]
+    .some((match) => (match[1] ?? '').replace(/\/+$/, '').endsWith(tail));
+}
 
 export async function listRemoteSkills(server: ConfiguredServer, runtime: TransportRuntime): Promise<string[]> {
   try {
@@ -438,7 +461,7 @@ export async function listRemoteSkills(server: ConfiguredServer, runtime: Transp
     const message = error instanceof Error ? error.message : String(error);
     // Tester #456: this used to be `return []` for every failure, so an unreachable host looked like
     // an empty remote and a push reported `deleted_skills: []` with exit 0 even under --dry-run.
-    if (!isTransportFailure(message) && ABSENT_SKILLS_DIR.test(message)) {
+    if (isAbsentSkillsDir(error, server)) {
       return [];
     }
     throw new Error(`E_REMOTE_TRANSPORT: cannot list the skills on ${server.name}: ${message}`);
