@@ -1219,7 +1219,9 @@ describe('sync engine orchestration', () => {
   });
 
   describe('pushToServers remote cleanup', () => {
-    it('identifies and lists orphan remote skills without deleting when yes=false', async () => {
+    // Tester #480: "no skills.include and no links" is absent, not empty. It says nothing about what the remote should
+    // hold, so it authorises no deletion; only an explicit include (or a link matrix) names the set to keep.
+    it('with no skills.include and no links, push removes nothing (#480)', async () => {
       const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
       tempDirs.push(homeDir);
 
@@ -1233,6 +1235,117 @@ describe('sync engine orchestration', () => {
             alpha: {
               host: 'alpha.example.com',
               remote_agents: {}
+            }
+          },
+          sources: {}
+        },
+        homeDir
+      );
+
+      const runtime = createRuntime({
+        remoteManifest: JSON.stringify({
+          version: 1,
+          server: 'alpha',
+          updated_at: '2026-05-01T00:00:00.000Z',
+          skills: {
+            alpha: { local_hash: null, remote_hash: 'hash-alpha', recorded_hash: 'hash-alpha', direction: 'skip', status: 'in-sync' },
+            beta: { local_hash: null, remote_hash: 'hash-beta', recorded_hash: 'hash-beta', direction: 'skip', status: 'in-sync' }
+          }
+        })
+      });
+
+      const originalExec = runtime.exec.bind(runtime);
+      runtime.exec = async (file, args, options) => {
+        if (file === 'ssh' && args.includes('ls')) {
+          return { stdout: 'alpha\nbeta\n', stderr: '' };
+        }
+        return originalExec(file, args, options);
+      };
+
+      const [result] = await pushToServers(homeDir, ['alpha'], {
+        runtime,
+        now: '2026-05-01T09:00:00.000Z',
+        dryRun: true
+      });
+
+      // mutation: drop `|| includeState.kind === 'unset'` from orphansForCleanup -> deleted_skills is ['alpha','beta'], red
+      expect(result.deleted_skills).toEqual([]);
+      expect(result.warnings).toEqual([{
+        code: 'no-skills-configured',
+        detail: 'skills.include is not set and no links are configured; nothing is carried to this server and nothing is removed from it'
+      }]);
+      expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.includes('rm'))).toBe(false);
+    });
+
+    it('an explicit include list still deletes a remote orphan (#480)', async () => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+      tempDirs.push(homeDir);
+
+      await saveConfig(
+        {
+          version: 1,
+          conflict_resolution: 'manual',
+          agents: {},
+          links: {},
+          servers: {
+            alpha: {
+              host: 'alpha.example.com',
+              remote_agents: {},
+              skills: { include: ['alpha'] }
+            }
+          },
+          sources: {}
+        },
+        homeDir
+      );
+
+      await mkdir(join(homeDir, '.syncskill', 'skills', 'alpha'), { recursive: true });
+      await writeFile(join(homeDir, '.syncskill', 'skills', 'alpha', 'SKILL.md'), '# alpha\n', 'utf8');
+
+      const runtime = createRuntime({
+        remoteManifest: JSON.stringify({
+          version: 1,
+          server: 'alpha',
+          updated_at: '2026-05-01T00:00:00.000Z',
+          skills: {}
+        })
+      });
+
+      const originalExec = runtime.exec.bind(runtime);
+      runtime.exec = async (file, args, options) => {
+        if (file === 'ssh' && args.includes('ls')) {
+          return { stdout: 'alpha\norphan-skill\n', stderr: '' };
+        }
+        return originalExec(file, args, options);
+      };
+
+      const [result] = await pushToServers(homeDir, ['alpha'], {
+        runtime,
+        now: '2026-05-01T10:00:00.000Z',
+        yes: true,
+        yesDestructive: true
+      });
+
+      expect(result.deleted_skills).toEqual(['orphan-skill']);
+      expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.includes('rm'))).toBe(true);
+    });
+
+    it('identifies and lists orphan remote skills without deleting when yes=false', async () => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+      tempDirs.push(homeDir);
+
+      await saveConfig(
+        {
+          version: 1,
+          conflict_resolution: 'manual',
+          agents: {},
+          links: {},
+          servers: {
+            alpha: {
+              host: 'alpha.example.com',
+              remote_agents: {},
+              // Ruling: tester #480. This fixture names the remote's intended skills to exercise orphan cleanup.
+              skills: { include: ['welcome'] }
             }
           },
           sources: {}
@@ -1311,7 +1424,9 @@ describe('sync engine orchestration', () => {
           servers: {
             alpha: {
               host: 'alpha.example.com',
-              remote_agents: {}
+              remote_agents: {},
+              // Ruling: tester #480. This fixture names the remote's intended skills to exercise orphan cleanup.
+              skills: { include: ['welcome'] }
             }
           },
           sources: {}
@@ -1382,7 +1497,9 @@ describe('sync engine orchestration', () => {
           servers: {
             alpha: {
               host: 'alpha.example.com',
-              remote_agents: {}
+              remote_agents: {},
+              // Ruling: tester #480. This fixture names the remote's intended skills to exercise orphan cleanup.
+              skills: { include: ['welcome'] }
             }
           },
           sources: {}

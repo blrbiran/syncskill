@@ -511,7 +511,9 @@ async function pushToServer(
     const included = (skill: string): boolean => pushSet === null || pushSet.has(skill);
     const includeWarnings: PushWarning[] = includeState.kind === 'empty'
       ? [{ code: 'no-skills-configured', detail: 'this server\'s skills.include is empty; nothing is carried to it (and that alone deletes nothing)' }]
-      : [];
+      : includeState.kind === 'unset'
+        ? [{ code: 'no-skills-configured', detail: 'skills.include is not set and no links are configured; nothing is carried to this server and nothing is removed from it' }]
+        : [];
     let receiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
     if (receiverBackup) {
       const mergedBackup = mergeConfiguredLinksIntoReceiverBackup(
@@ -1224,12 +1226,15 @@ function getIncludedServerSkills(config: SyncSkillConfig, serverName: string): s
 
 /**
  * Issue 404: the skills a server is served. An explicit `servers.<name>.skills.include` wins; without
- * one the link matrix (`config.links` keys) is the set. A config that declares neither keeps the old
- * behaviour -- every local skill, since nothing said which subset was meant. `null` means no limit.
+ * one the link matrix (`config.links` keys) is the set. A config that declares neither names no subset at all: the
+ * push carries every local skill, but nothing is authorised to remove anything from the remote (tester #480 --
+ * "absent" is not "empty"). `null` means no limit.
  */
 /** Tester #449: the remote skills a push would remove -- ONE computation for the dry run and the real cleanup. */
 function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, included: (skill: string) => boolean, includeState: IncludeState, warnings: PushWarning[] = []): string[] {
-  if (includeState.kind === 'empty') return [];
+  // Tester #480: `unset` means "no subset was ever named", so it authorises nothing remotely -- it must not read as
+  // "delete everything", which was the legacy behaviour and destroyed a remote that never had a local counterpart.
+  if (includeState.kind === 'empty' || includeState.kind === 'unset') return [];
   const localSkillSet = new Set(
     Object.keys(manifest.skills).filter((skill) => manifest.skills[skill]?.local_hash !== null && included(skill))
   );
@@ -1237,8 +1242,6 @@ function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, inc
     if (localSkillSet.has(skill)) return false;
     // Tester #472: a skill the include list names that this machine has no content for is deleted only when the manifest recorded it as
     // synced (a local deletion to carry); on a fresh machine or a wrong --sync-dir it is kept and named.
-    // An explicit include list only: with include and links both unset (#404's legacy mode) every remote skill is
-    // "included", and an orphan there is what it always was -- a remote skill with no local content.
     if (includeState.kind === 'list' && included(skill) && !manifest.skills[skill]?.recorded_hash) {
       if (!warnings.some((w) => w.code === 'included-not-local' && w.detail === skill)) warnings.push({ code: 'included-not-local', detail: skill });
       return false;
