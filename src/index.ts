@@ -1482,18 +1482,21 @@ export function createProgram(homeDir?: string): Command {
       // Issue 411: the mature CLI accepted --dry-run / -y / --force before the command. They are
       // honoured only where the command declares them; elsewhere they would be silently ignored,
       // which is exactly the wrong answer for a safety flag.
-      const globalFlags = thisCommand.opts<{ dryRun?: boolean; yes?: boolean; force?: boolean; quiet?: boolean }>();
+      const globalFlags = thisCommand.opts<{ dryRun?: boolean; plan?: boolean; yes?: boolean; force?: boolean; quiet?: boolean }>();
       const commandName = getCommandPath(actionCommand) || actionCommand.name();
-      for (const [value, key, long] of [
-        [globalFlags.dryRun, 'dryRun', '--dry-run'],
-        [globalFlags.yes, 'yes', '--yes'],
-        [globalFlags.force, 'force', '--force']
+      for (const [value, key, long, flag] of [
+        [globalFlags.dryRun, 'dryRun', '--dry-run', '--dry-run'],
+        // Tester #484: --plan is the command's own --dry-run (push/pull/sync used to ignore it and really push).
+        // install reads --plan itself and prints a serialized plan, so it is left to install.
+        [commandName === 'install' ? undefined : globalFlags.plan, 'dryRun', '--dry-run', '--plan'],
+        [globalFlags.yes, 'yes', '--yes', '--yes'],
+        [globalFlags.force, 'force', '--force', '--force']
       ] as const) {
         if (value !== true) continue;
         if (!actionCommand.options.some((option) => option.long === long)) {
           return failWithOutputError(
             'E_USAGE_GLOBAL_FLAG',
-            `${long} is not supported by \`${commandName}\``,
+            `${flag} is not supported by \`${commandName}\``,
             `See \`syncskill ${commandName} --help\` for the options it does take`
           );
         }

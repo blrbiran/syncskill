@@ -1,11 +1,18 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
+import { createFakeSshBin } from '../helpers/fake-ssh.js';
+import { saveConfig } from '../../src/config/config.js';
+import { saveServerManifest, type ManifestSkillState } from '../../src/core/manifest.js';
+import { createProgram } from '../../src/index.js';
+
+// Tester #484: what a real push/pull/sync sends to the remote over ssh (transport.ts); a preview sends none of it.
+const WRITE_VERBS = ['rm -rf', 'mkdir -p', 'cat >', 'rsync', 'apply', 'write-manifest'];
 
 // Issue 411: scripts written for the mature CLI pass --config and program-level --dry-run / -y, and
 // push used to take --on-local-deletion. Each must either work losslessly or refuse with a next step
@@ -107,5 +114,111 @@ describe('mature-CLI compatibility flags', () => {
     const run = await runCli(homeDir, ['--json', 'push', '--on-local-deletion', 'delete']);
     expect(errorCodeOf(run)).toBe('E_USAGE_ON_LOCAL_DELETION');
     expect(run.stdout + run.stderr).toContain('--yes-destructive');
+  });
+});
+
+// Tester #484: the root --plan ("Output plan without executing") was silently ignored by push/pull/sync, which then
+// really pushed. Runs in-process against src with the real runtime and a fake ssh that logs every call (no network).
+describe('--plan (#484)', () => {
+  const tempDirs = useTempDirs();
+  const saved = { PATH: process.env.PATH, json: process.env.FAKE_SSH_MANIFEST_JSON, listing: process.env.FAKE_SSH_LISTING };
+  const synced = (hash: string): ManifestSkillState => ({ local_hash: hash, remote_hash: hash, recorded_hash: hash, direction: 'skip', status: 'in-sync' });
+  let sshLog = '';
+
+  beforeEach(async () => {
+    const bin = await createFakeSshBin();
+    const logBin = await mkdtemp(join(tmpdir(), 'syncskill-sshlog-'));
+    tempDirs.push(bin, logBin);
+    sshLog = join(logBin, 'calls.log');
+    await writeFile(sshLog, '', 'utf8');
+    await writeFile(join(logBin, 'ssh'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${sshLog}'\nexec '${join(bin, 'ssh')}' "$@"\n`, 'utf8');
+    await chmod(join(logBin, 'ssh'), 0o755);
+    process.env.PATH = `${logBin}:/usr/bin:/bin`;
+    process.env.FAKE_SSH_MANIFEST_JSON = JSON.stringify({ version: 1, server: 'lab', updated_at: '2026-01-01T00:00:00Z', skills: { alpha: synced('a1') } });
+    process.env.FAKE_SSH_LISTING = 'alpha';
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    process.env.PATH = saved.PATH;
+    if (saved.json === undefined) delete process.env.FAKE_SSH_MANIFEST_JSON; else process.env.FAKE_SSH_MANIFEST_JSON = saved.json;
+    if (saved.listing === undefined) delete process.env.FAKE_SSH_LISTING; else process.env.FAKE_SSH_LISTING = saved.listing;
+  });
+
+  /** alpha was synced as `a1` and has changed on disk since, so a real push has something to write. */
+  async function fixture(): Promise<string> {
+    const home = await mkdtemp(join(tmpdir(), 'syncskill-plan-'));
+    tempDirs.push(home);
+    await saveConfig({
+      version: 1, conflict_resolution: 'manual', agents: {}, links: { alpha: ['claude'] },
+      servers: { lab: { host: 'lab.example.invalid', remote_agents: { claude: '~/.claude/skills' }, skills: { include: ['alpha'] } } },
+      sources: {},
+    } as never, home);
+    await mkdir(join(home, '.syncskill', 'skills', 'alpha'), { recursive: true });
+    await writeFile(join(home, '.syncskill', 'skills', 'alpha', 'SKILL.md'), '# alpha, edited\n', 'utf8');
+    await saveServerManifest(home, { version: 1, server: 'lab', updated_at: '2026-01-01T00:00:00Z', skills: { alpha: synced('a1') } });
+    return home;
+  }
+
+  /** process.exit throws so a refusal really stops the command, as it does outside the test. */
+  async function run(home: string, argv: string[]): Promise<{ lines: string[]; exitCode: number | undefined; thrown?: unknown }> {
+    const lines: string[] = [];
+    let exitCode: number | undefined;
+    let thrown: unknown;
+    const capture = (...args: unknown[]): void => { lines.push(args.map(String).join(' ')); };
+    vi.spyOn(console, 'log').mockImplementation(capture);
+    vi.spyOn(console, 'warn').mockImplementation(capture);
+    vi.spyOn(console, 'error').mockImplementation(capture);
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => { exitCode = code; throw new Error(`exit ${code}`); }) as never);
+    try {
+      await createProgram(home).parseAsync(['node', 'syncskill', ...argv], { from: 'node' });
+    } catch (error) {
+      // a real transfer against the fake ssh throws; keep it so the write-verb assertion is what goes red
+      if (exitCode === undefined) thrown = error;
+    } finally {
+      vi.restoreAllMocks();
+    }
+    return { lines, exitCode, thrown };
+  }
+
+  async function writeCalls(): Promise<string[]> {
+    return (await readFile(sshLog, 'utf8')).split('\n').filter((call) => WRITE_VERBS.some((verb) => call.includes(verb)));
+  }
+
+  it.each([['push'], ['pull'], ['sync']])('--plan on %s runs as a dry run: no write verb is ever sent', async (command) => {
+    const home = await fixture();
+    const result = await run(home, ['--plan', command, 'lab']);
+    // mutation: drop the --plan tuple in the preAction loop -> a real push/pull/sync sends write verbs, red
+    expect(await writeCalls()).toEqual([]);
+    // the remote was reached, so an empty write list is a measurement, not a skipped command
+    expect(await readFile(sshLog, 'utf8')).toContain('manifest');
+    expect(result.thrown).toBeUndefined();
+    expect(result.exitCode ?? 0, result.lines.join('\n')).toBe(0);
+  });
+
+  it('--plan on push prints the push plan', async () => {
+    const home = await fixture();
+    const result = await run(home, ['--plan', 'push', 'lab']);
+    expect(result.lines.join('\n')).toContain('[dry-run] push to lab');
+  });
+
+  it('--plan on a command with no dry run is refused, not silently ignored', async () => {
+    const home = await fixture();
+    const result = await run(home, ['--json', '--plan', 'config', 'show']);
+    // mutation: never refuse --plan -> config show runs and exits 0, red
+    expect(result.exitCode).toBe(2);
+    expect(result.lines.join('\n')).toContain('E_USAGE_GLOBAL_FLAG');
+  });
+
+  it('--plan on install still prints install\'s own plan, not a refusal', async () => {
+    const home = await fixture();
+    const source = await mkdtemp(join(tmpdir(), 'syncskill-plan-src-'));
+    tempDirs.push(source);
+    await mkdir(join(source, 'beta'), { recursive: true });
+    await writeFile(join(source, 'beta', 'SKILL.md'), '---\nname: beta\ndescription: beta\n---\n# beta\n', 'utf8');
+    const result = await run(home, ['--plan', 'install', source]);
+    // mutation: drop install's exemption -> E_USAGE_GLOBAL_FLAG, exit 2, red
+    expect(result.exitCode ?? 0, result.lines.join('\n')).toBe(0);
+    expect(result.lines.join('\n')).not.toContain('E_USAGE_GLOBAL_FLAG');
   });
 });
