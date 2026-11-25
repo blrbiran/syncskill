@@ -337,7 +337,7 @@ syncskill restore welcome --dry-run
 
 Recommended flow:
 
-1. Run `syncskill status` to see all tracked server rows
+1. Run `syncskill status` to see all tracked server rows (read-only: it refreshes local state in memory and writes nothing)
 2. Run `syncskill diff alpha` to focus on one server
 3. If a skill is in conflict, run `syncskill resolve <skill>` (interactive or with `--local`/`--remote`)
 4. If you need to roll back the last pull/sync overwrite locally, run `syncskill restore <skill>` and then review the resulting conflict state
@@ -419,6 +419,8 @@ Remote sync options:
 | `--on-remote-deletion <policy>` | `pull`, `sync` | Handle remote deletions with `keep-local`, `delete`, or `prompt` |
 
 Use `--timeout` when a remote server is slow to respond or you want the command to fail faster than the system SSH defaults. Use `--on-remote-deletion` when you need to choose how remote deletions affect local skills.
+
+A `--dry-run` preview only reads: it refreshes local manifest state in memory and writes nothing under `~/.syncskill`, so two previews in a row give the same answer. Its plan lists planned pushes, one deletion set (local deletions and remote skills no longer in local config) and every warning as `warning: <code>: <detail>`; `--json` reports the same plan, with the warnings in `summary.data.warnings`.
 
 Local pre-pull backups for `pull` / `sync` are controlled by `config.pull_backup` and `SYNCSKILL_PULL_BACKUP`; `--no-pull-backup` is no longer a public CLI flag.
 

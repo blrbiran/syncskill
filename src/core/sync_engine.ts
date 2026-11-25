@@ -521,7 +521,8 @@ async function pushToServer(
         options.now ?? new Date().toISOString()
       );
       if (mergedBackup !== receiverBackup) {
-        await saveReceiverBackup(homeDir, mergedBackup);
+        // Tester #474: a dry run uses the merged links in memory and writes nothing locally.
+        if (options.dryRun !== true) await saveReceiverBackup(homeDir, mergedBackup);
         receiverBackup = mergedBackup;
       }
     }
@@ -907,7 +908,7 @@ async function prepareManifest(
 ): Promise<{ previousManifest: ServerManifest; manifest: ServerManifest; updatedAt: string; remoteUnknown: boolean }> {
   const updatedAt = now ?? new Date().toISOString();
   const previousManifest = await loadServerManifest(homeDir, server.name);
-  const localHashes = await buildLocalSkillHashes(homeDir);
+  const localHashes = await buildLocalSkillHashes(homeDir, !readOnly);
   const { manifest: remoteManifest, unknown: remoteUnknown } = await fetchRemoteState(server, runtime, readOnly);
   const nextManifest = reconcileManifest({
     ...applyRemoteSnapshot(

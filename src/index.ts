@@ -112,7 +112,7 @@ import { buildExternalInstallPlan, executeExternalInstallPlan, installSyncskillS
 import { PROFILE_NAME_PATTERN, expandMaterializedTargetAgents, expandTargetAgents, getConfigPaths, getConfiguredServer, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, setSyncDirOverride, type SyncSkillConfig } from './config/config.js';
 import { createPromptApi, runConfigUi } from './config/config-ui.js';
 import { collectLinkStatus, discoverSkills, resolveConfiguredSkillSourceDir, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
-import { listLocalSkillNames, loadServerManifest, saveServerManifest } from './core/manifest.js';
+import { listLocalSkillNames, loadServerManifest, saveServerManifest, setManifestPreview } from './core/manifest.js';
 import {
   expandReceiverLinkAgents,
   formatRemoteAgentLines,
@@ -1509,8 +1509,12 @@ export function createProgram(homeDir?: string): Command {
 
       await runCommandPreflight(resolvedHomeDir);
       // inject copies a snapshot and must not rewrite stored manifests (spec 5.6); many run in parallel.
-      await autoRefreshManifests(resolvedHomeDir, opts.refresh !== false && getCommandPath(actionCommand) !== 'inject');
-    });
+      // Tester #474: status and every --dry-run are read-only -- they refresh in memory and write nothing.
+      const readOnly = commandName === 'status' || actionCommand.opts<{ dryRun?: boolean }>().dryRun === true;
+      await autoRefreshManifests(resolvedHomeDir, opts.refresh !== false && getCommandPath(actionCommand) !== 'inject', { readOnly });
+    })
+    // Tester #474: the in-memory preview lives only as long as the command that asked for it.
+    .hook('postAction', () => setManifestPreview(resolvedHomeDir, null));
 
   program
     .command('init')

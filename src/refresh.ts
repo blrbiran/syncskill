@@ -1,4 +1,4 @@
-import { mkdir, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { getConfiguredServer, loadConfig, getSyncPaths, type ConfiguredServer } from './config/config.js';
@@ -8,6 +8,7 @@ import {
   loadServerManifest,
   refreshLocalManifest,
   saveServerManifest,
+  setManifestPreview,
   type ManifestDirection,
   type ManifestStatus,
   type ServerManifest
@@ -25,6 +26,8 @@ export interface RefreshStoredManifestOptions {
   remote?: boolean;
   server?: string;
   now?: string;
+  /** Tester #474: false computes the refreshed manifests without writing anything (read-only commands). */
+  persist?: boolean;
 }
 
 export async function listTrackedServers(homeDir: string): Promise<string[]> {
@@ -66,6 +69,7 @@ export async function refreshStoredManifests(
   const refreshLocal = shouldRefreshLocal(options);
   const refreshRemote = shouldRefreshRemote(options);
   const updatedAt = options.now ?? new Date().toISOString();
+  const persist = options.persist !== false;
   const servers = await resolveTargetServers(homeDir, options.server);
   const manifests: ServerManifest[] = [];
 
@@ -73,7 +77,7 @@ export async function refreshStoredManifests(
 
   for (const server of servers) {
     const loaded = refreshLocal
-      ? await refreshLocalManifest(homeDir, server, updatedAt)
+      ? await refreshLocalManifest(homeDir, server, updatedAt, persist)
       : await loadServerManifest(homeDir, server);
     let reconciled = reconcileManifest(loaded);
 
@@ -86,9 +90,9 @@ export async function refreshStoredManifests(
         reconciled,
         updatedAt
       );
-      await saveServerManifest(homeDir, refreshedRemote);
+      if (persist) await saveServerManifest(homeDir, refreshedRemote);
 
-      if (options.server === server) {
+      if (persist && options.server === server) {
         await saveRefreshedReceiverBackup(homeDir, configuredServer, runtime, updatedAt);
       }
 
@@ -96,7 +100,7 @@ export async function refreshStoredManifests(
       continue;
     }
 
-    await saveServerManifest(homeDir, reconciled);
+    if (persist) await saveServerManifest(homeDir, reconciled);
     manifests.push(reconciled);
   }
 
@@ -148,12 +152,19 @@ export function formatDiffLines(manifest: ServerManifest): string[] {
   );
 }
 
-export async function autoRefreshManifests(homeDir: string, enabled: boolean): Promise<void> {
+/** Tester #474: `readOnly` (status, any --dry-run) refreshes in memory only -- the command reads the refreshed manifests
+ * through loadServerManifest's preview and nothing under the sync dir is written. */
+export async function autoRefreshManifests(homeDir: string, enabled: boolean, options: { readOnly?: boolean } = {}): Promise<void> {
+  setManifestPreview(homeDir, null);
   if (!enabled) {
     return;
   }
 
   try {
+    if (options.readOnly === true) {
+      setManifestPreview(homeDir, await refreshStoredManifests(homeDir, { local: true, persist: false }));
+      return;
+    }
     await refreshStoredManifests(homeDir, { local: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -186,8 +197,14 @@ async function listConfiguredServers(homeDir: string): Promise<string[]> {
 
 async function listStoredServers(homeDir: string): Promise<string[]> {
   const { manifestsDir } = getSyncPaths(homeDir);
-  await mkdir(manifestsDir, { recursive: true });
-  const entries = await readdir(manifestsDir, { withFileTypes: true });
+  // Tester #474: listing does not create the directory (status must write nothing); none yet means no stored manifests.
+  let entries;
+  try {
+    entries = await readdir(manifestsDir, { withFileTypes: true });
+  } catch (error) {
+    if (isNotFoundError(error)) return [];
+    throw error;
+  }
 
   return entries
     .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))

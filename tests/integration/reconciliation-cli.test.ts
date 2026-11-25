@@ -575,7 +575,9 @@ describe('reconciliation CLI', () => {
     });
   });
 
-  it('status auto-refresh updates persisted manifests by default but not with --no-refresh', async () => {
+  // Ruling (tester #474, session 5d3d0c09): status is read-only -- its auto-refresh is computed in memory (the row
+  // below is still the refreshed one) and the stored manifest is no longer rewritten.
+  it('status auto-refresh reports the refreshed state without persisting it, and --no-refresh changes nothing either', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-reconciliation-cli-'));
     tempDirs.push(homeDir);
 
@@ -619,18 +621,8 @@ describe('reconciliation CLI', () => {
     await createProgram(homeDir).parseAsync(['node', 'syncskill', 'status'], { from: 'node' });
 
     expect(firstConsoleLog.mock.calls).toEqual([['welcome\talpha\tpush\tlocal-changed']]);
-    await expect(loadServerManifest(homeDir, 'alpha')).resolves.toMatchObject({
-      updated_at: expect.not.stringMatching(staleManifest.updated_at),
-      skills: {
-        welcome: {
-          local_hash: expect.any(String),
-          remote_hash: '11111111111111111111111111111111',
-          recorded_hash: '11111111111111111111111111111111',
-          direction: 'push',
-          status: 'local-changed'
-        }
-      }
-    });
+    // Ruling (tester #474, session 5d3d0c09): was "the stored manifest now carries the refreshed local_hash/updated_at".
+    await expect(loadServerManifest(homeDir, 'alpha')).resolves.toEqual(staleManifest);
 
     firstConsoleLog.mockRestore();
     await saveServerManifest(homeDir, staleManifest);

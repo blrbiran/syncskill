@@ -6,12 +6,19 @@ import { getSyncPaths } from '../config/config.js';
 import { reconcileManifest } from './conflict.js';
 import { isNotFoundError } from '../utils/utils.js';
 
-export async function listLocalSkillNames(homeDir: string): Promise<string[]> {
+/** `create: false` (tester #474, read-only commands) reads a missing skills directory as empty instead of creating it. */
+export async function listLocalSkillNames(homeDir: string, create = true): Promise<string[]> {
   const { skillsDir } = getSyncPaths(homeDir);
 
-  await mkdir(skillsDir, { recursive: true });
+  if (create) await mkdir(skillsDir, { recursive: true });
 
-  const entries = await readdir(skillsDir, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(skillsDir, { withFileTypes: true });
+  } catch (error) {
+    if (!create && isNotFoundError(error)) return [];
+    throw error;
+  }
 
   return entries
     .filter((entry) => entry.isDirectory())
@@ -64,9 +71,9 @@ export interface ManifestHistory {
   entries: ManifestHistoryEntry[];
 }
 
-export async function buildLocalSkillHashes(homeDir: string): Promise<Record<string, string>> {
+export async function buildLocalSkillHashes(homeDir: string, create = true): Promise<Record<string, string>> {
   const { skillsDir } = getSyncPaths(homeDir);
-  const skillNames = await listLocalSkillNames(homeDir);
+  const skillNames = await listLocalSkillNames(homeDir, create);
   const entries = await Promise.all(
     skillNames.map(async (skillName) => [skillName, await hashSkillDirectory(join(skillsDir, skillName))] as const)
   );
@@ -83,8 +90,21 @@ export function createEmptyManifest(server: string, updatedAt = nowIso()): Serve
   };
 }
 
+/** Tester #474: a read-only command (status, any --dry-run) refreshes the manifests in memory only. While a preview is
+ * set for a manifests directory, loadServerManifest answers from it, so the command sees current disk state and the
+ * files stay byte-identical. */
+const manifestPreviews = new Map<string, Map<string, ServerManifest>>();
+
+export function setManifestPreview(homeDir: string, manifests: ServerManifest[] | null): void {
+  const { manifestsDir } = getSyncPaths(homeDir);
+  if (manifests === null) manifestPreviews.delete(manifestsDir);
+  else manifestPreviews.set(manifestsDir, new Map(manifests.map((manifest) => [manifest.server, manifest])));
+}
+
 export async function loadServerManifest(homeDir: string, server: string): Promise<ServerManifest> {
   const { manifestsDir } = getSyncPaths(homeDir);
+  const preview = manifestPreviews.get(manifestsDir)?.get(server);
+  if (preview) return structuredClone(preview);
   const manifestFile = join(manifestsDir, `${server}.json`);
 
   try {
@@ -276,11 +296,12 @@ export function finalizePulledSkills(
 export async function refreshLocalManifest(
   homeDir: string,
   server: string,
-  updatedAt = nowIso()
+  updatedAt = nowIso(),
+  persist = true
 ): Promise<ServerManifest> {
   const manifest = await loadServerManifest(homeDir, server);
   const history = await loadManifestHistory(homeDir);
-  const localHashes = await buildLocalSkillHashes(homeDir);
+  const localHashes = await buildLocalSkillHashes(homeDir, persist);
   const skillNames = [...new Set([...Object.keys(manifest.skills), ...Object.keys(localHashes)])].sort();
   const nextSkills: Record<string, ManifestSkillState> = {};
 
@@ -311,8 +332,10 @@ export async function refreshLocalManifest(
     skills: nextSkills
   };
 
-  await saveServerManifest(homeDir, nextManifest);
-  await saveManifestHistory(homeDir, history);
+  if (persist) {
+    await saveServerManifest(homeDir, nextManifest);
+    await saveManifestHistory(homeDir, history);
+  }
 
   return nextManifest;
 }

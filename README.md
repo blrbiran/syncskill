@@ -166,10 +166,10 @@ If multiple configured agents resolve to the same underlying skills directory, `
 
 - `--json` - Output command results in JSON format
 - `--no-interactive` - Disable interactive prompts and TUI flows
-- `--no-refresh` - Skip automatic manifest refresh
+- `--no-refresh` - Skip automatic manifest refresh (`status` and every `--dry-run` refresh in memory only and never write the stored manifests)
 - `-y, --yes` - Skip confirmation prompts
 - `--yes-destructive` - Allow destructive actions in non-interactive mode
-- `--dry-run` - Preview changes without executing
+- `--dry-run` - Preview changes without executing; nothing under `~/.syncskill` is written (manifests, history, receiver backups)
 - `SYNCSKILL_STRICT=1` - Treat partial skip results as exit code 6
 - `SYNCSKILL_PULL_BACKUP=0|1` - Disable or force local pre-pull backups for `pull` / `sync`
 
