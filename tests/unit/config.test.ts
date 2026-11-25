@@ -133,6 +133,28 @@ describe('config persistence', () => {
     await expect(loadConfig(homeDir)).resolves.toEqual(config);
   });
 
+  it('a write round-trip keeps ssh_defaults and an unknown future key (#490)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-'));
+    tempDirs.push(homeDir);
+
+    const { syncDir, configFile } = getSyncPaths(homeDir);
+    await mkdir(syncDir, { recursive: true });
+
+    const baseCfg = {
+      ...createDefaultConfig(homeDir, {}),
+      ssh_defaults: { port: 2200 },
+      future_key: { a: 1 }
+    };
+    await writeFile(configFile, JSON.stringify(baseCfg), 'utf8');
+
+    const config = await loadConfig(homeDir);
+    await saveConfig(config, homeDir);
+
+    const after = JSON.parse(await readFile(configFile, 'utf8')) as Record<string, unknown>;
+    expect(after.ssh_defaults).toEqual({ port: 2200 });
+    expect(after.future_key).toEqual({ a: 1 });
+  });
+
   it('should load config from JSON file', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'syncskill-'));
     const syncDir = join(tempDir, '.syncskill');

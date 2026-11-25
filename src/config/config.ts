@@ -108,7 +108,26 @@ export function validateConfig(value: unknown): SyncSkillConfig {
     throw new Error('Config is missing required key: links');
   }
 
+  // Keep every top-level key this tool does not model, so a write never silently deletes one
+  // (e.g. `ssh_defaults`, or a key a newer version added).
+  const passthrough: Record<string, unknown> = { ...value };
+
+  for (const known of [
+    'version',
+    'conflict_resolution',
+    'agents',
+    'links',
+    'profiles',
+    'servers',
+    'sources',
+    'private_agents',
+    'pull_backup'
+  ]) {
+    delete passthrough[known];
+  }
+
   return {
+    ...passthrough,
     version: value.version as number,
     conflict_resolution: isConflictResolution(value.conflict_resolution)
       ? value.conflict_resolution
