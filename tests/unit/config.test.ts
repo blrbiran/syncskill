@@ -1,15 +1,17 @@
 import { existsSync } from 'node:fs';
-import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import YAML from 'yaml';
 
-// A failed write must leave the previous config intact: inject the failure at the final rename,
-// which is the only point in the atomic write that can be interrupted deterministically. The
-// wrapped `open` also counts fsync calls so durability is asserted, not assumed.
-const fsHarness = vi.hoisted(() => ({ failNextRename: false, syncCalls: 0 }));
+const fsHarness = vi.hoisted(() => ({
+  failure: undefined as { operation: 'write' | 'sync' | 'rename'; error: Error } | undefined,
+  failCloseAndCleanup: false,
+  collide: false,
+  syncCalls: 0
+}));
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
@@ -17,27 +19,46 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return {
     ...actual,
     open: async (...args: Parameters<typeof actual.open>) => {
+      if (fsHarness.collide) await actual.writeFile(args[0], 'preexisting staging file', { flag: 'wx' });
       const handle = await actual.open(...args);
+      const write = handle.writeFile.bind(handle);
       const sync = handle.sync.bind(handle);
+      const close = handle.close.bind(handle);
 
-      (handle as unknown as { sync: () => Promise<void> }).sync = async () => {
+      handle.writeFile = async (...writeArgs) => {
+        if (fsHarness.failure?.operation === 'write') {
+          await write('{');
+          throw fsHarness.failure.error;
+        }
+        await write(...writeArgs);
+      };
+      handle.sync = async () => {
         fsHarness.syncCalls += 1;
-        return sync();
+        if (fsHarness.failure?.operation === 'sync') throw fsHarness.failure.error;
+        await sync();
+      };
+      handle.close = async () => {
+        await close();
+        if (fsHarness.failCloseAndCleanup) throw new Error('injected close failure');
       };
 
       return handle;
     },
     rename: async (...args: Parameters<typeof actual.rename>) => {
-      if (fsHarness.failNextRename) {
-        fsHarness.failNextRename = false;
-        const error = new Error('injected rename failure') as NodeJS.ErrnoException;
-        error.code = 'EIO';
-        throw error;
-      }
-
-      return actual.rename(...args);
+      if (fsHarness.failure?.operation === 'rename') throw fsHarness.failure.error;
+      await actual.rename(...args);
+    },
+    unlink: async (...args: Parameters<typeof actual.unlink>) => {
+      if (fsHarness.failCloseAndCleanup) throw new Error('injected cleanup failure');
+      await actual.unlink(...args);
     }
   };
+});
+
+afterEach(() => {
+  fsHarness.failure = undefined;
+  fsHarness.failCloseAndCleanup = false;
+  fsHarness.collide = false;
 });
 
 import {
@@ -280,28 +301,67 @@ describe('config persistence', () => {
       await rm(tempDir, { recursive: true });
     });
 
-    it('writes atomically: a failed write leaves the previous file intact and the .bak (#489)', async () => {
-      const tempDir = await mkdtemp(join(tmpdir(), 'syncskill-'));
-      const syncDir = join(tempDir, '.syncskill');
-      const jsonPath = join(syncDir, 'config.json');
+    it.each(['write', 'sync', 'rename'] as const)('cleans up its staging file when %s fails (#489)', async (operation) => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-'));
+      tempDirs.push(homeDir);
+      const { syncDir, configFile } = getSyncPaths(homeDir);
+      const first = createDefaultConfig(homeDir, {});
+      await saveConfig(first, homeDir);
+      const previous = await readFile(configFile, 'utf8');
+      const error = new Error(`injected ${operation} failure`);
 
-      const first = createDefaultConfig(tempDir, {});
-      await saveConfig(first, tempDir);
+      fsHarness.failure = { operation, error };
+      await expect(saveConfig({ ...first, conflict_resolution: 'keep-remote' }, homeDir)).rejects.toBe(error);
 
-      try {
-        fsHarness.failNextRename = true;
-        await expect(
-          saveConfig({ ...first, conflict_resolution: 'keep-remote' as const }, tempDir)
-        ).rejects.toThrow(/injected rename failure/);
-      } finally {
-        fsHarness.failNextRename = false;
-      }
+      expect(await readFile(configFile, 'utf8')).toBe(previous);
+      expect((await readdir(syncDir)).sort()).toEqual(
+        operation === 'rename' ? ['config.json', 'config.json.bak'] : ['config.json']
+      );
+      if (operation === 'rename') expect(await readFile(`${configFile}.bak`, 'utf8')).toBe(previous);
+    });
 
-      expect(JSON.parse(await readFile(jsonPath, 'utf8'))).toEqual(first);
-      expect(existsSync(`${jsonPath}.bak`)).toBe(true);
-      expect(JSON.parse(await readFile(`${jsonPath}.bak`, 'utf8'))).toEqual(first);
+    it('cleans up only its own staging file when the backup copy fails (#489)', async () => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-'));
+      tempDirs.push(homeDir);
+      const { syncDir, configFile } = getSyncPaths(homeDir);
+      const first = createDefaultConfig(homeDir, {});
+      await saveConfig(first, homeDir);
+      const previous = await readFile(configFile, 'utf8');
+      await mkdir(`${configFile}.bak`);
+      await writeFile(`${configFile}.tmp-preexisting`, 'other write');
 
-      await rm(tempDir, { recursive: true });
+      await expect(saveConfig({ ...first, conflict_resolution: 'keep-remote' }, homeDir)).rejects.toMatchObject({
+        code: 'EISDIR',
+        syscall: 'copyfile'
+      });
+
+      expect(await readFile(configFile, 'utf8')).toBe(previous);
+      expect((await readdir(syncDir)).sort()).toEqual(['config.json', 'config.json.bak', 'config.json.tmp-preexisting']);
+      expect(await readFile(`${configFile}.tmp-preexisting`, 'utf8')).toBe('other write');
+      expect((await stat(`${configFile}.bak`)).isDirectory()).toBe(true);
+    });
+
+    it('preserves a staging file it did not create when exclusive open fails (#489)', async () => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-'));
+      tempDirs.push(homeDir);
+      const { syncDir } = getSyncPaths(homeDir);
+
+      fsHarness.collide = true;
+      await expect(saveConfig(createDefaultConfig(homeDir, {}), homeDir)).rejects.toMatchObject({ code: 'EEXIST' });
+
+      const files = await readdir(syncDir);
+      expect(files).toEqual([expect.stringMatching(/^config\.json\.tmp-/)]);
+      expect(await readFile(join(syncDir, files[0]), 'utf8')).toBe('preexisting staging file');
+    });
+
+    it('preserves the write error if closing or removing the staging file also fails (#489)', async () => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-'));
+      tempDirs.push(homeDir);
+      const error = new Error('injected write failure');
+
+      fsHarness.failure = { operation: 'write', error };
+      fsHarness.failCloseAndCleanup = true;
+      await expect(saveConfig(createDefaultConfig(homeDir, {}), homeDir)).rejects.toBe(error);
     });
   });
 });

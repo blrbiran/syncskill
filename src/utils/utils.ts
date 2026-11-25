@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { copyFile, lstat, open, readFile, rename } from 'node:fs/promises';
+import { copyFile, lstat, open, readFile, rename, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -28,21 +28,28 @@ export async function writeJsonAtomic(path: string, text: string): Promise<void>
   const handle = await open(temporary, 'wx', 0o600);
 
   try {
-    await handle.writeFile(text, 'utf8');
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-
-  try {
-    await copyFile(path, `${path}.bak`);
-  } catch (error) {
-    if (!isNotFoundError(error)) {
+    try {
+      await handle.writeFile(text, 'utf8');
+      await handle.sync();
+    } catch (error) {
+      await handle.close().catch(() => {});
       throw error;
     }
-  }
+    await handle.close();
 
-  await rename(temporary, path);
+    try {
+      await copyFile(path, `${path}.bak`);
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        throw error;
+      }
+    }
+
+    await rename(temporary, path);
+  } catch (error) {
+    await unlink(temporary).catch(() => {});
+    throw error;
+  }
 }
 
 /**
