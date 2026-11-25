@@ -3615,7 +3615,7 @@ export function createProgram(homeDir?: string): Command {
       const allItems = [...report.errors, ...report.warnings];
       const autoFixableItems = allItems.filter((item) =>
         isRegistryDiagnostic(item.code)
-        || item.code === DiagnosticCode.SKILL_NOT_FOUND
+        || (item.code === DiagnosticCode.SKILL_NOT_FOUND && !report.unreadableSources?.length)
         || item.code === DiagnosticCode.SKILL_NAME_INVALID
         || item.code === DiagnosticCode.AGENT_NOT_CONFIGURED
         || item.code === DiagnosticCode.AGENT_PATH_INVALID

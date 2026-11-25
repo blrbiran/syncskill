@@ -82,6 +82,25 @@ describe('syncskill doctor', () => {
     expect(stdout).toContain('missing-skill');
   });
 
+  it('keeps an unverified skill link under doctor --fix -y (#486)', async () => {
+    const { createProgram } = await import('../../src/index.js');
+    const agentDir = join(homeDir, '.claude', 'skills');
+    await mkdir(agentDir, { recursive: true });
+    await writeFile(configFile, JSON.stringify({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: { 'src-skill': ['claude'] },
+      servers: {},
+      sources: { bad: { type: 'local', path: 'nope' } }
+    }));
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'doctor', '--fix', '-y']);
+
+    const repaired = JSON.parse(await readFile(configFile, 'utf8'));
+    expect(repaired.links['src-skill']).toEqual(['claude']);
+  });
+
   it('rejects removed rebuild-registry flag', async () => {
     const { stderr, code } = await runDoctor(['--rebuild-registry']);
 

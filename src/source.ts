@@ -2456,17 +2456,33 @@ export async function discoverActiveSourceSkillNames(
   homeDir: string,
   sources: Record<string, unknown>
 ): Promise<Set<string>> {
+  return (await discoverActiveSourceSkillNamesWithFailures(homeDir, sources)).names;
+}
+
+/**
+ * Tester #486: the same discovery, plus the names of the sources that contributed nothing because they could not be
+ * read (an entry that does not normalize, a root that does not exist, a read that threw). A caller that decides
+ * "this skill is missing" needs that distinction: a skill can be absent from the result because its source was
+ * unreachable, and an unreachable source is not evidence of absence.
+ */
+export async function discoverActiveSourceSkillNamesWithFailures(
+  homeDir: string,
+  sources: Record<string, unknown>
+): Promise<{ names: Set<string>; unreadable: string[] }> {
   const skills = new Set<string>();
+  const unreadable: string[] = [];
 
   for (const [name, sourceDef] of Object.entries(sources)) {
     const sourceEntry = normalizeSourceEntry(name, sourceDef)[0];
     if (!sourceEntry) {
+      unreadable.push(name);
       continue;
     }
 
     try {
       const materializedRoot = getMaterializedRootPath(homeDir, name, sourceEntry);
       if (!(await pathExists(materializedRoot))) {
+        unreadable.push(name);
         continue;
       }
 
@@ -2478,11 +2494,12 @@ export async function discoverActiveSourceSkillNames(
         }
       }
     } catch {
-      // Skip sources that can't be read.
+      // Skip sources that can't be read -- and remember which, so a caller does not read "absent" as "deleted".
+      unreadable.push(name);
     }
   }
 
-  return skills;
+  return { names: skills, unreadable };
 }
 
 export async function discoverAllSkills(

@@ -2,7 +2,7 @@ import { access, copyFile, readFile, readdir, realpath } from 'node:fs/promises'
 
 import { isKnownLinkTarget, type SyncSkillConfig } from './config.js';
 import { rebuildRegistryV2 } from '../core/registry-builder.js';
-import { discoverActiveSourceSkillNames } from '../source.js';
+import { discoverActiveSourceSkillNames, discoverActiveSourceSkillNamesWithFailures } from '../source.js';
 import {
   getSkillsRegistryPath,
   loadSkillsRegistryV2,
@@ -41,14 +41,15 @@ async function discoverExistingSkills(
   homeDir: string,
   skillsDir: string,
   sources: Record<string, unknown>
-): Promise<Set<string>> {
+): Promise<{ names: Set<string>; unreadable: string[] }> {
   const skills = new Set<string>(await collectManagedLocalSkillNames(skillsDir));
+  const discovered = await discoverActiveSourceSkillNamesWithFailures(homeDir, sources);
 
-  for (const skillName of await discoverActiveSourceSkillNames(homeDir, sources)) {
+  for (const skillName of discovered.names) {
     skills.add(skillName);
   }
 
-  return skills;
+  return { names: skills, unreadable: discovered.unreadable };
 }
 
 async function registryExists(homeDir: string): Promise<boolean> {
@@ -143,6 +144,7 @@ export const DiagnosticCode = {
   SKILL_NOT_FOUND: 'SKILL_NOT_FOUND',
   AGENT_NOT_CONFIGURED: 'AGENT_NOT_CONFIGURED',
   SOURCE_PATH_INVALID: 'SOURCE_PATH_INVALID',
+  SOURCE_UNREADABLE: 'SOURCE_UNREADABLE',
   REGISTRY_CORRUPT: 'REGISTRY_CORRUPT',
   SKILL_NAME_INVALID: 'SKILL_NAME_INVALID'
 } as const;
@@ -162,6 +164,9 @@ export interface DiagnosticReport {
   warnings: DiagnosticItem[];
   isHealthy: boolean;
   canProceed: boolean;
+  /** Tester #486: sources that could not be read during diagnosis. While any of them is unreadable, a
+   * "skill not found" verdict is not a fact and `repairConfig` does not act on it. */
+  unreadableSources?: string[];
 }
 
 export interface RepairOptions {
@@ -355,18 +360,29 @@ export async function diagnoseConfig(
     }
   }
 
-  const existingSkills = await discoverExistingSkills(homeDir, skillsDir, config.sources);
-  warnings.push(...checkSkillReferences(config.links, existingSkills));
+  const discovered = await discoverExistingSkills(homeDir, skillsDir, config.sources);
+  warnings.push(...checkSkillReferences(config.links, discovered.names));
   warnings.push(...checkAgentReferences(config.links, new Set(Object.keys(config.agents))));
   warnings.push(...await checkSourcePaths(config.sources));
 
   warnings.push(...await checkRegistryHealth(homeDir, config, skillsDir));
 
+  for (const name of discovered.unreadable) {
+    warnings.push({
+      code: DiagnosticCode.SOURCE_UNREADABLE,
+      severity: 'warning',
+      message: `Source "${name}" could not be read; skills it provides cannot be verified`,
+      path: `sources.${name}`,
+      suggestion: `Fix or remove "${name}" from sources (no link is removed while a source is unreadable)`
+    });
+  }
+
   return {
     errors,
     warnings,
     isHealthy: errors.length === 0 && warnings.length === 0,
-    canProceed: errors.length === 0
+    canProceed: errors.length === 0,
+    ...(discovered.unreadable.length === 0 ? {} : { unreadableSources: discovered.unreadable })
   };
 }
 
@@ -377,10 +393,13 @@ export function repairConfig(
 ): SyncSkillConfig {
   const result = structuredClone(config);
   const allItems = [...report.errors, ...report.warnings];
+  // Tester #486: while any source is unreadable, "skill not found" is not a fact -- the skill may live in the source
+  // that could not be read. The link survives; the SOURCE_UNREADABLE warning tells the person what to fix first.
+  const blocked = new Set(report.unreadableSources ?? []);
 
   for (const item of allItems) {
     if (
-      (item.code === DiagnosticCode.SKILL_NOT_FOUND || item.code === DiagnosticCode.SKILL_NAME_INVALID)
+      (item.code === DiagnosticCode.SKILL_NAME_INVALID || (item.code === DiagnosticCode.SKILL_NOT_FOUND && blocked.size === 0))
       && options.removeInvalidSkillLinks
     ) {
       const skillName = item.path.replace('links.', '');

@@ -471,6 +471,71 @@ describe('diagnoseConfig', () => {
     expect(report.errors[0].code).toBe('NO_VALID_AGENTS');
   });
 
+  // Tester #486: a source doctor cannot read must not authorise deleting the links that pointed into it.
+  // `{type:'local', path:'nope'}` has no url, so the normalizer cannot name a root -- the skill may live there.
+  const unreadableConfig: SyncSkillConfig = {
+    version: 1,
+    conflict_resolution: 'manual',
+    agents: { claude: join(testDir, 'claude-skills') },
+    links: { 'src-skill': ['claude'] },
+    profiles: {},
+    private_agents: [],
+    servers: {},
+    sources: { bad: { type: 'local', path: 'nope' } }
+  };
+
+  it('names a source it could not read and does not delete its skill link', async () => {
+    const skillsDir = join(testDir, 'skills');
+    await mkdir(join(testDir, 'claude-skills'), { recursive: true });
+    await mkdir(skillsDir, { recursive: true });
+
+    const fileRoot = join(testDir, 'not-a-directory');
+    await writeFile(fileRoot, 'not a source directory');
+    const config = {
+      ...unreadableConfig,
+      sources: {
+        ...unreadableConfig.sources,
+        missing: { type: 'local', path: join(testDir, 'missing') },
+        unreadable: { type: 'local', path: fileRoot }
+      }
+    };
+    const report = await diagnoseConfig(config, skillsDir, testDir);
+
+    expect(report.unreadableSources).toEqual(['bad', 'missing', 'unreadable']);
+    expect(report.warnings.filter((warning) => warning.code === DiagnosticCode.SOURCE_UNREADABLE)
+      .map((warning) => warning.path)).toEqual(['sources.bad', 'sources.missing', 'sources.unreadable']);
+
+    const repaired = repairConfig(config, report, {
+      removeInvalidSkillLinks: true,
+      removeInvalidAgentLinks: true,
+      removeInvalidAgents: true,
+      removeInvalidSources: false
+    });
+    expect(repaired.links['src-skill']).toEqual(['claude']);
+  });
+
+  it('still deletes a link for a missing skill when every source was readable', async () => {
+    const skillsDir = join(testDir, 'skills');
+    await mkdir(join(testDir, 'claude-skills'), { recursive: true });
+    await mkdir(skillsDir, { recursive: true });
+
+    const report = await diagnoseConfig(
+      { ...unreadableConfig, sources: {} },
+      skillsDir,
+      testDir
+    );
+
+    expect(report.unreadableSources ?? []).toEqual([]);
+
+    const repaired = repairConfig({ ...unreadableConfig, sources: {} }, report, {
+      removeInvalidSkillLinks: true,
+      removeInvalidAgentLinks: true,
+      removeInvalidAgents: true,
+      removeInvalidSources: false
+    });
+    expect(repaired.links['src-skill']).toBeUndefined();
+  });
+
   it('collects warnings from all checks', async () => {
     const agentDir = join(testDir, 'claude-skills');
     const skillsDir = join(testDir, 'skills');
