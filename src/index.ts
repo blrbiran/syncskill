@@ -3386,7 +3386,7 @@ export function createProgram(homeDir?: string): Command {
           pullBackup: options.pullBackup,
           yes: options.yes,
           noInteractive,
-          json,
+          ...(json ? { json: true } : {}),
           crossServerPolicy: options.crossServerPolicy,
           onConflict: options.onConflict,
           onDeletion: options.onRemoteDeletion ?? options.onDeletion

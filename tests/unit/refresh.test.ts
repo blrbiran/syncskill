@@ -88,7 +88,8 @@ describe('refresh orchestration', () => {
     expect(manifests.map((manifest) => manifest.skills.welcome.local_hash)).toEqual([expect.any(String), expect.any(String)]);
 
     const manifestFiles = (await readdir(getSyncPaths(homeDir).manifestsDir)).sort();
-    expect(manifestFiles).toEqual(['alpha.json', 'beta.json']);
+    // Ruling: #489 keeps one backup beside each refreshed manifest.
+    expect(manifestFiles).toEqual(['alpha.json', 'alpha.json.bak', 'beta.json', 'beta.json.bak']);
   });
 
   it('autoRefreshManifests warns instead of throwing when refresh fails', async () => {
