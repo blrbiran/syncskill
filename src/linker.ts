@@ -11,6 +11,13 @@ import { isNotFoundError, pathExists } from './utils/utils.js';
 export interface ScanOptions {
   allAgents: boolean;
   dryRun?: boolean;
+  /**
+   * Tester #488: adopting skills out of KNOWN_AGENT_DIRS is a write the caller should ask for explicitly.
+   * A `--sync-dir` override turns the home boundary into a scratch tree, so a silent import there would drag
+   * whatever sits next to it into the managed skills directory. Defaults to true for library callers, whose
+   * homeDir is the real home.
+   */
+  migrateUnmanaged?: boolean;
 }
 
 export interface LinkRequest {
@@ -112,13 +119,14 @@ export async function listLocalSkills(homeDir: string): Promise<string[]> {
     .sort();
 }
 
-export async function discoverSkills(homeDir: string, { allAgents, dryRun }: ScanOptions): Promise<string[]> {
+export async function discoverSkills(homeDir: string, { allAgents, dryRun, migrateUnmanaged = true }: ScanOptions): Promise<string[]> {
   const config = await loadConfig(homeDir);
   const existingLinks = new Set(Object.keys(config.links));
 
-  // When skills/ is empty, trigger auto-migration like init does (skip in dry-run mode)
+  // When skills/ is empty, trigger auto-migration like init does (skip in dry-run mode). Tester #488: only when
+  // the caller allows it -- a relocated sync dir must not adopt the agent directories that happen to neighbour it.
   const existingSkills = await listLocalSkills(homeDir);
-  if (existingSkills.length === 0 && !dryRun) {
+  if (existingSkills.length === 0 && !dryRun && migrateUnmanaged) {
     await migrateSkillsFromAgentDirs(homeDir, config, allAgents);
   }
 

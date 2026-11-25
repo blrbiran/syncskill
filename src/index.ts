@@ -1400,7 +1400,10 @@ function packageVersion(): string {
 }
 
 export function createProgram(homeDir?: string): Command {
-  const resolvedHomeDir = homeDir ?? process.env.HOME ?? '';
+  // Tester #488: a --sync-dir override relocates the whole runtime, so the home boundary (agent directories, registry)
+  // has to move with it. The override is only known after flags are parsed, so this is assigned in preAction.
+  let resolvedHomeDir = homeDir ?? process.env.HOME ?? '';
+  let syncDirOverrideActive = false;
   const program = new Command()
     .name('syncskill')
     .description('Multi-device AI Agent Skill sync tool. No args: show local dashboard summary')
@@ -1478,6 +1481,12 @@ export function createProgram(homeDir?: string): Command {
         return failWithOutputError('E_USAGE_SYNC_DIR', `--sync-dir / SYNCSKILL_DIR must be an absolute path: ${JSON.stringify(mergedConfig.syncDir)}`);
       }
       setSyncDirOverride(mergedConfig.syncDir === undefined ? undefined : resolve(mergedConfig.syncDir));
+      syncDirOverrideActive = mergedConfig.syncDir !== undefined;
+      // Tester #488: with no explicit home, the sync dir's grandparent is the boundary, so ~/.claude/skills resolves
+      // inside the override's tree instead of the real home's.
+      if (homeDir === undefined && mergedConfig.syncDir !== undefined) {
+        resolvedHomeDir = dirname(dirname(resolve(mergedConfig.syncDir)));
+      }
 
       // Issue 411: the mature CLI accepted --dry-run / -y / --force before the command. They are
       // honoured only where the command declares them; elsewhere they would be silently ignored,
@@ -1768,14 +1777,17 @@ export function createProgram(homeDir?: string): Command {
         console.log('[dry-run] Scanning for skills...\n');
       }
 
-      // Discover skills from sources and manual directory
+      // Discover skills from sources and manual directory. Tester #488: under --sync-dir the home boundary is a
+      // scratch tree, so adopting agent directories is opt-in via the explicit flag.
+      const migrateUnmanaged = syncDirOverrideActive ? options.migrateUnmanaged === true : true;
       const addedSkills = await discoverSkills(resolvedHomeDir, {
         allAgents: true,
-        dryRun: isDryRun
+        dryRun: isDryRun,
+        migrateUnmanaged
       });
 
       if (addedSkills.length > 0) {
-        console.log(isDryRun ? 'Would add new skills from sources:' : 'Found new skills in sources:');
+        console.log(isDryRun ? 'Would add new skills from the sync skills directory and configured sources:' : 'Found new skills in the sync skills directory and configured sources:');
         for (const skillName of addedSkills) {
           console.log(`  + ${isDryRun ? 'Would add' : 'Added'} "${skillName}"`);
         }
@@ -1835,7 +1847,8 @@ export function createProgram(homeDir?: string): Command {
 
             // Re-run scan to register migrated skills
             await discoverSkills(resolvedHomeDir, {
-              allAgents: true
+              allAgents: true,
+              migrateUnmanaged: true
             });
           }
         } else {
