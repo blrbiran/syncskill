@@ -1,7 +1,7 @@
 import { createServer, IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import { access, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -11,7 +11,7 @@ import YAML, { stringify } from 'yaml';
 
 import { createDefaultConfig, getSyncPaths, loadConfig, saveConfig } from '../../src/config/config.js';
 import type { SyncSkillConfig } from '../../src/config/config.js';
-import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectArchiveFormatFromFilename, detectGitDefaultBranch, detectSourceType, discoverActiveSourceSkillNames, discoverAllSkills, discoverMaterializedSkillEntries, discoverSourceSkills, DirtySourceQuitError, findExistingSourceByUrl, findOrphanSkills, getLocalMaterializedRoot, handleSameRepoMerge, listSources, loadSkillOwnershipState, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, parseContentDisposition, resolveLinkedSkillSourcePath, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
+import { addSourceFromUrl, buildSkillsIndex, buildSkillsRegistry, classifySameRepoScenario, detectArchiveFormat, detectArchiveFormatFromFilename, detectGitDefaultBranch, detectSourceType, discoverActiveSourceSkillNames, discoverAllSkills, discoverMaterializedSkillEntries, discoverSourceSkills, DirtySourceQuitError, findExistingSourceByUrl, findOrphanSkills, handleSameRepoMerge, listSources, loadSkillOwnershipState, loadSourceState, loadSkillsIndex, loadSkillsRegistry, materializeSource, parseContentDisposition, resolveLinkedSkillSourcePath, resolveSkillPath, SameRepoScenario, saveSkillsIndex, saveSkillsRegistry, scanSkillsInDirectory, scanSkillsInSource, updateSource } from '../../src/source.js';
 import type { SkillsRegistry } from '../../src/source.js';
 import { normalizeSkillsRegistry } from '../../src/core/skills-registry.js';
 
@@ -2671,7 +2671,47 @@ describe('a local source configured with an absolute path', () => {
     expect([...names]).toContain('alpha');
   });
 
-  it('a local source with an absolute path is not rejected as relative-only', () => {
-    expect(() => getLocalMaterializedRoot({ name: 'x', type: 'local', url: '/tmp/x', path: '/tmp/x' } as never)).not.toThrow();
+  it('a legacy local source written with a ~ path is kept, resolved to an absolute url (#486)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'src-tilde-'));
+    tempDirs.push(homeDir);
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {},
+        sources: { tilde: { type: 'local', path: '~/my-skills' } }
+      },
+      homeDir
+    );
+
+    // A '~' path is not absolute, so without resolving it first the entry would be
+    // dropped silently; the legacy shape must survive as {url:<abs>, path:'.'}.
+    await expect(listSources(homeDir)).resolves.toEqual([
+      { name: 'tilde', type: 'local', url: join(homedir(), 'my-skills'), path: '.' }
+    ]);
+  });
+
+  it('a local source with a mixed absolute url and absolute path is refused (tester #486)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'src-mixed-'));
+    tempDirs.push(homeDir);
+
+    // {url, path} both absolute is not a shape the normalizer produces, and must not
+    // become an escape hatch: the absolute path is refused before any root is derived.
+    await expect(
+      materializeSource(homeDir, 'mixed', { type: 'local', url: '/a', path: '/b' }, '2026-05-01T00:00:00.000Z')
+    ).rejects.toThrow('Local source path must be a relative path');
+  });
+
+  it('a local source whose relative path escapes its root is refused (tester #486)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'src-escape-'));
+    tempDirs.push(homeDir);
+    const sourceRoot = join(homeDir, 'shared');
+    await mkdir(sourceRoot, { recursive: true });
+
+    await expect(
+      materializeSource(homeDir, 'shared', { type: 'local', url: sourceRoot, path: '../x' }, '2026-05-01T00:00:00.000Z')
+    ).rejects.toThrow('Local source path must stay within the source root');
   });
 });

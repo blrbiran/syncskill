@@ -1472,8 +1472,13 @@ function normalizeSourceEntry(name: string, value: unknown): SourceEntry[] {
   // Support legacy 'store' field for backward compatibility
   const pathValue = typeof value.path === 'string' ? value.path : (value as Record<string, unknown>).store;
   // Tester #486: syncskills writes a local source as {type:'local', path:'/abs'}; url is not part of that shape.
-  const legacyAbs = value.type === 'local' && typeof value.url !== 'string' && typeof pathValue === 'string' && isAbsolute(pathValue);
-  const url = legacyAbs ? pathValue : value.url;
+  // A '~' path is resolved first because isAbsolute('~/x') is false; without this it would be dropped silently.
+  const pathIsHome = typeof pathValue === 'string' && (pathValue === '~' || pathValue.startsWith('~/'));
+  const legacyPath = value.type === 'local' && typeof value.url !== 'string' && pathIsHome
+    ? resolveHomePath(pathValue as string)
+    : pathValue;
+  const legacyAbs = value.type === 'local' && typeof value.url !== 'string' && typeof legacyPath === 'string' && isAbsolute(legacyPath);
+  const url = legacyAbs ? legacyPath : value.url;
   if (typeof url !== 'string' || typeof pathValue !== 'string') {
     return [];
   }
@@ -1844,10 +1849,13 @@ function getHttpCheckoutDir(homeDir: string, name: string): string {
   return join(getSyncPaths(homeDir).syncDir, '.sources', name, 'checkout');
 }
 
-export function getLocalMaterializedRoot(source: SourceDefinition): string {
-  // Tester #486: an absolute path is the root itself; treat it as '.' under that root.
+function getLocalMaterializedRoot(source: SourceDefinition): string {
+  // Tester #486: an absolute path is refused before the containment check below, so
+  // a mixed shape like {url:'/safe', path:'/etc'} can never escape the root. The
+  // legacy shape is mapped to {url:<abs>, path:'.'} by normalizeSourceEntry, so an
+  // absolute path here is not a shape the normalizer produces.
   if (isAbsolute(source.path)) {
-    return source.path;
+    throw new Error('Local source path must be a relative path');
   }
 
   const sourceRoot = resolveHomePath(source.url);
