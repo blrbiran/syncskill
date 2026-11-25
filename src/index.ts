@@ -111,7 +111,7 @@ import { injectSkills, InjectError, isSafeSkillName, normalizeSkillList } from '
 import { buildExternalInstallPlan, executeExternalInstallPlan, installSyncskillSkill } from './install.js';
 import { PROFILE_NAME_PATTERN, expandMaterializedTargetAgents, expandTargetAgents, getConfigPaths, getConfiguredServer, getSyncPaths, loadConfig, parseConfigValue, resolveAgentPath, saveConfig, setConfigValue, setSyncDirOverride, type SyncSkillConfig } from './config/config.js';
 import { createPromptApi, runConfigUi } from './config/config-ui.js';
-import { collectLinkStatus, discoverSkills, resolveConfiguredSkillSourceDir, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
+import { buildLinkMatrixJson, collectLinkStatus, discoverSkills, resolveConfiguredSkillSourceDir, findStaleLinks, findUnmanagedSkills, formatLinkStatusMatrix, linkConfiguredSkills, listLocalSkills, reconcileStaleLinks, unlinkSkill, unlinkSkillFromAgent, type StaleLinksBySkill } from './linker.js';
 import { listLocalSkillNames, loadServerManifest, saveServerManifest, setManifestPreview } from './core/manifest.js';
 import {
   expandReceiverLinkAgents,
@@ -141,6 +141,7 @@ import {
 } from './refresh.js';
 import {
   addSourceFromUrl,
+  buildSourceListJson,
   findOrphanSkills,
   formatSourceListLines,
   listSourcesWithDetails,
@@ -1523,7 +1524,12 @@ export function createProgram(homeDir?: string): Command {
       await runCommandPreflight(resolvedHomeDir);
       // inject copies a snapshot and must not rewrite stored manifests (spec 5.6); many run in parallel.
       // Tester #474: status and every --dry-run are read-only -- they refresh in memory and write nothing.
-      const readOnly = commandName === 'status' || actionCommand.opts<{ dryRun?: boolean }>().dryRun === true;
+      // Tester #491: the JSON read-only entry points are read-only in the same way.
+      const readOnly = commandName === 'status'
+        || commandName === 'source list'
+        || commandName === 'remote list'
+        || commandName === 'link list'
+        || actionCommand.opts<{ dryRun?: boolean }>().dryRun === true;
       await autoRefreshManifests(resolvedHomeDir, opts.refresh !== false && getCommandPath(actionCommand) !== 'inject', { readOnly });
     })
     // Tester #474: the in-memory preview lives only as long as the command that asked for it.
@@ -1938,6 +1944,10 @@ export function createProgram(homeDir?: string): Command {
     .action(async (options: { verbose?: boolean }) => {
       const config = await ensureLinkCommandReady();
       const statuses = await collectLinkStatus(resolvedHomeDir);
+      if (hasJsonOutputEnabled(program)) {
+        getGlobalOutput().result(true, buildLinkMatrixJson(statuses));
+        return;
+      }
       console.log(formatLinkStatusMatrix(statuses, options.verbose ?? false, config.private_agents));
     });
 
@@ -2529,7 +2539,12 @@ export function createProgram(homeDir?: string): Command {
     .alias('ls')
     .description('List configured sources')
     .action(async () => {
-      for (const line of formatSourceListLines(await listSourcesWithDetails(resolvedHomeDir))) {
+      const sources = await listSourcesWithDetails(resolvedHomeDir);
+      if (hasJsonOutputEnabled(program)) {
+        getGlobalOutput().result(true, buildSourceListJson(sources));
+        return;
+      }
+      for (const line of formatSourceListLines(sources)) {
         console.log(line);
       }
     });
@@ -2765,7 +2780,12 @@ export function createProgram(homeDir?: string): Command {
     .alias('ls')
     .description('List configured remotes')
     .action(async () => {
-      for (const line of formatServerListLines(await listServers(resolvedHomeDir))) {
+      const servers = await listServers(resolvedHomeDir);
+      if (hasJsonOutputEnabled(program)) {
+        getGlobalOutput().result(true, { servers });
+        return;
+      }
+      for (const line of formatServerListLines(servers)) {
         console.log(line);
       }
     });
@@ -3619,6 +3639,17 @@ export function createProgram(homeDir?: string): Command {
       const report = await diagnoseConfig(config, skillsDir, resolvedHomeDir);
 
       if (!options.fix) {
+        if (hasJsonOutputEnabled(program)) {
+          getGlobalOutput().result(report.canProceed, {
+            errors: report.errors,
+            warnings: report.warnings,
+            fixed: [],
+            skipped: []
+          });
+          process.exit(report.canProceed ? 0 : 1);
+          return;
+        }
+
         console.log(formatDiagnosticReport(report));
         process.exit(report.canProceed ? 0 : 1);
       }

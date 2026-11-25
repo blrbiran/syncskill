@@ -83,6 +83,10 @@ describe('read-only commands write nothing under the sync dir (#474)', () => {
   it.each([
     [['status']],
     [['--json', 'status']],
+    [['--json', 'source', 'list']],
+    [['--json', 'remote', 'list']],
+    [['--json', 'link', 'list']],
+    [['--json', 'doctor']],
     [['push', 'lab', '--dry-run']],
     [['--json', 'push', 'lab', '--dry-run']],
     [['pull', 'lab', '--dry-run']],

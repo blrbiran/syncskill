@@ -53,6 +53,32 @@ describe('config CLI', () => {
     expect(loggedOutput).not.toContain('Legend:'); // no legend in verbose mode
   });
 
+  it('link list --json emits one documented matrix result line (#491)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-list-json-'));
+    tempDirs.push(homeDir);
+
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'my-skill');
+    await mkdir(agentDir, { recursive: true });
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# my-skill', 'utf8');
+    await saveConfig({
+      ...createDefaultConfig(homeDir, { claude: agentDir }),
+      links: { 'my-skill': ['claude'] }
+    }, homeDir);
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', 'link', 'list'], { from: 'node' });
+
+    expect(consoleLog.mock.calls).toHaveLength(1);
+    const event = JSON.parse(consoleLog.mock.calls[0][0] as string);
+    expect(event).toMatchObject({ type: 'result', command: 'link list', ok: true });
+    expect(event.summary).toEqual({ matrix: [{ skill: 'my-skill', agents: { claude: 'missing' } }] });
+    expect(event.summary).not.toHaveProperty('agents');
+    expect(event.summary).not.toHaveProperty('links');
+  });
+
   it('link list shows the shared agents column when a skill targets agents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-config-cli-'));
     tempDirs.push(homeDir);

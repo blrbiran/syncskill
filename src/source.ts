@@ -461,6 +461,58 @@ export async function listSourcesWithDetails(homeDir = homedir()): Promise<Sourc
   }));
 }
 
+export interface SourceListJsonEntry {
+  name: string;
+  type: SourceType;
+  path: string;
+  url?: string;
+  branch?: string;
+  archive_path?: string;
+  skills: string[];
+  ignored: string[];
+}
+
+/** Tester #491: JSON output projects the documented display fields and never emits credentials embedded in a URL. */
+function redactUrlCredentials(raw: string): string {
+  if (!raw.includes('://')) {
+    return raw;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    if (!parsed.username && !parsed.password) {
+      return raw;
+    }
+    // An ssh username (`git@host`) is part of the address, not a credential; only http(s) userinfo is opaque.
+    const httpUrl = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    if (!httpUrl && !parsed.password) {
+      return raw;
+    }
+    if (httpUrl) {
+      parsed.username = '';
+    }
+    parsed.password = '';
+    return parsed.toString();
+  } catch {
+    return raw.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@]+@/i, '$1');
+  }
+}
+
+export function buildSourceListJson(sources: SourceListEntry[]): { sources: SourceListJsonEntry[] } {
+  return {
+    sources: sources.map((source) => ({
+      name: source.name,
+      type: source.type,
+      path: source.path,
+      ...(source.url ? { url: redactUrlCredentials(source.url) } : {}),
+      ...(source.branch ? { branch: source.branch } : {}),
+      ...(source.archive_path ? { archive_path: source.archive_path } : {}),
+      skills: source.skills,
+      ignored: source.ignored
+    }))
+  };
+}
+
 export function formatSourceListLines(sources: SourceListEntry[]): string[] {
   if (sources.length === 0) {
     return ['No sources configured.'];
@@ -1465,7 +1517,7 @@ function getConfiguredIgnoredSkills(value: unknown): string[] {
   return value.ignore.filter((skill): skill is string => typeof skill === 'string');
 }
 
-function normalizeSourceEntry(name: string, value: unknown): SourceEntry[] {
+function normalizeSourceEntry(name: string, value: unknown, homeRoot: string = homedir()): SourceEntry[] {
   if (!isRecord(value)) {
     return [];
   }
@@ -1480,7 +1532,7 @@ function normalizeSourceEntry(name: string, value: unknown): SourceEntry[] {
   // A '~' path is resolved first because isAbsolute('~/x') is false; without this it would be dropped silently.
   const pathIsHome = typeof pathValue === 'string' && (pathValue === '~' || pathValue.startsWith('~/'));
   const legacyPath = value.type === 'local' && typeof value.url !== 'string' && pathIsHome
-    ? resolveHomePath(pathValue as string)
+    ? resolveHomePath(pathValue as string, homeRoot)
     : pathValue;
   const legacyAbs = value.type === 'local' && typeof value.url !== 'string' && typeof legacyPath === 'string' && isAbsolute(legacyPath);
   const url = legacyAbs ? legacyPath : value.url;
@@ -1854,7 +1906,7 @@ function getHttpCheckoutDir(homeDir: string, name: string): string {
   return join(getSyncPaths(homeDir).syncDir, '.sources', name, 'checkout');
 }
 
-function getLocalMaterializedRoot(source: SourceDefinition): string {
+function getLocalMaterializedRoot(source: SourceDefinition, homeRoot: string = homedir()): string {
   // Tester #486: an absolute path is refused before the containment check below, so
   // a mixed shape like {url:'/safe', path:'/etc'} can never escape the root. The
   // legacy shape is mapped to {url:<abs>, path:'.'} by normalizeSourceEntry, so an
@@ -1863,7 +1915,7 @@ function getLocalMaterializedRoot(source: SourceDefinition): string {
     throw new Error('Local source path must be a relative path');
   }
 
-  const sourceRoot = resolveHomePath(source.url);
+  const sourceRoot = resolveHomePath(source.url, homeRoot);
   const materializedRoot = resolve(sourceRoot, source.path);
   const relativePath = relative(sourceRoot, materializedRoot);
 
@@ -1872,6 +1924,23 @@ function getLocalMaterializedRoot(source: SourceDefinition): string {
   }
 
   return materializedRoot;
+}
+
+/**
+ * Tester #487: doctor resolves a local source the way operational discovery does, and expands `~`
+ * against the selected home root. Returns null for shapes the normalizer cannot name a root for.
+ */
+export function resolveLocalSourceRoot(sourceDef: unknown, homeRoot: string = homedir()): string | null {
+  const entry = normalizeSourceEntry('', sourceDef, homeRoot)[0];
+  if (!entry || entry.type !== 'local') {
+    return null;
+  }
+
+  try {
+    return getLocalMaterializedRoot(entry, homeRoot);
+  } catch {
+    return null;
+  }
 }
 
 async function listSkillDirectories(root: string): Promise<string[]> {

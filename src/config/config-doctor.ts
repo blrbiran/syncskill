@@ -1,8 +1,8 @@
 import { access, copyFile, readFile, readdir, realpath } from 'node:fs/promises';
 
-import { isKnownLinkTarget, type SyncSkillConfig } from './config.js';
+import { isKnownLinkTarget, resolveAgentPath, type SyncSkillConfig } from './config.js';
 import { rebuildRegistryV2 } from '../core/registry-builder.js';
-import { discoverActiveSourceSkillNames, discoverActiveSourceSkillNamesWithFailures } from '../source.js';
+import { discoverActiveSourceSkillNames, discoverActiveSourceSkillNamesWithFailures, resolveLocalSourceRoot } from '../source.js';
 import {
   getSkillsRegistryPath,
   loadSkillsRegistryV2,
@@ -181,7 +181,8 @@ export interface RepairRegistryOptions {
 }
 
 export async function checkAgentPaths(
-  agents: Record<string, string>
+  agents: Record<string, string>,
+  homeDir: string
 ): Promise<DiagnosticItem[]> {
   const entries = Object.entries(agents);
   if (entries.length === 0) {
@@ -190,11 +191,12 @@ export async function checkAgentPaths(
 
   const results = await Promise.all(
     entries.map(async ([name, path]) => {
+      const resolvedPath = resolveAgentPath(path, homeDir);
       try {
-        await access(path);
-        return { name, path, valid: true };
+        await access(resolvedPath);
+        return { name, path, resolvedPath, valid: true };
       } catch {
-        return { name, path, valid: false };
+        return { name, path, resolvedPath, valid: false };
       }
     })
   );
@@ -218,7 +220,7 @@ export async function checkAgentPaths(
       continue;
     }
 
-    const canonicalPath = await realpath(result.path).catch(() => result.path);
+    const canonicalPath = await realpath(result.resolvedPath).catch(() => result.resolvedPath);
     const firstOwner = canonicalOwners.get(canonicalPath);
     if (!firstOwner) {
       canonicalOwners.set(canonicalPath, result.name);
@@ -310,22 +312,22 @@ export function checkAgentReferences(
 }
 
 export async function checkSourcePaths(
-  sources: Record<string, unknown>
+  sources: Record<string, unknown>,
+  homeDir: string
 ): Promise<DiagnosticItem[]> {
   const items: DiagnosticItem[] = [];
 
   for (const [name, sourceDef] of Object.entries(sources)) {
-    if (!isRecord(sourceDef)) continue;
-    if (sourceDef.type !== 'local') continue;
-    if (typeof sourceDef.path !== 'string') continue;
+    const sourceRoot = resolveLocalSourceRoot(sourceDef, homeDir);
+    if (sourceRoot === null) continue;
 
     try {
-      await access(sourceDef.path);
+      await access(sourceRoot);
     } catch {
       items.push({
         code: DiagnosticCode.SOURCE_PATH_INVALID,
         severity: 'warning',
-        message: `Path does not exist: ${sourceDef.path}`,
+        message: `Path does not exist: ${sourceRoot}`,
         path: `sources.${name}`,
         suggestion: `Remove "${name}" from sources`
       });
@@ -351,7 +353,7 @@ export async function diagnoseConfig(
   const errors: DiagnosticItem[] = [];
   const warnings: DiagnosticItem[] = [];
 
-  const agentItems = await checkAgentPaths(config.agents);
+  const agentItems = await checkAgentPaths(config.agents, homeDir);
   for (const item of agentItems) {
     if (item.severity === 'error') {
       errors.push(item);
@@ -363,7 +365,7 @@ export async function diagnoseConfig(
   const discovered = await discoverExistingSkills(homeDir, skillsDir, config.sources);
   warnings.push(...checkSkillReferences(config.links, discovered.names));
   warnings.push(...checkAgentReferences(config.links, new Set(Object.keys(config.agents))));
-  warnings.push(...await checkSourcePaths(config.sources));
+  warnings.push(...await checkSourcePaths(config.sources, homeDir));
 
   warnings.push(...await checkRegistryHealth(homeDir, config, skillsDir));
 

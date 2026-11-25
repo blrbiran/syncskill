@@ -41,6 +41,31 @@ const STATUS_SYMBOLS: Record<LinkStatus['state'], string> = {
   failed: '!',
 };
 
+export interface LinkMatrixEntry {
+  skill: string;
+  agents: Record<string, LinkStatus['state']>;
+}
+
+/** Tester #491: the documented `link list --json` matrix (§11.6.5), with no raw config attached. */
+export function buildLinkMatrixJson(statuses: LinkStatus[]): { matrix: LinkMatrixEntry[] } {
+  const bySkill = new Map<string, Record<string, LinkStatus['state']>>();
+  for (const status of statuses) {
+    const agents = bySkill.get(status.skill) ?? {};
+    agents[status.agent] = status.state;
+    bySkill.set(status.skill, agents);
+  }
+
+  return {
+    matrix: [...bySkill.keys()].sort().map((skill) => {
+      const agents = bySkill.get(skill) ?? {};
+      return {
+        skill,
+        agents: Object.fromEntries(Object.keys(agents).sort().map((agent) => [agent, agents[agent]]))
+      };
+    })
+  };
+}
+
 export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean, privateAgents: string[] = []): string {
   if (statuses.length === 0) {
     return 'No managed local skills or configured agents.';

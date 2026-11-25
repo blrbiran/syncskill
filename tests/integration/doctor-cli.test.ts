@@ -61,6 +61,53 @@ describe('syncskill doctor', () => {
     expect(stdout).toContain('No issues found');
   });
 
+  it('emits one documented result line under --json (#491)', async () => {
+    const agentDir = join(homeDir, '.claude', 'skills');
+    await mkdir(agentDir, { recursive: true });
+
+    await writeFile(configFile, JSON.stringify({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: {},
+      servers: {},
+      sources: {}
+    }));
+
+    const { stdout, code } = await runDoctor(['--json']);
+
+    expect(code).toBe(0);
+    const lines = stdout.trim().split('\n');
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]) as { type: string; command: string; ok: boolean; summary: Record<string, unknown> };
+    expect(event.type).toBe('result');
+    expect(event.command).toBe('doctor');
+    expect(event.ok).toBe(true);
+    expect(event.summary).toEqual({ errors: [], warnings: [], fixed: [], skipped: [] });
+    expect(event.summary).not.toHaveProperty('agents');
+    expect(event.summary).not.toHaveProperty('sources');
+  });
+
+  it('keeps the exit status when --json finds an error (#491)', async () => {
+    await writeFile(configFile, JSON.stringify({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: join(homeDir, 'nonexistent') },
+      links: {},
+      servers: {},
+      sources: {}
+    }));
+
+    const { stdout, code } = await runDoctor(['--json']);
+
+    expect(code).toBe(1);
+    const lines = stdout.trim().split('\n');
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]) as { ok: boolean; summary: { errors: Array<{ code: string }> } };
+    expect(event.ok).toBe(false);
+    expect(event.summary.errors[0].code).toBe('NO_VALID_AGENTS');
+  });
+
   it('reports missing skill warning', async () => {
     const agentDir = join(homeDir, '.claude', 'skills');
     await mkdir(agentDir, { recursive: true });

@@ -89,6 +89,42 @@ describe('source CLI', () => {
     expect(output).toContain('url:     https://example.com/zeta.git');
   });
 
+  it('source list --json emits one documented line without credentials (#491)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-list-json-'));
+    tempDirs.push(homeDir);
+    const sourceRoot = join(homeDir, 'local-root');
+    await mkdir(join(sourceRoot, 'skills'), { recursive: true });
+
+    await saveConfig(
+      {
+        ...createDefaultConfig(homeDir, {}),
+        sources: {
+          'local-source': { type: 'local', url: sourceRoot, path: 'skills' },
+          'ssh-source': { type: 'git', url: 'ssh://git@example.com/repo.git', path: '.' },
+          remote: { type: 'git', url: 'https://user:token@example.com/repo.git', path: '.' }
+        }
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', 'source', 'list'], { from: 'node' });
+
+    expect(consoleLog.mock.calls).toHaveLength(1);
+    const event = JSON.parse(consoleLog.mock.calls[0][0] as string);
+    expect(event).toMatchObject({ type: 'result', command: 'source list', ok: true });
+    expect(event.summary.sources).toEqual([
+      expect.objectContaining({ name: 'local-source', type: 'local', path: 'skills', skills: [], ignored: [] }),
+      expect.objectContaining({ name: 'remote', type: 'git', path: '.' }),
+      expect.objectContaining({ name: 'ssh-source', type: 'git', path: '.', url: 'ssh://git@example.com/repo.git' })
+    ]);
+
+    const raw = JSON.stringify(event);
+    expect(raw).not.toContain('token');
+    expect(raw).not.toContain('user:');
+  });
+
   it('source remove emits JSON summary for complete removal', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-source-remove-json-'));
     tempDirs.push(homeDir);

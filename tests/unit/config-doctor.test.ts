@@ -50,9 +50,52 @@ describe('checkAgentPaths', () => {
     await mkdir(agentDir, { recursive: true });
 
     const agents = { claude: agentDir };
-    const items = await checkAgentPaths(agents);
+    const items = await checkAgentPaths(agents, testDir);
 
     expect(items).toEqual([]);
+  });
+
+  it('expands ~ agent paths against the selected home root (#487)', async () => {
+    const home = join(testDir, 'home');
+    const names = ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'hermes'];
+    await Promise.all(names.map((name) => mkdir(join(home, name), { recursive: true })));
+
+    const agents = Object.fromEntries(names.map((name) => [name, `~/${name}`]));
+    const items = await checkAgentPaths(agents, home);
+
+    expect(items).toEqual([]);
+  });
+
+  it('reports only the missing expanded ~ agent path (#487)', async () => {
+    const home = join(testDir, 'home-partial');
+    const names = ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'hermes'];
+    await Promise.all(names.map((name) => mkdir(join(home, name), { recursive: true })));
+    await rm(join(home, 'hermes'), { recursive: true, force: true });
+
+    const agents = Object.fromEntries(names.map((name) => [name, `~/${name}`]));
+    const items = await checkAgentPaths(agents, home);
+
+    // Without expansion every path is invalid -> NO_VALID_AGENTS; with it only hermes is missing.
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      code: 'AGENT_PATH_INVALID',
+      severity: 'warning',
+      path: 'agents.hermes'
+    });
+  });
+
+  it('keeps the canonical duplicate check when ~ expands (#487)', async () => {
+    const home = join(testDir, 'home-duplicate');
+    await mkdir(join(home, 'real'), { recursive: true });
+    await symlink(join(home, 'real'), join(home, 'link'));
+
+    const items = await checkAgentPaths({ claude: '~/real', codex: '~/link' }, home);
+
+    expect(items).toContainEqual(expect.objectContaining({
+      code: 'AGENT_PATH_DUPLICATE',
+      severity: 'warning',
+      path: 'agents.codex'
+    }));
   });
 
   it('returns warning for single invalid agent path', async () => {
@@ -63,7 +106,7 @@ describe('checkAgentPaths', () => {
       claude: validDir,
       hermes: join(testDir, 'nonexistent')
     };
-    const items = await checkAgentPaths(agents);
+    const items = await checkAgentPaths(agents, testDir);
 
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
@@ -84,7 +127,7 @@ describe('checkAgentPaths', () => {
     const items = await checkAgentPaths({
       claude: claudeDir,
       codex: codexDir
-    });
+    }, testDir);
 
     expect(items).toContainEqual(expect.objectContaining({
       code: 'AGENT_PATH_DUPLICATE',
@@ -99,7 +142,7 @@ describe('checkAgentPaths', () => {
       claude: join(testDir, 'missing1'),
       hermes: join(testDir, 'missing2')
     };
-    const items = await checkAgentPaths(agents);
+    const items = await checkAgentPaths(agents, testDir);
 
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
@@ -226,8 +269,54 @@ describe('checkSourcePaths', () => {
     const sources = {
       'my-source': { type: 'local', path: sourceDir }
     };
-    const items = await checkSourcePaths(sources);
+    const items = await checkSourcePaths(sources, testDir);
 
+    expect(items).toEqual([]);
+  });
+
+  it('checks a canonical local source at url + relative path, not at cwd (#487)', async () => {
+    const sourceRoot = join(testDir, 'canonical-source');
+    const subdir = `nested-${Date.now()}`;
+    await mkdir(join(sourceRoot, subdir), { recursive: true });
+
+    const items = await checkSourcePaths({
+      canonical: { type: 'local', url: sourceRoot, path: subdir }
+    }, testDir);
+
+    // The old check statted the relative subdir against cwd and reported it missing.
+    expect(items).toEqual([]);
+  });
+
+  it('reports a canonical local source whose relative subdirectory is missing (#487)', async () => {
+    const sourceRoot = join(testDir, 'canonical-source-missing');
+    await mkdir(sourceRoot, { recursive: true });
+
+    const items = await checkSourcePaths({
+      canonical: { type: 'local', url: sourceRoot, path: 'missing-skills' }
+    }, testDir);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      code: 'SOURCE_PATH_INVALID',
+      severity: 'warning',
+      path: 'sources.canonical'
+    });
+  });
+
+  it('expands a ~ local source path against the selected home root (#487)', async () => {
+    const home = join(testDir, 'home-source');
+    await mkdir(join(home, 'src'), { recursive: true });
+
+    expect(await checkSourcePaths({ legacy: { type: 'local', path: '~/src' } }, home)).toEqual([]);
+    expect(await checkSourcePaths({ legacy: { type: 'local', path: '~/missing' } }, home)).toHaveLength(1);
+  });
+
+  it('does not stat an unsupported relative source path against cwd (#487)', async () => {
+    const items = await checkSourcePaths({
+      unsupported: { type: 'local', path: `relative-${Date.now()}-does-not-exist` }
+    }, testDir);
+
+    // Operational resolution cannot name a root for this shape; SOURCE_UNREADABLE reports it.
     expect(items).toEqual([]);
   });
 
@@ -235,7 +324,7 @@ describe('checkSourcePaths', () => {
     const sources = {
       'my-source': { type: 'local', path: join(testDir, 'nonexistent') }
     };
-    const items = await checkSourcePaths(sources);
+    const items = await checkSourcePaths(sources, testDir);
 
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
@@ -249,7 +338,7 @@ describe('checkSourcePaths', () => {
     const sources = {
       'git-source': { type: 'git', url: 'https://github.com/test/repo' }
     };
-    const items = await checkSourcePaths(sources);
+    const items = await checkSourcePaths(sources, testDir);
 
     expect(items).toEqual([]);
   });
@@ -391,6 +480,28 @@ describe('diagnoseConfig', () => {
 
     expect(report.isHealthy).toBe(true);
     expect(report.canProceed).toBe(true);
+    expect(report.errors).toEqual([]);
+    expect(report.warnings).toEqual([]);
+  });
+
+  it('six ~ agent paths that all exist are healthy (#487)', async () => {
+    const home = join(testDir, 'diagnose-home');
+    const names = ['claude', 'codex', 'gemini', 'cursor', 'kiro', 'hermes'];
+    await Promise.all(names.map((name) => mkdir(join(home, name), { recursive: true })));
+    const skillsDir = join(home, 'skills');
+    await mkdir(skillsDir, { recursive: true });
+
+    const config: SyncSkillConfig = {
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: Object.fromEntries(names.map((name) => [name, `~/${name}`])),
+      links: {},
+      servers: {},
+      sources: {}
+    };
+
+    const report = await diagnoseConfig(config, skillsDir, home);
+
     expect(report.errors).toEqual([]);
     expect(report.warnings).toEqual([]);
   });

@@ -43,6 +43,45 @@ describe('remote CLI', () => {
     expect(consoleLog.mock.calls).toEqual([['alpha'], ['beta']]);
   });
 
+  it('remote list --json emits one name-only result line (#491)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-list-json-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {},
+        servers: {
+          beta: { host: 'beta.example.com', remote_agents: {} },
+          alpha: {
+            host: 'alpha.example.com',
+            user: 'deploy',
+            identity_file: '/secret/path/id_syncskill',
+            remote_agents: {}
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', '--json', '--no-refresh', 'remote', 'list'], { from: 'node' });
+
+    expect(consoleLog.mock.calls).toHaveLength(1);
+    const event = JSON.parse(consoleLog.mock.calls[0][0] as string);
+    expect(event).toMatchObject({ type: 'result', command: 'remote list', ok: true });
+    expect(event.summary).toEqual({ servers: ['alpha', 'beta'] });
+
+    const raw = JSON.stringify(event);
+    expect(raw).not.toContain('deploy');
+    expect(raw).not.toContain('/secret/path');
+    expect(raw).not.toContain('example.com');
+  });
+
   it('remote show prints receiver backup contents', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
     tempDirs.push(homeDir);

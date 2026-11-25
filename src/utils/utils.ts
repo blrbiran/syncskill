@@ -96,13 +96,13 @@ export async function pathExists(targetPath: string): Promise<boolean> {
   }
 }
 
-export function resolveHomePath(targetPath: string): string {
+export function resolveHomePath(targetPath: string, homeDir: string = homedir()): string {
   if (targetPath.startsWith('~/')) {
-    return resolve(homedir(), targetPath.slice(2));
+    return resolve(homeDir, targetPath.slice(2));
   }
 
   if (targetPath === '~') {
-    return homedir();
+    return homeDir;
   }
 
   return resolve(targetPath);
