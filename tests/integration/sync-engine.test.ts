@@ -1,12 +1,14 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { access, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig, setSyncDirOverride } from '../../src/config/config.js';
-import { loadManifestHistory, loadServerManifest } from '../../src/core/manifest.js';
+import { loadManifestHistory, loadServerManifest, saveServerManifest, type ManifestSkillState } from '../../src/core/manifest.js';
 import { saveReceiverBackup } from '../../src/core/server.js';
 import { pullFromServer, pushToServers } from '../../src/core/sync_engine.js';
 import { type TransportRuntime } from '../../src/core/transport.js';
@@ -1272,9 +1274,80 @@ describe('sync engine orchestration', () => {
       expect(result.deleted_skills).toEqual([]);
       expect(result.warnings).toEqual([{
         code: 'no-skills-configured',
-        detail: 'skills.include is not set and no links are configured; nothing is carried to this server and nothing is removed from it'
+        detail: 'skills.include is not set and no links are configured. Local skills can still be uploaded. Push will not remove remote skills.'
       }]);
       expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.includes('rm'))).toBe(false);
+    });
+
+    it.each(['preview', 'apply'] as const)('with an unset include, %s preserves remote skills despite a stale manifest (#480)', async (mode) => {
+      const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-push-local-'));
+      const remoteDir = await mkdtemp(join(tmpdir(), 'syncskill-push-receiver-'));
+      tempDirs.push(homeDir, remoteDir);
+      const remoteSkills = join(remoteDir, 'skills');
+      const agentDir = join(remoteDir, 'agent');
+      const manifestFile = join(remoteDir, 'manifest.json');
+      const receiverPath = fileURLToPath(new URL('../../src/receiver/sync_receiver.mjs', import.meta.url));
+      const now = '2026-05-01T10:00:00.000Z';
+      const baseline: ManifestSkillState = {
+        local_hash: 'baseline', remote_hash: 'baseline', recorded_hash: 'baseline', direction: 'skip', status: 'in-sync'
+      };
+      await saveConfig({
+        version: 1, conflict_resolution: 'manual', agents: {}, profiles: {}, private_agents: [], links: {}, sources: {},
+        servers: { alpha: { host: 'alpha.example.invalid', remote_repo: remoteDir, remote_agents: { claude: agentDir } } }
+      }, homeDir);
+      await saveServerManifest(homeDir, {
+        version: 1, server: 'alpha', updated_at: now, skills: { 'missing-row': baseline, tracked: baseline }
+      });
+      await writeFile(manifestFile, JSON.stringify({
+        version: 1, server: 'alpha', updated_at: now, skills: mode === 'preview' ? { tracked: baseline } : {}
+      }));
+      for (const skill of ['missing-row', 'unlisted']) {
+        await mkdir(join(remoteSkills, skill), { recursive: true });
+        await writeFile(join(remoteSkills, skill, 'SKILL.md'), `# ${skill}\n`);
+      }
+      await mkdir(agentDir);
+      await symlink(join(remoteSkills, 'unlisted'), join(agentDir, 'unlisted'));
+      const fresh = join(homeDir, '.syncskill', 'skills', 'fresh');
+      await mkdir(fresh, { recursive: true });
+      await writeFile(join(fresh, 'SKILL.md'), '# fresh\n');
+
+      const runtime: TransportRuntime = {
+        async exec(file, args, options) {
+          if (file === 'rsync') throw Object.assign(new Error('rsync unavailable'), { code: 'ENOENT' });
+          if (args.includes('ls')) return { stdout: (await readdir(remoteSkills)).join('\n'), stderr: '' };
+          const receiver = args.indexOf(`"${join(remoteDir, 'sync_receiver.mjs')}"`);
+          if (receiver > 0 && args[receiver - 1] === 'node') {
+            const result = spawnSync(process.execPath, [receiverPath, ...args.slice(receiver + 1).map((word) => word.replace(/^"|"$/g, ''))], {
+              env: { ...process.env, HOME: remoteDir, SYNCSKILL_ROOT: remoteDir }, encoding: 'utf8', input: options?.stdin
+            });
+            if (result.error) throw result.error;
+            if (result.status !== 0) throw new Error(result.stderr);
+            return { stdout: result.stdout, stderr: result.stderr };
+          }
+          const command = args.at(-1) ?? '';
+          if (command.startsWith('cat > ') && command.endsWith('/receiver_config.json"')) {
+            await writeFile(join(remoteDir, 'receiver_config.json'), options?.stdin ?? '');
+          } else if (!args.includes('md5sum') && !args.includes('-s') && !command.startsWith('mkdir -p ') && !command.startsWith('cat > ')) {
+            throw new Error(`Unexpected fake transport call: ${file} ${args.join(' ')}`);
+          }
+          return { stdout: '', stderr: '' };
+        }
+      };
+
+      const [result] = await pushToServers(homeDir, ['alpha'], {
+        runtime, now, dryRun: mode === 'preview', yes: true, yesDestructive: true
+      });
+      if (mode === 'apply') {
+        await expect(readFile(join(remoteSkills, 'missing-row', 'SKILL.md'), 'utf8')).resolves.toBe('# missing-row\n');
+        await expect(readFile(join(remoteSkills, 'unlisted', 'SKILL.md'), 'utf8')).resolves.toBe('# unlisted\n');
+        await expect(readFile(join(remoteSkills, 'fresh', 'SKILL.md'), 'utf8')).resolves.toBe('# fresh\n');
+        await expect(readlink(join(agentDir, 'unlisted'))).resolves.toBe(join(remoteSkills, 'unlisted'));
+        await expect(readlink(join(agentDir, 'fresh'))).resolves.toBe(join(remoteSkills, 'fresh'));
+      } else {
+        await expect(access(join(remoteSkills, 'fresh'))).rejects.toThrow();
+      }
+      expect(result.deleted_skills).toEqual([]);
+      expect(result.pushed_skills).toEqual(['fresh']);
     });
 
     it('an explicit include list still deletes a remote orphan (#480)', async () => {

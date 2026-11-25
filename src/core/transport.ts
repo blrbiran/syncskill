@@ -429,10 +429,13 @@ export async function deployReceiver(
 export async function applyRemoteLinks(
   server: ConfiguredServer,
   runtime: TransportRuntime,
-  receiverConfig: ReceiverConfigPayload = { remote_agents: server.remote_agents }
+  receiverConfig: ReceiverConfigPayload = { remote_agents: server.remote_agents },
+  options: { preserveRemoteSkills?: boolean } = {}
 ): Promise<void> {
   await deployReceiver(server, runtime, receiverConfig);
-  await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), 'apply']));
+  // A distinct command fails safely if an old receiver is still installed.
+  const command = options.preserveRemoteSkills ? 'apply-preserving-skills' : 'apply';
+  await runtime.exec('ssh', buildSshArgs(server, [remoteNode(server), quoteRemotePath(remoteReceiver(server)), command]));
 }
 
 /** A missing skills directory (first push to a server) is an empty list; anything else means the

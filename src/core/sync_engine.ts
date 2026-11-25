@@ -507,12 +507,13 @@ async function pushToServer(
   {
     const server = getConfiguredServer(config, serverName);
     const includeState = includeStateOf(config, serverName);
+    const preserveRemoteSkills = includeState.kind === 'unset';
     const pushSet = includeState.kind === 'list' ? includeState.skills : includeState.kind === 'unset' ? null : new Set<string>();
     const included = (skill: string): boolean => pushSet === null || pushSet.has(skill);
     const includeWarnings: PushWarning[] = includeState.kind === 'empty'
       ? [{ code: 'no-skills-configured', detail: 'this server\'s skills.include is empty; nothing is carried to it (and that alone deletes nothing)' }]
       : includeState.kind === 'unset'
-        ? [{ code: 'no-skills-configured', detail: 'skills.include is not set and no links are configured; nothing is carried to this server and nothing is removed from it' }]
+        ? [{ code: 'no-skills-configured', detail: 'skills.include is not set and no links are configured. Local skills can still be uploaded. Push will not remove remote skills.' }]
         : [];
     let receiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
     if (receiverBackup) {
@@ -581,6 +582,11 @@ async function pushToServer(
         // Re-compute pushed skills list after safety net (reconcileManifest will now see local-only)
         finalPushedSkills = listSkillsByDirection(manifest, 'push').filter(included);
       }
+    }
+
+    // With no configured selection, a local deletion is not a push operation (#480).
+    if (preserveRemoteSkills) {
+      finalPushedSkills = finalPushedSkills.filter((skill) => !isLocalDeletion(manifest.skills[skill]));
     }
 
     // Dry-run mode: show what would happen without executing
@@ -663,7 +669,7 @@ async function pushToServer(
 
     const finalizedManifest = finalizeDeletedSkills(finalizePushedSkills(manifest, finalPushedSkills, updated.updatedAt), finalPushedSkills, updated.updatedAt);
     await pushManifest(server, finalizedManifest, runtime);
-    await applyRemoteLinks(server, runtime, receiverConfig);
+    await applyRemoteLinks(server, runtime, receiverConfig, { preserveRemoteSkills });
     await persistManifestState(homeDir, updated.previousManifest, finalizedManifest, updated.updatedAt);
 
     return {

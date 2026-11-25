@@ -568,12 +568,12 @@ async function probeAccess() {
   );
 }
 
-async function applyLinks() {
+async function applyLinks(preserveRemoteSkills) {
   const manifest = await readManifest();
   const config = await readJson(configFile, { remote_agents: {} });
   const skillNames = Object.keys(manifest.skills).sort();
   const managedSkillNames = skillNames.filter((skill) => manifest.skills[skill]?.remote_hash !== null);
-  const expectedSkills = new Set(skillNames);
+  const managedSkills = new Set(managedSkillNames);
   const takeoverWarnings = [];
   const hasLinksConfig = typeof config.links === 'object' && config.links !== null && !Array.isArray(config.links);
   const expectedSkillsByAgent = Object.fromEntries(
@@ -611,7 +611,8 @@ async function applyLinks() {
     await mkdir(resolvedAgentDir, { recursive: true });
 
     for (const entry of await readdir(resolvedAgentDir, { withFileTypes: true })) {
-      if (!expectedAgentSkills.has(entry.name) && entry.isSymbolicLink()) {
+      if (!expectedAgentSkills.has(entry.name) && entry.isSymbolicLink()
+        && (!preserveRemoteSkills || managedSkills.has(entry.name))) {
         await rm(join(resolvedAgentDir, entry.name), { recursive: true, force: true });
       }
     }
@@ -637,21 +638,27 @@ async function applyLinks() {
     }
   }
 
-  for (const entry of await readdir(skillsDir, { withFileTypes: true }).catch(() => [])) {
-    if (!expectedSkills.has(entry.name)) {
-      await rm(join(skillsDir, entry.name), { recursive: true, force: true });
+  // An unset push scope cannot authorize cleanup of unlisted skills or manifest tombstones (#480).
+  if (!preserveRemoteSkills) {
+    const expectedSkills = new Set(skillNames);
+    for (const entry of await readdir(skillsDir, { withFileTypes: true }).catch(() => [])) {
+      if (!expectedSkills.has(entry.name)) {
+        await rm(join(skillsDir, entry.name), { recursive: true, force: true });
+      }
     }
   }
 
-  for (const skill of skillNames) {
+  for (const skill of preserveRemoteSkills ? managedSkillNames : skillNames) {
     await mkdir(join(skillsDir, skill), { recursive: true });
   }
 
-  await Promise.all(
-    skillNames
-      .filter((skill) => manifest.skills[skill]?.remote_hash === null)
-      .map((skill) => rm(join(skillsDir, skill), { recursive: true, force: true }))
-  );
+  if (!preserveRemoteSkills) {
+    await Promise.all(
+      skillNames
+        .filter((skill) => !managedSkills.has(skill))
+        .map((skill) => rm(join(skillsDir, skill), { recursive: true, force: true }))
+    );
+  }
 
   const existingSkillNames = (await readdir(skillsDir, { withFileTypes: true }).catch(() => []))
     .filter((entry) => entry.isDirectory())
@@ -729,8 +736,8 @@ if (command === 'manifest') {
   await scanAgents();
 } else if (command === 'probe-access') {
   await probeAccess();
-} else if (command === 'apply') {
-  await applyLinks();
+} else if (command === 'apply' || command === 'apply-preserving-skills') {
+  await applyLinks(command === 'apply-preserving-skills');
 } else {
   throw new Error(`Unsupported receiver command: ${command ?? ''}`.trim());
 }
