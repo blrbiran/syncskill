@@ -128,7 +128,8 @@ describe('transport failures in the real execFile error shape (#456)', () => {
       process.env.FAKE_SSH_LS = 'listing';
       const [result] = await pushToServers(await home(), ['lab'], { dryRun: true, now: '2026-05-01T00:00:00.000Z' });
       expect(result.deleted_skills).toEqual(['stale-a']);
-      expect((result.warnings ?? []).some((w) => w.startsWith('remote-state-unknown'))).toBe(true);
+      // Ruling (tester #477, session 5d3d0c09): warnings are {code, detail} since #477.
+      expect((result.warnings ?? []).map((w) => w.code)).toContain('remote-state-unknown');
     });
   });
 });

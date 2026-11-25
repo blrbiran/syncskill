@@ -155,7 +155,7 @@ import {
 } from './source.js';
 import { rebuildRegistryV2 } from './core/registry-builder.js';
 import { saveSkillsRegistryV2 } from './core/skills-registry.js';
-import { pullFromServer, pullFromServers, pushToServers, syncServers, type PullResult, type PushResult, type SyncResult } from './core/sync_engine.js';
+import { formatPushWarning, pullFromServer, pullFromServers, pushToServers, syncServers, type PullResult, type PushResult, type SyncResult } from './core/sync_engine.js';
 import { formatDashboardSummary, loadDashboardSummary } from './dashboard.js';
 
 function getCommandPath(command: Command): string {
@@ -637,7 +637,9 @@ function formatPushRows(result: PushResult): string[] {
     ...result.pushed_skills.map((skill: string) => `${skill}\t${result.server}\tpush\tin-sync`),
     // Tester #449: a push can delete remote skills; pull already printed its own deletions this way.
     ...(result.deleted_skills ?? []).map((skill: string) => `${skill}\t${result.server}\tdelete\tin-sync`),
-    ...result.conflicted_skills.map((skill: string) => `${skill}\t${result.server}\tconflict\tconflict`)
+    ...result.conflicted_skills.map((skill: string) => `${skill}\t${result.server}\tconflict\tconflict`),
+    // Tester #477: every warning on its own line; --json carries the same list in data.warnings.
+    ...(result.warnings ?? []).map(formatPushWarning)
   ];
 }
 
@@ -651,7 +653,7 @@ function summarizePushResults(results: PushResult[]): Record<string, unknown> {
   const pushed = results.flatMap((result) => result.pushed_skills.map((skill) => ({ skill, server: result.server })));
   // Tester #449: what this push removed (or would, under --dry-run), and any warning behind it.
   const deleted = results.flatMap((result) => (result.deleted_skills ?? []).map((skill) => ({ skill, server: result.server })));
-  const warnings = results.flatMap((result) => (result.warnings ?? []).map((code) => ({ code, server: result.server })));
+  const warnings = results.flatMap((result) => (result.warnings ?? []).map(({ code, detail }) => ({ code, server: result.server, detail })));
   const skipped = results.flatMap((result) => result.skipped_skills.map((skill) => ({ skill, server: result.server })));
   const conflicts = results.flatMap((result) => result.conflicted_skills.map((skill) => ({ skill, server: result.server })));
   const servers = results.map((result) => ({
@@ -677,6 +679,8 @@ function summarizePushResults(results: PushResult[]): Record<string, unknown> {
       pulled: [],
       // Tester #449: pull already listed its deletions here; push reports its own now.
       deleted,
+      // Tester #477: the warnings themselves, not only their count.
+      warnings,
       skipped,
       conflicts,
       failed: [],
@@ -740,6 +744,8 @@ function summarizeSyncResults(results: SyncResult[]): Record<string, unknown> {
   }
   const conflicts = [...conflictMap.values()];
   const backups = results.flatMap((result) => result.pull.backups ?? []);
+  // Tester #477: the push phase's warnings, as push --json reports them.
+  const warnings = results.flatMap((result) => (result.push.warnings ?? []).map(({ code, detail }) => ({ code, server: result.server, detail })));
   const servers = results.map((result) => ({
     server: result.server,
     ok: true,
@@ -754,12 +760,13 @@ function summarizeSyncResults(results: SyncResult[]): Record<string, unknown> {
     pulled: pulled.length,
     skipped: skipped.length,
     conflicts: conflicts.length,
-    warnings: 0,
+    warnings: warnings.length,
     data: {
       servers,
       pushed,
       pulled,
       deleted,
+      warnings,
       skipped,
       conflicts,
       failed: [],
@@ -3296,7 +3303,9 @@ export function createProgram(homeDir?: string): Command {
           json
         });
 
-        if (!json) {
+        // Tester #477: a dry run's plan (warnings included) was printed from this same result; rows would restate it as
+        // "in-sync" pushes that did not happen.
+        if (!json && !options.dryRun) {
           for (const result of results) {
             for (const line of formatSkillRows('push', result)) {
               console.log(line);
@@ -3445,7 +3454,8 @@ export function createProgram(homeDir?: string): Command {
             }
           }
 
-          for (const result of results) {
+          // Tester #477: under --dry-run the push plan was printed from this result already.
+          for (const result of options.dryRun ? [] : results) {
             for (const line of formatSkillRows('push', result.push)) {
               console.log(line);
             }

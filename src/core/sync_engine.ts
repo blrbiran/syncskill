@@ -123,8 +123,14 @@ export interface PushResult {
    * counterpart; without this a `--json` consumer could not tell that a push removed anything.
    */
   deleted_skills?: string[];
-  /** Tester #449: reasons a person should read before trusting the plan (`no-skills-configured`, ...). */
-  warnings?: string[];
+  /** Tester #449: reasons a person should read before trusting the plan (`no-skills-configured`, ...). Tester #477: a
+   * stable `code` and its prose `detail` are separate fields, so a script matches the code and a person reads the detail. */
+  warnings?: PushWarning[];
+}
+
+export interface PushWarning {
+  code: 'no-skills-configured' | 'included-not-local' | 'remote-state-unknown';
+  detail: string;
 }
 
 /**
@@ -503,7 +509,9 @@ async function pushToServer(
     const includeState = includeStateOf(config, serverName);
     const pushSet = includeState.kind === 'list' ? includeState.skills : includeState.kind === 'unset' ? null : new Set<string>();
     const included = (skill: string): boolean => pushSet === null || pushSet.has(skill);
-    const includeWarnings: string[] = includeState.kind === 'empty' ? ['no-skills-configured'] : [];
+    const includeWarnings: PushWarning[] = includeState.kind === 'empty'
+      ? [{ code: 'no-skills-configured', detail: 'this server\'s skills.include is empty; nothing is carried to it (and that alone deletes nothing)' }]
+      : [];
     let receiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
     if (receiverBackup) {
       const mergedBackup = mergeConfiguredLinksIntoReceiverBackup(
@@ -519,7 +527,7 @@ async function pushToServer(
     }
     const receiverConfig = buildReceiverConfigPayload(server, receiverBackup);
     const updated = await prepareManifest(homeDir, server, runtime, options.now, options.dryRun === true);
-    if (updated.remoteUnknown) includeWarnings.push(`remote-state-unknown: no syncskill receiver on ${serverName}; a dry run does not install one`);
+    if (updated.remoteUnknown) includeWarnings.push({ code: 'remote-state-unknown', detail: `no syncskill receiver on ${serverName}; a dry run does not install one` });
     let manifest = applyConflictPolicy(updated.manifest, configuredConflictPolicy, updated.updatedAt);
 
     const preferredLocalSkills = options.preferLocalSkillsByServer?.[serverName] ?? [];
@@ -535,8 +543,8 @@ async function pushToServer(
       throw createSyncEngineError('E_CONFLICT', `Content conflict on ${serverName}: ${conflictedSkills.join(', ')}`);
     }
 
-    // Print warnings for skills that have remote changes
-    for (const skill of pullSkills) {
+    // Print warnings for skills that have remote changes (tester #477: not into --json's stdout)
+    for (const skill of options.json === true ? [] : pullSkills) {
       console.log(`  Skipping ${skill}: remote has changes. Use \`syncskill pull\` to update local.`);
     }
 
@@ -572,70 +580,29 @@ async function pushToServer(
 
     // Dry-run mode: show what would happen without executing
     if (options.dryRun) {
-      console.log(`\n[dry-run] push to ${serverName}:\n`);
       // Tester #449: the cleanup below deletes remote skills, and this branch used to return before it ran, so a plan
       // that would remove half the remote skills printed `(no changes)`. The orphan set is computed here the same way.
       const wouldDelete = orphansForCleanup(remoteSkillListForCleanup ?? await listRemoteSkills(server, runtime), manifest, included, includeState, includeWarnings);
-
-      let totalAdded = 0;
-      let totalModified = 0;
-      let totalDeleted = 0;
-
-      for (const skill of finalPushedSkills) {
-        const state = manifest.skills[skill];
-        const isNew = state.local_hash && !state.remote_hash;
-        const isDelete = !state.local_hash && state.remote_hash;
-
-        if (isNew) {
-          console.log(`  + ${skill} (new)`);
-          totalAdded++;
-        } else if (isDelete) {
-          console.log(`  - ${skill} (deleted)`);
-          totalDeleted++;
-        } else {
-          console.log(`  ~ ${skill} (modified)`);
-          totalModified++;
-        }
-      }
-
-      for (const skill of conflictedSkills) {
-        console.log(`  ! ${skill} (conflict)`);
-      }
-
-      if (wouldDelete.length > 0) {
-        console.log(`  Remote skills that would be removed (no longer in local config):`);
-        for (const skill of wouldDelete) console.log(`  - ${skill}`);
-      }
-      if (includeState.kind === 'empty') {
-        console.log('  warning: this server\'s skills.include is empty; nothing is carried to it (and that alone deletes nothing)');
-      }
-      if (finalPushedSkills.length === 0 && conflictedSkills.length === 0 && wouldDelete.length === 0) {
-        console.log('  (no changes)');
-      } else {
-        // Summary line
-        const parts: string[] = [];
-        if (totalAdded > 0) parts.push(`${totalAdded} added`);
-        if (totalModified > 0) parts.push(`${totalModified} modified`);
-        if (totalDeleted > 0) parts.push(`${totalDeleted} deleted`);
-        if (conflictedSkills.length > 0) parts.push(`${conflictedSkills.length} conflict(s)`);
-
-        const skillCount = finalPushedSkills.length + conflictedSkills.length;
-        console.log(`\nSummary: ${skillCount} skill(s), ${parts.join(', ')}`);
-      }
-
-      // Skip actual push, return result with empty pushed_skills
-      return {
+      // Tester #477: the plan is the result. The human lines below and the --json summary are both rendered from it, so
+      // they cannot disagree: planned pushes (content), and ONE deletion set -- skills deleted locally (manifest) and
+      // remote skills no longer in local config (orphans), deduplicated.
+      const manifestDeletions = finalPushedSkills.filter((skill) => isLocalDeletion(manifest.skills[skill]));
+      const plan: PushResult = {
         server: serverName,
-        pushed_skills: [],
+        pushed_skills: finalPushedSkills.filter((skill) => !manifestDeletions.includes(skill)),
         skipped_skills: uniqueSorted([
           ...pullSkills,
           ...(options.onConflict === 'skip' ? conflictedSkills : [])
         ]),
         conflicted_skills: conflictedSkills,
         manifest,
-        deleted_skills: wouldDelete,
+        deleted_skills: uniqueSorted([...manifestDeletions, ...wouldDelete]),
         ...(includeWarnings.length === 0 ? {} : { warnings: includeWarnings })
       };
+      if (options.json !== true) {
+        for (const line of formatPushPlan(plan)) console.log(line);
+      }
+      return plan;
     }
 
     // Cleanup's view of the remote, read before any upload (tester #456 follow-up): a listing that fails aborts the
@@ -1260,7 +1227,7 @@ function getIncludedServerSkills(config: SyncSkillConfig, serverName: string): s
  * behaviour -- every local skill, since nothing said which subset was meant. `null` means no limit.
  */
 /** Tester #449: the remote skills a push would remove -- ONE computation for the dry run and the real cleanup. */
-function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, included: (skill: string) => boolean, includeState: IncludeState, warnings: string[] = []): string[] {
+function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, included: (skill: string) => boolean, includeState: IncludeState, warnings: PushWarning[] = []): string[] {
   if (includeState.kind === 'empty') return [];
   const localSkillSet = new Set(
     Object.keys(manifest.skills).filter((skill) => manifest.skills[skill]?.local_hash !== null && included(skill))
@@ -1272,7 +1239,7 @@ function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, inc
     // An explicit include list only: with include and links both unset (#404's legacy mode) every remote skill is
     // "included", and an orphan there is what it always was -- a remote skill with no local content.
     if (includeState.kind === 'list' && included(skill) && !manifest.skills[skill]?.recorded_hash) {
-      if (!warnings.includes(`included-not-local:${skill}`)) warnings.push(`included-not-local:${skill}`);
+      if (!warnings.some((w) => w.code === 'included-not-local' && w.detail === skill)) warnings.push({ code: 'included-not-local', detail: skill });
       return false;
     }
     return true;
@@ -1323,4 +1290,47 @@ function finalizeDeletedSkills(manifest: ServerManifest, skills: string[], updat
       })
     )
   });
+}
+
+function isLocalDeletion(state: ServerManifest['skills'][string] | undefined): boolean {
+  return state !== undefined && state.local_hash === null && state.remote_hash !== null;
+}
+
+/** One warning, one line, in both the dry-run plan and a real push's output (tester #477). */
+export function formatPushWarning(warning: PushWarning): string {
+  return `  warning: ${warning.code}: ${warning.detail}`;
+}
+
+/** Tester #477: the dry-run plan a person reads, rendered only from the result --json reports. */
+export function formatPushPlan(result: PushResult): string[] {
+  const lines = ['', `[dry-run] push to ${result.server}:`, ''];
+  let added = 0;
+  let modified = 0;
+  for (const skill of result.pushed_skills) {
+    const state = result.manifest.skills[skill];
+    if (state?.local_hash && !state.remote_hash) {
+      lines.push(`  + ${skill} (new)`);
+      added++;
+    } else {
+      lines.push(`  ~ ${skill} (modified)`);
+      modified++;
+    }
+  }
+  const deleted = result.deleted_skills ?? [];
+  for (const skill of deleted) lines.push(`  - ${skill} (deleted)`);
+  for (const skill of result.conflicted_skills) lines.push(`  ! ${skill} (conflict)`);
+  for (const warning of result.warnings ?? []) lines.push(formatPushWarning(warning));
+
+  const total = result.pushed_skills.length + deleted.length + result.conflicted_skills.length;
+  if (total === 0) {
+    lines.push('  (no changes)');
+    return lines;
+  }
+  const parts: string[] = [];
+  if (added > 0) parts.push(`${added} added`);
+  if (modified > 0) parts.push(`${modified} modified`);
+  if (deleted.length > 0) parts.push(`${deleted.length} deleted`);
+  if (result.conflicted_skills.length > 0) parts.push(`${result.conflicted_skills.length} conflict(s)`);
+  lines.push('', `Summary: ${total} skill(s), ${parts.join(', ')}`);
+  return lines;
 }

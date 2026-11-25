@@ -144,7 +144,8 @@ describe('push discloses the remote deletions it would make (#449)', () => {
     // mutation: treat an included skill with no local content as an orphan again -> 'elsewhere' is rm -rf'd, red
     expect(runtime.deletes).toEqual([]);
     expect(result.deleted_skills).toEqual([]);
-    expect(result.warnings).toContain('included-not-local:elsewhere');
+    // Ruling (tester #477, session 5d3d0c09): warnings are {code, detail} now (code split from prose); same code, same fact.
+    expect(result.warnings).toContainEqual({ code: 'included-not-local', detail: 'elsewhere' });
   });
 
   it('an included skill this machine synced and then deleted is still deleted remotely', async () => {
@@ -203,7 +204,8 @@ describe('push discloses the remote deletions it would make (#449)', () => {
     const [result] = await pushToServers(home, ['alpha'], { runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' });
     expect(writes(calls)).toEqual([]);
     // mutation: treat a missing receiver as an empty remote silently -> no warning, red
-    expect(result.warnings).toContain('remote-state-unknown: no syncskill receiver on alpha; a dry run does not install one');
+    // Ruling (tester #477, session 5d3d0c09): warnings are {code, detail} now (code split from prose); same code, same fact.
+    expect(result.warnings).toContainEqual({ code: 'remote-state-unknown', detail: 'no syncskill receiver on alpha; a dry run does not install one' });
   });
 
   it('an absent remote skills directory is still an empty list, not an error', async () => {
@@ -228,6 +230,7 @@ describe('push discloses the remote deletions it would make (#449)', () => {
     // mutation: pushSetOf returns the empty Set -> included() is false for every skill, every remote skill is an orphan, red
     expect(runtime.deletes).toHaveLength(0);
     expect(result.deleted_skills ?? []).toEqual([]);
-    expect(result.warnings ?? []).toContain('no-skills-configured');
+    // Ruling (tester #477, session 5d3d0c09): warnings are {code, detail} now (code split from prose); same code, same fact.
+    expect((result.warnings ?? []).map((w) => w.code)).toContain('no-skills-configured');
   });
 });
