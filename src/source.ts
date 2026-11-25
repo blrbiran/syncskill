@@ -230,21 +230,25 @@ function createConcurrencyLimiter(limit: number): <T>(work: () => Promise<T>) =>
  * Recursively scan a directory for skills (directories containing SKILL.md).
  * Returns all discovered skills with their paths.
  */
-export async function scanSkillsInDirectory(baseDir: string): Promise<DiscoveredSkill[]> {
+export async function scanSkillsInDirectory(baseDir: string, onReadFailure?: () => void): Promise<DiscoveredSkill[]> {
   const runLimited = createConcurrencyLimiter(SCAN_CONCURRENCY);
 
   async function hasSkillFile(dir: string): Promise<boolean> {
     return runLimited(async () => {
       try {
         return (await stat(join(dir, 'SKILL.md'))).isFile();
-      } catch {
+      } catch (error) {
+        if (!isNotFoundError(error)) onReadFailure?.();
         return false;
       }
     });
   }
 
   async function scanDir(dir: string, relPath: string = ''): Promise<DiscoveredSkill[]> {
-    const entries = await runLimited(() => readdir(dir, { withFileTypes: true })).catch(() => null);
+    const entries = await runLimited(() => readdir(dir, { withFileTypes: true })).catch(() => {
+      onReadFailure?.();
+      return null;
+    });
     if (!entries) {
       // Directory not accessible
       return [];
@@ -282,8 +286,8 @@ export async function scanSkillsInDirectory(baseDir: string): Promise<Discovered
  * Recursively scan a source directory for skills (directories containing SKILL.md).
  * Returns all discovered skills sorted by name.
  */
-export async function scanSkillsInSource(sourceDir: string): Promise<DiscoveredSkill[]> {
-  const skills = await scanSkillsInDirectory(sourceDir);
+export async function scanSkillsInSource(sourceDir: string, onReadFailure?: () => void): Promise<DiscoveredSkill[]> {
+  const skills = await scanSkillsInDirectory(sourceDir, onReadFailure);
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -313,9 +317,10 @@ export function inferRootSkillName(sourceName: string, source: SourceDefinition)
 export async function discoverMaterializedSkillEntries(
   sourceName: string,
   source: SourceDefinition,
-  sourceRoot: string
+  sourceRoot: string,
+  onReadFailure?: () => void
 ): Promise<DiscoveredSkill[]> {
-  const discoveredSkills = await scanSkillsInSource(sourceRoot);
+  const discoveredSkills = await scanSkillsInSource(sourceRoot, onReadFailure);
 
   if (await pathExists(join(sourceRoot, 'SKILL.md'))) {
     discoveredSkills.push({
@@ -2460,10 +2465,8 @@ export async function discoverActiveSourceSkillNames(
 }
 
 /**
- * Tester #486: the same discovery, plus the names of the sources that contributed nothing because they could not be
- * read (an entry that does not normalize, a root that does not exist, a read that threw). A caller that decides
- * "this skill is missing" needs that distinction: a skill can be absent from the result because its source was
- * unreachable, and an unreachable source is not evidence of absence.
+ * Tester #486: report incomplete discovery alongside any names that were readable. Doctor needs to know whether
+ * a missing skill could be hiding behind a failed read, including one below the source root.
  */
 export async function discoverActiveSourceSkillNamesWithFailures(
   homeDir: string,
@@ -2487,7 +2490,11 @@ export async function discoverActiveSourceSkillNamesWithFailures(
       }
 
       const ignored = new Set(getConfiguredIgnoredSkills(sourceDef));
-      const discovered = await discoverMaterializedSkillEntries(name, sourceEntry, materializedRoot);
+      let incomplete = false;
+      const discovered = await discoverMaterializedSkillEntries(name, sourceEntry, materializedRoot, () => {
+        incomplete = true;
+      });
+      if (incomplete) unreadable.push(name);
       for (const skill of discovered) {
         if (!ignored.has(skill.name)) {
           skills.add(skill.name);

@@ -514,6 +514,35 @@ describe('diagnoseConfig', () => {
     expect(repaired.links['src-skill']).toEqual(['claude']);
   });
 
+  it('keeps links when a nested skill marker cannot be inspected (#486)', async () => {
+    const root = join(testDir, 'source');
+    const hidden = join(root, 'nested', 'src-skill');
+    const readable = join(root, 'readable');
+    await mkdir(hidden, { recursive: true });
+    await mkdir(readable, { recursive: true });
+    await mkdir(unreadableConfig.agents.claude, { recursive: true });
+    // A symlink loop yields ELOOP even when the test runs as root.
+    await symlink('SKILL.md', join(hidden, 'SKILL.md'));
+    await writeFile(join(readable, 'SKILL.md'), '# readable');
+    const config = {
+      ...unreadableConfig,
+      sources: { shared: { type: 'local', path: root } }
+    };
+
+    const report = await diagnoseConfig(config, join(testDir, 'skills'), testDir);
+    const repaired = repairConfig(config, report, {
+      removeInvalidSkillLinks: true,
+      removeInvalidAgentLinks: true,
+      removeInvalidAgents: true,
+      removeInvalidSources: false
+    });
+
+    expect(repaired.links['src-skill']).toEqual(['claude']);
+    expect(report.unreadableSources).toEqual(['shared']);
+    const { discoverActiveSourceSkillNames } = await import('../../src/source.js');
+    await expect(discoverActiveSourceSkillNames(testDir, config.sources)).resolves.toEqual(new Set(['readable']));
+  });
+
   it('still deletes a link for a missing skill when every source was readable', async () => {
     const skillsDir = join(testDir, 'skills');
     await mkdir(join(testDir, 'claude-skills'), { recursive: true });
