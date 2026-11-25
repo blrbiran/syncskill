@@ -146,7 +146,7 @@ describe('sync engine orchestration', () => {
     expect(runtime.calls.some((call) => call.file === 'rsync' && call.args.at(-1)?.includes('/.welcome.staging-') === true)).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'write-manifest')).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'apply')).toBe(true);
-    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > "$HOME/.syncskill/receiver_config.json"' && call.stdin?.includes('"claude"') && call.stdin?.includes('"links"') && call.stdin?.includes('"welcome"') && !call.stdin?.includes('"stale"'))).toBe(true);
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === "'cat > \"$HOME/.syncskill/receiver_config.json\"'" && call.stdin?.includes('"claude"') && call.stdin?.includes('"links"') && call.stdin?.includes('"welcome"') && !call.stdin?.includes('"stale"'))).toBe(true);
 
     const manifest = await loadServerManifest(homeDir, 'alpha');
     expect(manifest.skills.welcome.direction).toBe('skip');
@@ -216,7 +216,7 @@ describe('sync engine orchestration', () => {
       now: '2026-05-01T01:30:00.000Z'
     });
 
-    const receiverConfigWrites = runtime.calls.filter((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > "$HOME/.syncskill/receiver_config.json"');
+    const receiverConfigWrites = runtime.calls.filter((call) => call.file === 'ssh' && call.args.at(-1) === "'cat > \"$HOME/.syncskill/receiver_config.json\"'");
     const finalReceiverConfigWrite = receiverConfigWrites.at(-1);
     expect(finalReceiverConfigWrite?.stdin).toContain('"alpha"');
     expect(finalReceiverConfigWrite?.stdin).not.toContain('"beta"');
@@ -1325,9 +1325,9 @@ describe('sync engine orchestration', () => {
             return { stdout: result.stdout, stderr: result.stderr };
           }
           const command = args.at(-1) ?? '';
-          if (command.startsWith('cat > ') && command.endsWith('/receiver_config.json"')) {
+          if (command.startsWith("'cat > ") && command.endsWith("/receiver_config.json\"'")) {
             await writeFile(join(remoteDir, 'receiver_config.json'), options?.stdin ?? '');
-          } else if (!args.includes('md5sum') && !args.includes('-s') && !command.startsWith('mkdir -p ') && !command.startsWith('cat > ')) {
+          } else if (!args.includes('md5sum') && !args.includes('-s') && !command.startsWith("'mkdir -p ") && !command.startsWith("'cat > ")) {
             throw new Error(`Unexpected fake transport call: ${file} ${args.join(' ')}`);
           }
           return { stdout: '', stderr: '' };

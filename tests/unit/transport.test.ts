@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
@@ -242,7 +243,11 @@ describe('takeOverRemoteSkill', () => {
         }
       ]
     });
-    expect(calls.some((call) => call.file === 'ssh' && (call.args.at(-1) ?? '').includes('rm -rf "$HOME/.claude/skills/welcome" && ln -s "$HOME/.syncskill/skills/welcome" "$HOME/.claude/skills/welcome"'))).toBe(true);
+    const takeover = calls.find((call) => call.file === 'ssh' && call.args.at(-1)?.includes('ln -s'));
+    expect(takeover).toBeDefined();
+    // Capture the -c operand after the remote shell parses it, without running the replacement.
+    const parsed = spawnSync('/bin/sh', ['-c', `sh() { printf '%s' "$2"; }; ln() { :; }; ${takeover!.args.slice(-3).join(' ')}`], { encoding: 'utf8' });
+    expect(parsed.stdout).toBe('rm -rf "$HOME/.claude/skills/welcome" && ln -s "$HOME/.syncskill/skills/welcome" "$HOME/.claude/skills/welcome"');
   });
 
   it('supports dry-run without executing takeover commands', async () => {

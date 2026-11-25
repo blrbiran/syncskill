@@ -207,7 +207,7 @@ describe('transport', () => {
           'deploy@alpha.example.com',
           'sh',
           '-lc',
-          'cat > "$HOME/.syncskill/sync_receiver.mjs"'
+          "'cat > \"$HOME/.syncskill/sync_receiver.mjs\"'"
         ],
         [
           'ssh',
@@ -222,11 +222,11 @@ describe('transport', () => {
           'deploy@alpha.example.com',
           'sh',
           '-lc',
-          'cat > "$HOME/.syncskill/receiver_config.json"'
+          "'cat > \"$HOME/.syncskill/receiver_config.json\"'"
         ]
       ])
     );
-    expect(runtime.calls.find((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > "$HOME/.syncskill/receiver_config.json"')).toMatchObject({
+    expect(runtime.calls.find((call) => call.file === 'ssh' && call.args.at(-1) === "'cat > \"$HOME/.syncskill/receiver_config.json\"'")).toMatchObject({
       stdin: expect.stringContaining('"links"')
     });
   });
@@ -253,7 +253,7 @@ describe('transport', () => {
       }
     );
 
-    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'cat > "$HOME/.syncskill/receiver_config.json"' && call.stdin?.includes('"links"'))).toBe(true);
+    expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === "'cat > \"$HOME/.syncskill/receiver_config.json\"'" && call.stdin?.includes('"links"'))).toBe(true);
     expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.at(-1) === 'apply')).toBe(true);
   });
 

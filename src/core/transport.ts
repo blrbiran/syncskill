@@ -395,7 +395,7 @@ export async function deployReceiver(
   // with a bare `No such file or directory`.
   const root = remoteRoot(server);
   try {
-    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `mkdir -p ${quoteRemotePath(root)} ${quoteRemotePath(remoteSkillsDir(server))}`]));
+    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', shellQuote(`mkdir -p ${quoteRemotePath(root)} ${quoteRemotePath(remoteSkillsDir(server))}`)]));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     // A transport failure is not a writability fact. Exit 255 is ssh's own failure (unreachable
@@ -418,10 +418,10 @@ export async function deployReceiver(
     // Issue 422: the bootstrap script takes the root as its first argument instead of assuming
     // `$HOME/.syncskill`, so it checks write access on the root that is actually in use.
     await runtime.exec('ssh', buildSshArgs(server, ['sh', '-s', '--', quoteRemotePath(root)]), { stdin: bootstrap });
-    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${quoteRemotePath(remoteReceiver(server))}`]), { stdin: receiver });
+    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', shellQuote(`cat > ${quoteRemotePath(remoteReceiver(server))}`)]), { stdin: receiver });
   }
 
-  await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', `cat > ${quoteRemotePath(remoteConfigPath(server))}`]), {
+  await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', shellQuote(`cat > ${quoteRemotePath(remoteConfigPath(server))}`)]), {
     stdin: `${JSON.stringify(receiverConfig, null, 2)}\n`
   });
 }
@@ -550,7 +550,7 @@ async function inspectRemotePath(
   const result = await runtime.exec('ssh', buildSshArgs(server, [
     'sh',
     '-lc',
-    `if [ -L ${quotedPath} ]; then printf symlink; elif [ -d ${quotedPath} ]; then printf directory; elif [ -f ${quotedPath} ]; then printf file; elif [ -e ${quotedPath} ]; then printf other; else printf missing; fi`
+    shellQuote(`if [ -L ${quotedPath} ]; then printf symlink; elif [ -d ${quotedPath} ]; then printf directory; elif [ -f ${quotedPath} ]; then printf file; elif [ -e ${quotedPath} ]; then printf other; else printf missing; fi`)
   ]));
 
   const type = result.stdout.trim();
@@ -625,7 +625,7 @@ export async function takeOverRemoteSkill(
       await runtime.exec('ssh', buildSshArgs(server, [
         'sh',
         '-lc',
-        `rm -rf ${quoteRemotePath(remotePath)} && ln -s ${quoteRemotePath(`${remoteSkillsDir(server)}/${skill}`)} ${quoteRemotePath(remotePath)}`
+        shellQuote(`rm -rf ${quoteRemotePath(remotePath)} && ln -s ${quoteRemotePath(`${remoteSkillsDir(server)}/${skill}`)} ${quoteRemotePath(remotePath)}`)
       ]));
     }
 

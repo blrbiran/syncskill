@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -10,16 +11,30 @@ import {
   listRemoteSkills,
   pullSkillDirectory,
   pushSkillDirectory,
+  refreshRemoteManifestFromServer,
   scanRemoteAgents,
+  takeOverRemoteSkill,
   type TransportRuntime
 } from '../../src/core/transport.js';
 
-function createRuntime(): TransportRuntime & { calls: Array<{ file: string; args: string[]; stdin?: string }> } {
+import { createEmptyManifest } from '../../src/core/manifest.js';
+
+function createRuntime(remoteHome?: string): TransportRuntime & { calls: Array<{ file: string; args: string[]; stdin?: string }> } {
   const calls: Array<{ file: string; args: string[]; stdin?: string }> = [];
   return {
     calls,
     async exec(file, args, options = {}) {
       calls.push({ file, args, stdin: typeof options.stdin === 'string' ? options.stdin : undefined });
+      const scriptIndex = args.indexOf('-lc');
+      if (remoteHome && file === 'ssh' && scriptIndex !== -1) {
+        const command = args.slice(scriptIndex - 1).join(' ');
+        // OpenSSH joins remote argv with spaces before the remote shell parses it.
+        const result = spawnSync('/bin/sh', ['-c', command], {
+          cwd: remoteHome, encoding: 'utf8', input: options.stdin ?? ''
+        });
+        if (result.status !== 0) throw new Error(result.stderr);
+        return { stdout: result.stdout, stderr: result.stderr };
+      }
       if (file === 'ssh' && args.at(-1) === 'manifest') {
         return { stdout: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00.000Z', skills: {} }), stderr: '' };
       }
@@ -145,17 +160,49 @@ describe('server transport configuration', () => {
     expect(rsync.args.at(-1)).toContain('"$HOME/.syncskill/skills/.welcome.staging-');
   });
 
-  it('creates a non-default remote root before deploying the receiver (issue 422)', async () => {
-    const runtime = createRuntime();
-    const server = { name: 'alpha', host: 'alpha.example.com', remote_repo: '/srv/My Skills', remote_agents: {} };
+  it('refresh creates a non-default remote root and uploads both files after SSH shell parsing', async () => {
+    const remoteHome = await mkdtemp(join(tmpdir(), 'syncskill-remote-shell-'));
+    tempDirs.push(remoteHome);
+    const root = join(remoteHome, "My Skill's Root");
+    const runtime = createRuntime(remoteHome);
+    const server = { name: 'alpha', host: 'alpha.example.com', remote_repo: root, remote_agents: {} };
+    const updatedAt = '2026-05-01T00:00:00.000Z';
 
-    await deployReceiver(server, runtime);
+    await refreshRemoteManifestFromServer(server, runtime, createEmptyManifest(server.name, updatedAt), updatedAt);
 
-    const calls = runtime.calls.map((call) => call.args.join(' '));
-    expect(calls.some((call) => call.includes('mkdir -p "/srv/My Skills" "/srv/My Skills/skills"'))).toBe(true);
-    expect(runtime.calls.some((call) => call.args.join(' ').endsWith('sh -s -- "/srv/My Skills"'))).toBe(true);
-    expect(calls.some((call) => call.includes('cat > "/srv/My Skills/sync_receiver.mjs"'))).toBe(true);
-    expect(calls.some((call) => call.includes('cat > "/srv/My Skills/receiver_config.json"'))).toBe(true);
+    await expect(readFile(join(root, 'sync_receiver.mjs'), 'utf8')).resolves.toBe(
+      await readFile(new URL('../../src/receiver/sync_receiver.mjs', import.meta.url), 'utf8')
+    );
+    await expect(readFile(join(root, 'receiver_config.json'), 'utf8')).resolves.toBe('{\n  "remote_agents": {}\n}\n');
+    expect((await stat(join(root, 'skills'))).isDirectory()).toBe(true);
+    expect(runtime.calls.some((call) => call.args.slice(-4).join(' ') === `sh -s -- "${root}"`)).toBe(true);
+  });
+
+  it('distinguishes symlink, directory, file, and missing paths after SSH shell parsing', async () => {
+    const remoteHome = await mkdtemp(join(tmpdir(), 'syncskill-remote-shell-'));
+    tempDirs.push(remoteHome);
+    const root = join(remoteHome, 'remote root');
+    const runtime = createRuntime(remoteHome);
+    const remote_agents = Object.fromEntries(['directory', 'file', 'missing', 'symlink'].map(
+      (type) => [type, join(remoteHome, `${type} agent`)]
+    ));
+    const server = { name: 'alpha', host: 'alpha.example.com', remote_repo: root, remote_agents };
+    const skillDir = join(root, 'skills', 'welcome');
+    await mkdir(skillDir, { recursive: true });
+    await mkdir(join(remote_agents.directory, 'welcome'), { recursive: true });
+    await mkdir(remote_agents.file);
+    await writeFile(join(remote_agents.file, 'welcome'), 'file');
+    await mkdir(remote_agents.symlink);
+    await symlink(skillDir, join(remote_agents.symlink, 'welcome'));
+
+    const result = await takeOverRemoteSkill(server, 'welcome', { dryRun: true, runtime });
+
+    expect(result.takeovers.map(({ agent, remote_type }) => [agent, remote_type])).toEqual([
+      ['directory', 'directory'], ['file', 'file']
+    ]);
+    expect(result.skipped.map(({ agent, reason }) => [agent, reason])).toEqual([
+      ['missing', 'not present'], ['symlink', 'already symlink']
+    ]);
   });
 
   it('names the remote root when it cannot be created (issue 422)', async () => {
