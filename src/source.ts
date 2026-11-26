@@ -431,6 +431,9 @@ export async function addSource(homeDir = homedir(), name: string, source: Sourc
 export interface SourceListEntry extends SourceEntry {
   skills: string[];
   ignored: string[];
+  /** Tester #511: read live from the source's directory; true when the scan was incomplete, so `skills: []` means
+   *  "could not read", not "empty". */
+  unreadable?: boolean;
 }
 
 export async function listSourcesWithDetails(homeDir = homedir()): Promise<SourceListEntry[]> {
@@ -441,12 +444,16 @@ export async function listSourcesWithDetails(homeDir = homedir()): Promise<Sourc
 
   return Promise.all(sources.map(async (source) => {
     const sourceState = await loadSourceState(homeDir, source.name);
-    const ignoredSet = new Set(getConfiguredIgnoredSkills(config.sources[source.name]));
-    const materializedSkills = sourceState?.materialized_skills ?? [];
+    // Tester #511: `materialized_skills` is written only by update/materialize, so a local source that was never
+    // updated listed nothing while doctor (a live scan) knew its skills. The list is the union: what the source state
+    // recorded and what its directory holds now.
+    const scan = await scanSourceSkills(homeDir, source.name, config.sources[source.name]);
+    const ignoredSet = new Set([...getConfiguredIgnoredSkills(config.sources[source.name]), ...scan.ignored]);
+    const names = new Set([...(sourceState?.materialized_skills ?? []), ...scan.skills]);
     const skills: string[] = [];
-    const ignored: string[] = [];
+    const ignored: string[] = [...scan.ignored];
 
-    for (const skillName of materializedSkills) {
+    for (const skillName of names) {
       if (ignoredSet.has(skillName)) {
         ignored.push(skillName);
       } else {
@@ -457,7 +464,8 @@ export async function listSourcesWithDetails(homeDir = homedir()): Promise<Sourc
     return {
       ...source,
       skills: skills.sort(),
-      ignored: ignored.sort()
+      ignored: [...new Set(ignored)].sort(),
+      ...(scan.unreadable ? { unreadable: true } : {})
     };
   }));
 }
@@ -2522,6 +2530,39 @@ export function parseGitHubUrl(url: string): GitHubUrlParsed | null {
   }
 
   return null;
+}
+
+/** Tester #511: one source's skills, read live from its materialized root (the same scan doctor uses). */
+export async function scanSourceSkills(
+  homeDir: string,
+  name: string,
+  sourceDef: unknown
+): Promise<{ skills: string[]; ignored: string[]; unreadable: boolean }> {
+  const sourceEntry = normalizeSourceEntry(name, sourceDef, homeDir)[0];
+  if (!sourceEntry) {
+    return { skills: [], ignored: [], unreadable: true };
+  }
+
+  try {
+    const materializedRoot = getMaterializedRootPath(homeDir, name, sourceEntry);
+    if (!(await pathExists(materializedRoot))) {
+      return { skills: [], ignored: [], unreadable: true };
+    }
+
+    const ignoredNames = new Set(getConfiguredIgnoredSkills(sourceDef));
+    let incomplete = false;
+    const discovered = await discoverMaterializedSkillEntries(name, sourceEntry, materializedRoot, () => {
+      incomplete = true;
+    });
+    const skills: string[] = [];
+    const ignored: string[] = [];
+    for (const skill of discovered) {
+      (ignoredNames.has(skill.name) ? ignored : skills).push(skill.name);
+    }
+    return { skills: [...new Set(skills)].sort(), ignored: [...new Set(ignored)].sort(), unreadable: incomplete };
+  } catch {
+    return { skills: [], ignored: [], unreadable: true };
+  }
 }
 
 export async function discoverActiveSourceSkillNames(
