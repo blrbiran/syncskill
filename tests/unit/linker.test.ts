@@ -233,7 +233,8 @@ describe('linker', () => {
 
     const statuses = await collectLinkStatus(homeDir);
 
-    expect(statuses).toEqual([{ skill: 'broken-skill', agent: 'claude', state: 'broken' }]);
+    // Tester #510: doctor tells the two kinds apart; the matrix still shows both as broken.
+    expect(statuses).toEqual([{ skill: 'broken-skill', agent: 'claude', state: 'broken', brokenReason: 'dangling' }]);
   });
 
   it('distinguishes unconfigured cells from configured-but-missing cells', async () => {

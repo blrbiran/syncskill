@@ -31,6 +31,11 @@ export interface LinkStatus {
   agent: string;
   state: 'linked' | 'missing' | 'copied' | 'broken' | 'unconfigured' | 'failed';
   error?: string;
+  /** Tester #510: a broken symlink is either dangling (its target is gone) or unmanaged (the target exists but is not
+   *  one this tool owns). Doctor reports them apart; `link list` still shows both as broken. */
+  brokenReason?: 'dangling' | 'unmanaged';
+  /** The link's target path, for the doctor's message (never printed by the matrix). */
+  target?: string;
 }
 
 const STATUS_SYMBOLS: Record<LinkStatus['state'], string> = {
@@ -135,9 +140,15 @@ export function formatLinkStatusMatrix(statuses: LinkStatus[], verbose: boolean,
 export async function listLocalSkills(homeDir: string): Promise<string[]> {
   const { skillsDir } = getSyncPaths(homeDir);
 
-  await mkdir(skillsDir, { recursive: true });
-
-  const entries = await readdir(skillsDir, { withFileTypes: true });
+  // Tester #510/#474: a lister must not create the directory -- doctor reads the links on disk now, and `status`/`doctor`
+  // are read-only commands; creating ~/.syncskill/skills here made a read-only command write.
+  let entries;
+  try {
+    entries = await readdir(skillsDir, { withFileTypes: true });
+  } catch (error) {
+    if (isNotFoundError(error)) return [];
+    throw error;
+  }
 
   return entries
     .filter((entry) => entry.isDirectory())
@@ -532,8 +543,8 @@ export async function unlinkSkillFromAgent(
   }
 }
 
-export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> {
-  const config = await loadConfig(homeDir);
+export async function collectLinkStatus(homeDir: string, configOverride?: SyncSkillConfig): Promise<LinkStatus[]> {
+  const config = configOverride ?? await loadConfig(homeDir);
   const results: LinkStatus[] = [];
   const localSkills = await listLocalSkills(homeDir);
   const sourceSkills = [...await discoverActiveSourceSkillNames(homeDir, config.sources)];
@@ -558,14 +569,15 @@ export async function collectLinkStatus(homeDir: string): Promise<LinkStatus[]> 
 
         if (lstats.isSymbolicLink()) {
           try {
+            const target = await readlink(targetDir);
             await stat(targetDir);
             if (await isManagedSkillLink(homeDir, skill, targetDir)) {
               results.push({ skill, agent, state: 'linked' });
             } else {
-              results.push({ skill, agent, state: 'broken' });
+              results.push({ skill, agent, state: 'broken', brokenReason: 'unmanaged', target });
             }
           } catch {
-            results.push({ skill, agent, state: 'broken' });
+            results.push({ skill, agent, state: 'broken', brokenReason: 'dangling' });
           }
         } else {
           results.push({ skill, agent, state: 'copied' });

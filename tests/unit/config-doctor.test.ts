@@ -10,6 +10,7 @@ import {
   type DiagnosticReport,
   type RepairOptions,
   DiagnosticCode,
+  checkLinkTargets,
   checkAgentPaths,
   checkSkillReferences,
   checkAgentReferences,
@@ -31,6 +32,52 @@ describe('DiagnosticCode', () => {
     expect(DiagnosticCode.SOURCE_PATH_INVALID).toBe('SOURCE_PATH_INVALID');
     expect(DiagnosticCode.REGISTRY_CORRUPT).toBe('REGISTRY_CORRUPT');
     expect(DiagnosticCode.SKILL_NAME_INVALID).toBe('SKILL_NAME_INVALID');
+    expect(DiagnosticCode.LINK_DANGLING).toBe('LINK_DANGLING');
+    expect(DiagnosticCode.LINK_UNMANAGED).toBe('LINK_UNMANAGED');
+  });
+});
+
+describe('checkLinkTargets (#510)', () => {
+  const testDir = join(tmpdir(), `config-doctor-links-${Date.now()}`);
+  const syncDir = join(testDir, '.syncskill');
+  const agentDir = join(testDir, '.claude', 'skills');
+
+  beforeEach(async () => {
+    await mkdir(agentDir, { recursive: true });
+    await mkdir(syncDir, { recursive: true });
+    await writeFile(join(syncDir, 'config.json'), JSON.stringify({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: { dead: ['claude'], other: ['claude'] },
+      servers: {},
+      sources: {}
+    }));
+  });
+
+  afterEach(async () => {
+    await rm(testDir, { recursive: true, force: true });
+  });
+
+  it('reports a dangling link as an error and an unmanaged one as a warning', async () => {
+    await symlink(join(testDir, 'gone'), join(agentDir, 'dead'));
+    const elsewhere = join(testDir, 'elsewhere');
+    await mkdir(elsewhere, { recursive: true });
+    await symlink(elsewhere, join(agentDir, 'other'));
+
+    const items = await checkLinkTargets(testDir);
+
+    // mutation: read only the config (drop checkLinkTargets from diagnoseConfig) -> both absent, red
+    expect(items).toContainEqual(expect.objectContaining({ code: DiagnosticCode.LINK_DANGLING, severity: 'error', path: 'agents.claude/dead' }));
+    expect(items).toContainEqual(expect.objectContaining({ code: DiagnosticCode.LINK_UNMANAGED, severity: 'warning', path: 'agents.claude/other' }));
+  });
+
+  it('makes the config unhealthy and recommends the link command, not only the config entry', async () => {
+    await symlink(join(testDir, 'gone'), join(agentDir, 'dead'));
+    const report = await diagnoseConfig({ version: 1, conflict_resolution: 'manual', agents: { claude: agentDir }, links: { dead: ['claude'], other: ['claude'] }, servers: {}, sources: {} } as never, join(testDir, '.syncskill', 'skills'), testDir);
+    const dangling = report.errors.find((item) => item.code === DiagnosticCode.LINK_DANGLING)!;
+    expect(report.isHealthy).toBe(false);
+    expect(dangling.suggestion).toContain('syncskill link clear dead');
   });
 });
 

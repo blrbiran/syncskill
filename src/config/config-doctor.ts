@@ -146,7 +146,11 @@ export const DiagnosticCode = {
   SOURCE_PATH_INVALID: 'SOURCE_PATH_INVALID',
   SOURCE_UNREADABLE: 'SOURCE_UNREADABLE',
   REGISTRY_CORRUPT: 'REGISTRY_CORRUPT',
-  SKILL_NAME_INVALID: 'SKILL_NAME_INVALID'
+  SKILL_NAME_INVALID: 'SKILL_NAME_INVALID',
+  /** Tester #510: the links on disk, not only the config. A dangling target is an error; an existing but unmanaged
+   *  target is a warning (the skill may have been linked by hand). */
+  LINK_DANGLING: 'LINK_DANGLING',
+  LINK_UNMANAGED: 'LINK_UNMANAGED'
 } as const;
 
 export type DiagnosticCodeType = (typeof DiagnosticCode)[keyof typeof DiagnosticCode];
@@ -345,6 +349,38 @@ export async function checkRegistryHealth(
   return checkRegistryIntegrity(homeDir, config);
 }
 
+/**
+ * Tester #510: doctor used to read only the config, while `link list` reads the disk -- so 5 symlinks pointing at deleted
+ * directories were reported healthy. The same `collectLinkStatus` the list uses is the one fact this reads; a dangling
+ * target is an error (a new session sees a skill that cannot be read), an unmanaged target a warning.
+ */
+export async function checkLinkTargets(homeDir: string, config: SyncSkillConfig): Promise<DiagnosticItem[]> {
+  const { collectLinkStatus } = await import('../linker.js');
+  const items: DiagnosticItem[] = [];
+  for (const link of await collectLinkStatus(homeDir, config)) {
+    if (link.state !== 'broken') continue;
+    const path = `agents.${link.agent}/${link.skill}`;
+    if (link.brokenReason === 'dangling') {
+      items.push({
+        code: DiagnosticCode.LINK_DANGLING,
+        severity: 'error',
+        message: `Skill link "${link.skill}" for agent "${link.agent}" points at a target that does not exist${link.target ? `: ${link.target}` : ''}`,
+        path,
+        suggestion: `Remove the dangling link: syncskill link clear ${link.skill} (or rebuild it with syncskill link build)`
+      });
+    } else {
+      items.push({
+        code: DiagnosticCode.LINK_UNMANAGED,
+        severity: 'warning',
+        message: `Skill link "${link.skill}" for agent "${link.agent}" points outside the managed skills${link.target ? `: ${link.target}` : ''}`,
+        path,
+        suggestion: `Re-link it with syncskill link build, or remove it with syncskill link clear ${link.skill}`
+      });
+    }
+  }
+  return items;
+}
+
 export async function diagnoseConfig(
   config: SyncSkillConfig,
   skillsDir: string,
@@ -355,6 +391,14 @@ export async function diagnoseConfig(
 
   const agentItems = await checkAgentPaths(config.agents, homeDir);
   for (const item of agentItems) {
+    if (item.severity === 'error') {
+      errors.push(item);
+    } else {
+      warnings.push(item);
+    }
+  }
+
+  for (const item of await checkLinkTargets(homeDir, config)) {
     if (item.severity === 'error') {
       errors.push(item);
     } else {

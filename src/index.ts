@@ -3676,6 +3676,7 @@ export function createProgram(homeDir?: string): Command {
         || item.code === DiagnosticCode.AGENT_NOT_CONFIGURED
         || item.code === DiagnosticCode.AGENT_PATH_INVALID
         || item.code === DiagnosticCode.SOURCE_PATH_INVALID
+        || item.code === DiagnosticCode.LINK_DANGLING
       );
       const manualItems = allItems.filter((item) => !autoFixableItems.includes(item));
 
@@ -3725,7 +3726,21 @@ export function createProgram(homeDir?: string): Command {
         })());
 
         if (shouldFix) {
-          if (isRegistryDiagnostic(item.code)) {
+          if (item.code === DiagnosticCode.LINK_DANGLING) {
+            // Tester #510: the config entry alone does not remove the symlink; drop both, so a later `link build` can
+            // recreate the link if the skill comes back.
+            if (!options.dryRun) {
+              const match = /^agents\.([^/]+)\/(.+)$/.exec(item.path);
+              if (match !== null) {
+                await unlinkSkillFromAgent(resolvedHomeDir, match[2], match[1]);
+                if (config.links[match[2]] !== undefined) {
+                  config.links[match[2]] = config.links[match[2]].filter((agent) => agent !== match[1]);
+                  if (config.links[match[2]].length === 0) delete config.links[match[2]];
+                  configChanged = true;
+                }
+              }
+            }
+          } else if (isRegistryDiagnostic(item.code)) {
             // Handle registry repairs
             if (!options.dryRun) {
               await repairRegistry(
