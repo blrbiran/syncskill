@@ -24,6 +24,8 @@ export interface SyncSkillConfig {
   sources: Record<string, unknown>;
   private_agents: string[];
   pull_backup?: boolean;
+  /** Tester #490: the ssh defaults carried over from `syncskills`; a server's own value wins. */
+  ssh_defaults?: { port?: number; identity_file?: string };
 }
 
 export interface ConfiguredServer {

@@ -288,12 +288,18 @@ export function getConfiguredServer(config: SyncSkillConfig, name: string): Conf
     throw new Error(`Server config is invalid: ${name}`);
   }
 
+  // Tester #490: `ssh_defaults` is the machine-wide ssh setting a config migrated from syncskills carries; a server's
+  // own port / identity_file overrides it. It used to be read by nothing.
+  const defaults = isRecord(config.ssh_defaults) ? config.ssh_defaults : {};
+  const port = typeof raw.port === 'number' ? raw.port : typeof defaults.port === 'number' ? defaults.port : undefined;
+  const identityFile = typeof raw.identity_file === 'string' ? raw.identity_file
+    : typeof defaults.identity_file === 'string' ? defaults.identity_file : undefined;
   return {
     name,
     host: raw.host,
     ...(typeof raw.user === 'string' ? { user: raw.user } : {}),
-    ...(typeof raw.port === 'number' ? { port: raw.port } : {}),
-    ...(typeof raw.identity_file === 'string' ? { identity_file: raw.identity_file } : {}),
+    ...(port === undefined ? {} : { port }),
+    ...(identityFile === undefined ? {} : { identity_file: identityFile }),
     ...(typeof raw.remote_repo === 'string' ? { remote_repo: raw.remote_repo } : {}),
     ...(typeof raw.node_bin === 'string' ? { node_bin: raw.node_bin } : {}),
     ...(typeof raw.connect_timeout_ms === 'number' ? { connect_timeout_ms: raw.connect_timeout_ms } : {}),

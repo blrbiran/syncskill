@@ -129,7 +129,7 @@ export interface PushResult {
 }
 
 export interface PushWarning {
-  code: 'no-skills-configured' | 'included-not-local' | 'remote-state-unknown';
+  code: 'no-skills-configured' | 'included-not-local' | 'remote-state-unknown' | 'direction-pull';
   detail: string;
 }
 
@@ -509,12 +509,19 @@ async function pushToServer(
     const includeState = includeStateOf(config, serverName);
     const preserveRemoteSkills = includeState.kind === 'unset';
     const pushSet = includeState.kind === 'list' ? includeState.skills : includeState.kind === 'unset' ? null : new Set<string>();
-    const included = (skill: string): boolean => pushSet === null || pushSet.has(skill);
+    const direction = directionOf(config, serverName);
+    const directionSkipped = new Set<string>();
+    const included = (skill: string): boolean => {
+      const inSet = pushSet === null || pushSet.has(skill);
+      if (inSet && direction(skill) === 'pull') directionSkipped.add(skill);
+      return inSet && direction(skill) !== 'pull';
+    };
     const includeWarnings: PushWarning[] = includeState.kind === 'empty'
       ? [{ code: 'no-skills-configured', detail: 'this server\'s skills.include is empty; nothing is carried to it (and that alone deletes nothing)' }]
       : includeState.kind === 'unset'
         ? [{ code: 'no-skills-configured', detail: 'skills.include is not set and no links are configured. Local skills can still be uploaded. Push will not remove remote skills.' }]
         : [];
+    if (directionSkipped.size > 0) includeWarnings.push(...[...directionSkipped].sort().map((skill) => ({ code: 'direction-pull' as const, detail: skill })));
     let receiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
     if (receiverBackup) {
       const mergedBackup = mergeConfiguredLinksIntoReceiverBackup(
@@ -593,7 +600,7 @@ async function pushToServer(
     if (options.dryRun) {
       // Tester #449: the cleanup below deletes remote skills, and this branch used to return before it ran, so a plan
       // that would remove half the remote skills printed `(no changes)`. The orphan set is computed here the same way.
-      const wouldDelete = orphansForCleanup(remoteSkillListForCleanup ?? await listRemoteSkills(server, runtime), manifest, included, includeState, includeWarnings);
+      const wouldDelete = orphansForCleanup(remoteSkillListForCleanup ?? await listRemoteSkills(server, runtime), manifest, included, includeState, includeWarnings, (skill) => direction(skill) === 'pull');
       // Tester #477: the plan is the result. The human lines below and the --json summary are both rendered from it, so
       // they cannot disagree: planned pushes (content), and ONE deletion set -- skills deleted locally (manifest) and
       // remote skills no longer in local config (orphans), deduplicated.
@@ -632,7 +639,7 @@ async function pushToServer(
 
     // Remote skills not in local config. Tester #449: an explicitly empty include authorises no deletion -- it says the
     // server carries no skills, not that whatever is on it should be destroyed.
-    const orphanSkills = orphansForCleanup(remoteSkillsForCleanup, manifest, included, includeState, includeWarnings);
+    const orphanSkills = orphansForCleanup(remoteSkillsForCleanup, manifest, included, includeState, includeWarnings, (skill) => direction(skill) === 'pull');
     let deletedSkills: string[] = [];
 
     if (orphanSkills.length > 0 && !options.dryRun) {
@@ -716,8 +723,14 @@ async function pullFromServerWork(homeDir: string, serverName: string, options: 
   const skippedCrossServerSkills = new Set(options.skipPullSkillsByServer?.[serverName] ?? []);
   const skippedConflictSkills = options.onConflict === 'skip' ? conflictedSkills : [];
   const reportedConflicts = options.onConflict === 'skip' ? [] : conflictedSkills;
+  const direction = directionOf(config, serverName);
+  const directionSkipped = new Set<string>();
   const pulledSkillsForExecution = listSkillsByDirection(manifest, 'pull').filter(
-    (skill) => !skippedCrossServerSkills.has(skill) && !skippedConflictSkills.includes(skill)
+    (skill) => {
+      const selected = !skippedCrossServerSkills.has(skill) && !skippedConflictSkills.includes(skill);
+      if (selected && direction(skill) === 'push') directionSkipped.add(skill);
+      return selected && direction(skill) !== 'push';
+    }
   );
   const remoteDeletionCandidates = pulledSkillsForExecution.filter((skill) => isRemoteDeletionState(manifest.skills[skill]));
   const pulledContentSkills = pulledSkillsForExecution.filter((skill) => !remoteDeletionCandidates.includes(skill));
@@ -728,7 +741,8 @@ async function pullFromServerWork(homeDir: string, serverName: string, options: 
   );
   const skippedResultSkills = uniqueSorted([
     ...[...skippedCrossServerSkills],
-    ...skippedConflictSkills
+    ...skippedConflictSkills,
+    ...[...directionSkipped]
   ]);
 
   if (options.dryRun) {
@@ -1243,7 +1257,7 @@ function getIncludedServerSkills(config: SyncSkillConfig, serverName: string): s
  * "absent" is not "empty"). `null` means no limit.
  */
 /** Tester #449: the remote skills a push would remove -- ONE computation for the dry run and the real cleanup. */
-function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, included: (skill: string) => boolean, includeState: IncludeState, warnings: PushWarning[] = []): string[] {
+function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, included: (skill: string) => boolean, includeState: IncludeState, warnings: PushWarning[] = [], keep: (skill: string) => boolean = () => false): string[] {
   // Tester #480: `unset` means "no subset was ever named", so it authorises nothing remotely -- it must not read as
   // "delete everything", which was the legacy behaviour and destroyed a remote that never had a local counterpart.
   if (includeState.kind === 'empty' || includeState.kind === 'unset') return [];
@@ -1251,6 +1265,8 @@ function orphansForCleanup(remoteSkills: string[], manifest: ServerManifest, inc
     Object.keys(manifest.skills).filter((skill) => manifest.skills[skill]?.local_hash !== null && included(skill))
   );
   return remoteSkills.filter((skill) => {
+    // Tester #490: a skill this server pulls is not a push orphan -- removing it would destroy the only copy.
+    if (keep(skill)) return false;
     if (localSkillSet.has(skill)) return false;
     // Tester #472: a skill the include list names that this machine has no content for is deleted only when the manifest recorded it as
     // synced (a local deletion to carry); on a fresh machine or a wrong --sync-dir it is kept and named.
@@ -1274,6 +1290,23 @@ function includeStateOf(config: SyncSkillConfig, serverName: string): IncludeSta
   }
   const linkNames = Object.keys(config.links);
   return linkNames.length > 0 ? { kind: 'list', skills: new Set(linkNames) } : { kind: 'unset' };
+}
+
+/**
+ * Tester #490: `servers.<name>.directions` from a migrated syncskills config -- a skill pinned `pull` is never pushed
+ * (and never removed remotely); one pinned `push` is never pulled. A server's own port/identity and these directions used
+ * to be read by nothing, so a pull-only skill was silently pushed.
+ */
+export function directionOf(config: SyncSkillConfig, serverName: string): (skill: string) => 'push' | 'pull' | 'both' {
+  const raw = (config.servers[serverName] as { directions?: Record<string, unknown> } | undefined)?.directions;
+  // Absent `directions` is the old behaviour: both directions. A declared `default` applies to every skill that does
+  // not name its own.
+  if (raw === undefined || raw === null || typeof raw !== 'object') return () => 'both';
+  const fallback = raw.default === 'pull' || raw.default === 'push' ? raw.default : 'both';
+  return (skill) => {
+    const value = raw[skill];
+    return value === 'pull' || value === 'push' ? value : fallback;
+  };
 }
 
 function pushSetOf(config: SyncSkillConfig, serverName: string): Set<string> | null {
