@@ -1,10 +1,21 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { access, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+
+export function enforceNodeVersion(version, options = {}) {
+  const major = Number(/^v?(\d+)(?:\.|$)/.exec(version)?.[1]);
+  if (Number.isInteger(major) && major >= 18) return true;
+
+  const message = `E_RECEIVER_NODE_TOO_OLD: receiver requires Node.js 18 or newer; found ${version}\n`;
+  (options.write ?? ((value) => process.stderr.write(value)))(message);
+  (options.exit ?? ((code) => process.exit(code)))(8);
+  return false;
+}
 
 // The receiver is always deployed at `<remote_repo>/sync_receiver.mjs`, so its own location is the
 // root that is actually in use. Issue #422: hardcoding `$HOME/.syncskill` made a non-default
@@ -712,32 +723,40 @@ async function applyLinks(preserveRemoteSkills) {
   process.stdout.write(`${JSON.stringify(finalizedManifest)}\n`);
 }
 
-const [command, arg, arg2] = process.argv.slice(2);
+async function main() {
+  if (!enforceNodeVersion(process.versions.node)) return;
 
-if (command === 'manifest') {
-  process.stdout.write(`${JSON.stringify(await readManifest())}\n`);
-} else if (command === 'write-manifest') {
-  await writeManifestFromStdin();
-} else if (command === 'import-skill' && typeof arg === 'string') {
-  await importSkill(arg);
-} else if (command === 'promote-skill' && typeof arg === 'string' && typeof arg2 === 'string') {
-  await promoteSkill(arg, arg2);
-} else if (command === 'remove-staging' && typeof arg === 'string') {
-  await removeStaging(arg);
-} else if (command === 'prune-staging') {
-  await pruneStaging(process.argv.slice(3));
-} else if (command === 'recover-backup') {
-  await recoverBackup(process.argv.slice(3));
-} else if (command === 'export-skill' && typeof arg === 'string') {
-  await exportSkill(arg);
-} else if (command === 'scan-skills') {
-  await scanSkills();
-} else if (command === 'scan-agents') {
-  await scanAgents();
-} else if (command === 'probe-access') {
-  await probeAccess();
-} else if (command === 'apply' || command === 'apply-preserving-skills') {
-  await applyLinks(command === 'apply-preserving-skills');
-} else {
-  throw new Error(`Unsupported receiver command: ${command ?? ''}`.trim());
+  const [command, arg, arg2] = process.argv.slice(2);
+
+  if (command === 'manifest') {
+    process.stdout.write(`${JSON.stringify(await readManifest())}\n`);
+  } else if (command === 'write-manifest') {
+    await writeManifestFromStdin();
+  } else if (command === 'import-skill' && typeof arg === 'string') {
+    await importSkill(arg);
+  } else if (command === 'promote-skill' && typeof arg === 'string' && typeof arg2 === 'string') {
+    await promoteSkill(arg, arg2);
+  } else if (command === 'remove-staging' && typeof arg === 'string') {
+    await removeStaging(arg);
+  } else if (command === 'prune-staging') {
+    await pruneStaging(process.argv.slice(3));
+  } else if (command === 'recover-backup') {
+    await recoverBackup(process.argv.slice(3));
+  } else if (command === 'export-skill' && typeof arg === 'string') {
+    await exportSkill(arg);
+  } else if (command === 'scan-skills') {
+    await scanSkills();
+  } else if (command === 'scan-agents') {
+    await scanAgents();
+  } else if (command === 'probe-access') {
+    await probeAccess();
+  } else if (command === 'apply' || command === 'apply-preserving-skills') {
+    await applyLinks(command === 'apply-preserving-skills');
+  } else {
+    throw new Error(`Unsupported receiver command: ${command ?? ''}`.trim());
+  }
+}
+
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+  await main();
 }

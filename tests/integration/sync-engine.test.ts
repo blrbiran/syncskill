@@ -9,7 +9,7 @@ import { useTempDirs } from '../helpers/temp-dir.js';
 
 import { saveConfig, setSyncDirOverride } from '../../src/config/config.js';
 import { loadManifestHistory, loadServerManifest, saveServerManifest, type ManifestSkillState } from '../../src/core/manifest.js';
-import { saveReceiverBackup } from '../../src/core/server.js';
+import { loadReceiverBackup, saveReceiverBackup } from '../../src/core/server.js';
 import { pullFromServer, pushToServers } from '../../src/core/sync_engine.js';
 import { type TransportRuntime } from '../../src/core/transport.js';
 
@@ -87,6 +87,108 @@ describe('sync engine orchestration', () => {
     });
 
     expect(results.map((result) => result.server)).toEqual(['beta', 'alpha']);
+  });
+
+  it('first push materializes configured per-skill links without a receiver backup', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: {
+          alpha: ['codex'],
+          beta: ['claude']
+        },
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            remote_agents: {
+              codex: '/srv/codex',
+              claude: '/srv/claude'
+            }
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    for (const skill of ['alpha', 'beta']) {
+      const skillDir = join(homeDir, '.syncskill', 'skills', skill);
+      await mkdir(skillDir, { recursive: true });
+      await writeFile(join(skillDir, 'SKILL.md'), `# ${skill}\\n`, 'utf8');
+    }
+
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00.000Z', skills: {} })
+    });
+
+    await pushToServers(homeDir, ['alpha'], {
+      runtime,
+      now: '2026-05-01T01:00:00.000Z'
+    });
+
+    const receiverConfigCall = runtime.calls.filter((call) => call.file === 'ssh' && call.args.at(-1)?.includes('receiver_config.json')).at(-1);
+    expect(JSON.parse(receiverConfigCall?.stdin ?? 'null')).toEqual({
+      remote_agents: {
+        codex: '/srv/codex',
+        claude: '/srv/claude'
+      },
+      links: {
+        alpha: ['codex'],
+        beta: ['claude']
+      }
+    });
+    await expect(loadReceiverBackup(homeDir, 'alpha')).resolves.toMatchObject({
+      remote_agents: {
+        codex: '/srv/codex',
+        claude: '/srv/claude'
+      },
+      links: {
+        alpha: ['codex'],
+        beta: ['claude']
+      }
+    });
+  });
+
+  it('pushes using the migrated server agents path map', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+
+    await saveConfig(
+      {
+        version: 1,
+        conflict_resolution: 'manual',
+        agents: {},
+        links: { welcome: ['codex'] },
+        servers: {
+          alpha: {
+            host: 'alpha.example.com',
+            agents: { codex: '/srv/codex' }
+          }
+        },
+        sources: {}
+      },
+      homeDir
+    );
+
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'welcome');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# welcome\\n', 'utf8');
+    const runtime = createRuntime({
+      remoteManifest: JSON.stringify({ version: 1, server: 'alpha', updated_at: '2026-05-01T00:00:00.000Z', skills: {} })
+    });
+
+    await pushToServers(homeDir, ['alpha'], { runtime, now: '2026-05-01T01:00:00.000Z' });
+
+    const receiverConfigCall = runtime.calls.filter((call) => call.file === 'ssh' && call.args.at(-1)?.includes('receiver_config.json')).at(-1);
+    expect(JSON.parse(receiverConfigCall?.stdin ?? 'null')).toEqual({
+      remote_agents: { codex: '/srv/codex' },
+      links: { welcome: ['codex'] }
+    });
   });
 
   it('pushToServers uploads local-only changes, applies receiver links, and persists finalized manifest state', async () => {

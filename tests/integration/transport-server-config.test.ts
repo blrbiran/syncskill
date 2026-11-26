@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -86,6 +86,51 @@ describe('server transport configuration', () => {
     expect(call.args).toContain('BatchMode=yes');
     expect(call.args).toContain('ConnectTimeout=5');
     expect(call.args).not.toContain('node');
+  });
+
+  it('bootstraps with a configured node outside the remote PATH', async () => {
+    const remoteHome = await mkdtemp(join(tmpdir(), 'syncskill-bootstrap-node-'));
+    tempDirs.push(remoteHome);
+    const pathDir = join(remoteHome, 'path');
+    const nodeBin = join(remoteHome, 'nvm', 'bin', 'node');
+    const root = join(remoteHome, 'syncskill');
+    await mkdir(pathDir, { recursive: true });
+    await mkdir(join(remoteHome, 'nvm', 'bin'), { recursive: true });
+    await writeFile(nodeBin, `#!/bin/sh
+printf 'v22.0.0\\n'
+`, 'utf8');
+    await chmod(nodeBin, 0o755);
+    await symlink('/bin/mkdir', join(pathDir, 'mkdir'));
+    await symlink('/usr/bin/touch', join(pathDir, 'touch'));
+    await symlink('/bin/rm', join(pathDir, 'rm'));
+    const bootstrap = await readFile(new URL('../../src/receiver/bootstrap_remote.sh', import.meta.url), 'utf8');
+
+    const result = spawnSync('/bin/sh', ['-s', '--', root], {
+      cwd: remoteHome,
+      encoding: 'utf8',
+      env: { PATH: pathDir, SYNCSKILL_NODE_BIN: nodeBin },
+      input: bootstrap
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect((await stat(join(root, 'skills'))).isDirectory()).toBe(true);
+  });
+
+  it('passes the configured node_bin into the remote bootstrap', async () => {
+    const runtime = createRuntime();
+    const nodeBin = '/home/deploy/.nvm/versions/node/v22.23.4/bin/node';
+
+    await deployReceiver({
+      name: 'alpha',
+      host: 'alpha.example.com',
+      node_bin: nodeBin,
+      remote_agents: {}
+    }, runtime);
+
+    const bootstrapCall = runtime.calls.find((call) => call.file === 'ssh' && call.args.includes('-s'));
+    expect(bootstrapCall?.args.slice(bootstrapCall.args.indexOf('alpha.example.com') + 1).join(' ')).toBe(
+      'env SYNCSKILL_NODE_BIN=/home/deploy/.nvm/versions/node/v22.23.4/bin/node sh -s -- "$HOME/.syncskill"'
+    );
   });
 
   it('pull removes files the remote no longer has (issue 407)', async () => {

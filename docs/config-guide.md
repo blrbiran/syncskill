@@ -286,6 +286,7 @@ Each server entry supports:
 | `port` | No | SSH port (defaults to 22) |
 | `identity_file` | No | Path to SSH private key |
 | `remote_repo` | No | Remote syncskill repository path |
+| `node_bin` | No | Remote Node.js executable used for bootstrap checks and receiver commands; set its absolute path when nvm, fnm, or volta keeps Node off the non-interactive SSH `PATH` (Node.js 18+) |
 | `remote_agents` | No | Agent directory mappings on the remote server |
 | `skills.include` | No | Skills that should be active on this server when using the remote matrix editor |
 
@@ -300,6 +301,7 @@ Example:
       "port": 22,
       "identity_file": "~/.ssh/id_ed25519",
       "remote_repo": "/srv/syncskill",
+      "node_bin": "/home/alice/.nvm/versions/node/v22.23.4/bin/node",
       "remote_agents": {
         "claude": "/home/alice/.claude/skills",
         "qoder": "/home/alice/.qoder/skills"
@@ -308,6 +310,8 @@ Example:
   }
 }
 ```
+
+If remote Node.js is installed through nvm, fnm, or volta and is not on the non-interactive SSH `PATH`, set its absolute path with `syncskill remote add alpha --node-bin "$HOME/.nvm/versions/node/v22.23.4/bin/node"`. Bootstrap validates this same Node.js 18+ executable that later runs the receiver.
 
 Remote lifecycle notes:
 

@@ -359,6 +359,33 @@ describe('remote CLI', () => {
     });
   });
 
+  it('remote add stores node_bin and keeps it when later fields are merged', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-server-cli-'));
+    tempDirs.push(homeDir);
+    await saveConfig(
+      { version: 1, conflict_resolution: 'manual', agents: {}, links: {}, servers: {}, sources: {} },
+      homeDir
+    );
+
+    await createProgram(homeDir).parseAsync([
+      'node', 'syncskill', '--no-refresh', 'remote', 'add', 'alpha',
+      '--host', 'alpha.example.com', '--node-bin', '/opt/node/bin/node'
+    ], { from: 'node' });
+    await createProgram(homeDir).parseAsync([
+      'node', 'syncskill', '--no-refresh', 'remote', 'add', 'alpha', '--port', '2222'
+    ], { from: 'node' });
+
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({
+      servers: {
+        alpha: {
+          host: 'alpha.example.com',
+          port: 2222,
+          node_bin: '/opt/node/bin/node'
+        }
+      }
+    });
+  });
+
   // Tester #457: `remote add` rebuilt `config.servers[name]` from the flags it was given, so a call that changed one
   // field silently wiped every field it did not repeat -- including `skills.include`, which is what limits what a
   // later `--yes-destructive` push may delete.

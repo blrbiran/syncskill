@@ -72,6 +72,8 @@ describe('help output', () => {
 
     expect(stdout).toContain('--remote-repo <path>');
     expect(stdout).toContain('Remote syncskill repository path');
+    expect(stdout).toContain('--node-bin <path>');
+    expect(stdout).toContain('Remote Node.js executable');
   });
 
   it('pull help exposes current deletion/backup controls only through the public surface', async () => {

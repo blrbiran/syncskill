@@ -193,7 +193,7 @@ describe('transport', () => {
 
     expect(runtime.calls.map((call) => [call.file, ...call.args])).toEqual(
       expect.arrayContaining([
-        ['ssh', '-p', '2222', '-i', '/Users/demo/.ssh/id_syncskill', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'deploy@alpha.example.com', 'sh', '-s', '--', '"$HOME/.syncskill"'],
+        ['ssh', '-p', '2222', '-i', '/Users/demo/.ssh/id_syncskill', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', 'deploy@alpha.example.com', 'env', 'SYNCSKILL_NODE_BIN=node', 'sh', '-s', '--', '"$HOME/.syncskill"'],
         [
           'ssh',
           '-p',

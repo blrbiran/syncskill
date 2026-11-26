@@ -54,8 +54,7 @@ function remoteConfigPath(server: ConfiguredServer): string {
   return `${remoteRoot(server)}/receiver_config.json`;
 }
 
-/** Issue 408: nvm/fnm/volta installs are not on a non-login ssh PATH, so the receiver's interpreter is
- * configurable. There is no `remote add --node-bin`; set `servers.<name>.node_bin` in config.json. */
+/** Issue 408: nvm/fnm/volta installs are not on a non-login ssh PATH, so the receiver's interpreter is configurable. */
 function remoteNode(server: ConfiguredServer): string {
   const configured = typeof server.node_bin === 'string' ? server.node_bin.trim() : '';
   return configured === '' ? 'node' : configured;
@@ -417,7 +416,12 @@ export async function deployReceiver(
 
     // Issue 422: the bootstrap script takes the root as its first argument instead of assuming
     // `$HOME/.syncskill`, so it checks write access on the root that is actually in use.
-    await runtime.exec('ssh', buildSshArgs(server, ['sh', '-s', '--', quoteRemotePath(root)]), { stdin: bootstrap });
+    const bootstrapArgs = [
+      'env',
+      `SYNCSKILL_NODE_BIN=${shellQuote(remoteNode(server))}`,
+      'sh', '-s', '--', quoteRemotePath(root)
+    ];
+    await runtime.exec('ssh', buildSshArgs(server, bootstrapArgs), { stdin: bootstrap });
     await runtime.exec('ssh', buildSshArgs(server, ['sh', '-lc', shellQuote(`cat > ${quoteRemotePath(remoteReceiver(server))}`)]), { stdin: receiver });
   }
 

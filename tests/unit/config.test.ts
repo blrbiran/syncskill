@@ -529,4 +529,35 @@ describe('getConfiguredServer', () => {
     expect(() => getConfiguredServer(config, 'broken')).toThrow('Server config is invalid: broken');
     expect(() => getConfiguredServer(config, 'missing')).toThrow('Server not found: missing');
   });
+
+  it('uses a legacy remote agent path map only when remote_agents is absent', () => {
+    const config = validateConfig({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: '/local/claude/skills' },
+      links: {},
+      servers: {
+        migrated: {
+          host: 'migrated.example.com',
+          agents: {
+            codex: '~/.codex/skills',
+            ignored: 7
+          }
+        },
+        current: {
+          host: 'current.example.com',
+          agents: { codex: '~/.codex/skills' },
+          remote_agents: { claude: '~/.claude/skills' }
+        }
+      },
+      sources: {}
+    });
+
+    expect(getConfiguredServer(config, 'migrated').remote_agents).toEqual({
+      codex: '~/.codex/skills'
+    });
+    expect(getConfiguredServer(config, 'current').remote_agents).toEqual({
+      claude: '~/.claude/skills'
+    });
+  });
 });

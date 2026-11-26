@@ -134,13 +134,19 @@ Repeated installs from the same git or HTTP source reuse the existing source ent
 | Command | Description |
 |---------|-------------|
 | `syncskill remote` | Open skill → remote sync matrix editor |
-| `syncskill remote add <name> [--host <host>] [--user <user> --port <port> --identity-file <path> --remote-repo <path>]` | Add a configured remote endpoint, or amend an existing one (`--host` is required only for a new remote; fields not given are kept) |
+| `syncskill remote add <name> [--host <host>] [--user <user> --port <port> --identity-file <path> --remote-repo <path> --node-bin <path>]` | Add a configured remote endpoint, or amend an existing one (`--host` is required only for a new remote; fields not given are kept) |
 | `syncskill remote rm <name>` | Remove a configured remote endpoint |
 | `syncskill remote list` / `ls` | List configured remotes |
 | `syncskill remote show <name>` | Show the local receiver backup for one remote |
 | `syncskill remote agent ls/add/rm ...` | Inspect or edit remote agent paths in the local receiver backup |
 | `syncskill remote link ls/add/rm ...` | Inspect or edit remote skill links in the local receiver backup |
 | `syncskill remote takeover <server> <skill>` | Replace remote directories with syncskill-managed symlinks |
+
+When remote Node.js is installed by nvm, fnm, or volta and is missing from the non-interactive SSH `PATH`, set `node_bin` to its absolute executable path. The same binary is checked during bootstrap and runs the receiver:
+
+```bash
+syncskill remote add alpha --host alpha.example.com --node-bin "$HOME/.nvm/versions/node/v22.23.4/bin/node"
+```
 
 ### Remote Sync
 

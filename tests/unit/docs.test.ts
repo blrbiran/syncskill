@@ -36,6 +36,9 @@ describe('ship-readiness docs', () => {
     expect(readme).toContain('--yes-destructive');
     expect(readme).toContain('Show install help with no target');
     expect(readme).toContain('--remote-repo');
+    expect(readme).toContain('--node-bin <path>');
+    expect(readme).toContain('node_bin');
+    expect(readme).toContain('nvm, fnm, or volta');
     expect(readme).toContain('optional `remote_repo`');
     expect(readme).toContain('SYNCSKILL_STRICT=1');
     expect(readme).toContain('SYNCSKILL_PULL_BACKUP');
@@ -84,6 +87,9 @@ describe('ship-readiness docs', () => {
     expect(configGuide).toContain('refresh --remote <server>');
     expect(configGuide).toContain('remote_agents');
     expect(configGuide).toContain('remote_repo');
+    expect(configGuide).toContain('node_bin');
+    expect(configGuide).toContain('non-interactive SSH `PATH`');
+    expect(configGuide).toContain('--node-bin "$HOME/.nvm/versions/node/v22.23.4/bin/node"');
     expect(configGuide).toContain('http_baselines');
     expect(configGuide).not.toContain('"ignored": {');
     expect(configGuide).toContain('config.sources[*].ignore[]');
@@ -110,6 +116,7 @@ describe('ship-readiness docs', () => {
     expect(usageGuide).toContain('syncskill refresh alpha');
     expect(usageGuide).toContain('syncskill remote list');
     expect(usageGuide).toContain('syncskill remote show alpha');
+    expect(usageGuide).toContain('--node-bin "$HOME/.nvm/versions/node/v22.23.4/bin/node"');
     expect(usageGuide).toContain('syncskill refresh --remote alpha');
     expect(usageGuide).not.toContain('refresh --status');
     expect(usageGuide).not.toContain('refresh --remote --status');

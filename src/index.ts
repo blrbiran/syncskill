@@ -2714,7 +2714,8 @@ export function createProgram(homeDir?: string): Command {
     .option('--port <port>', 'SSH port', parseInteger)
     .option('--identity-file <path>', 'SSH identity file')
     .option('--remote-repo <path>', 'Remote syncskill repository path')
-    .action(async (name: string, options: { host?: string; user?: string; port?: number; identityFile?: string; remoteRepo?: string }) => {
+    .option('--node-bin <path>', 'Remote Node.js executable (for example, an nvm/fnm/volta path)')
+    .action(async (name: string, options: { host?: string; user?: string; port?: number; identityFile?: string; remoteRepo?: string; nodeBin?: string }) => {
       const config = await loadConfig(resolvedHomeDir);
       const existing = config.servers[name];
       const existingRecord = typeof existing === 'object' && existing !== null && !Array.isArray(existing)
@@ -2745,6 +2746,7 @@ export function createProgram(homeDir?: string): Command {
       setField('port', options.port);
       setField('identity_file', options.identityFile);
       setField('remote_repo', options.remoteRepo);
+      setField('node_bin', options.nodeBin);
       if (existingRecord === null) {
         server.remote_agents = {};
       }

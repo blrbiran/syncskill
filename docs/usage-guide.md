@@ -498,6 +498,8 @@ syncskill config remote
 
 # Add or inspect configured remotes
 syncskill remote add alpha --host alpha.example.com --user alice --remote-repo /srv/syncskill
+# Set the remote Node.js binary when nvm, fnm, or volta keeps it off non-interactive SSH PATH
+syncskill remote add alpha --node-bin "$HOME/.nvm/versions/node/v22.23.4/bin/node"
 # Amend one field; every field not named here is kept (--host is only required for a new remote)
 syncskill remote add alpha --port 2222
 syncskill remote list

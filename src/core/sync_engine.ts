@@ -36,7 +36,7 @@ import {
   type ReceiverConfigPayload,
   type TransportRuntime
 } from './transport.js';
-import { buildReceiverConfigPayload, loadReceiverBackupIfExists, mergeConfiguredLinksIntoReceiverBackup, saveReceiverBackup } from './server.js';
+import { buildReceiverConfigPayload, createEmptyReceiverBackup, loadReceiverBackupIfExists, mergeConfiguredLinksIntoReceiverBackup, saveReceiverBackup } from './server.js';
 import { backupSkillBeforePull } from '../utils/backup.js';
 
 export interface SyncEngineOptions {
@@ -534,6 +534,19 @@ async function pushToServer(
         // Tester #474: a dry run uses the merged links in memory and writes nothing locally.
         if (options.dryRun !== true) await saveReceiverBackup(homeDir, mergedBackup);
         receiverBackup = mergedBackup;
+      }
+    } else {
+      const initialBackup = createEmptyReceiverBackup(serverName);
+      initialBackup.remote_agents = { ...server.remote_agents };
+      const seededBackup = mergeConfiguredLinksIntoReceiverBackup(
+        initialBackup,
+        config.links,
+        getIncludedServerSkills(config, serverName),
+        options.now ?? new Date().toISOString()
+      );
+      if (seededBackup !== initialBackup) {
+        if (options.dryRun !== true) await saveReceiverBackup(homeDir, seededBackup);
+        receiverBackup = seededBackup;
       }
     }
     const receiverConfig = buildReceiverConfigPayload(server, receiverBackup);

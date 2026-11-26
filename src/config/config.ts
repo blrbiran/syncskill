@@ -307,7 +307,11 @@ export function getConfiguredServer(config: SyncSkillConfig, name: string): Conf
       ? Object.fromEntries(
           Object.entries(raw.remote_agents).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
         )
-      : {}
+      : raw.remote_agents === undefined && isRecord(raw.agents)
+        ? Object.fromEntries(
+            Object.entries(raw.agents).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+          )
+        : {}
   };
 }
 
