@@ -119,10 +119,14 @@ describe('syncskill doctor', () => {
       version: 1, conflict_resolution: 'manual', agents: { claude: agentDir },
       links: { demo: ['claude'] }, servers: {}, sources: { offline: { type: 'local', path: source } }
     }));
-    const report = await runDoctor(['--fix', '--yes']);
-    expect(report.stdout).toContain('offline');
-    expect(await readlink(link)).toBe(target);
-    expect(JSON.parse(await readFile(configFile, 'utf8')).links).toEqual({ demo: ['claude'] });
+    for (let pass = 0; pass < 2; pass++) {
+      const report = await runDoctor(['--fix', '--yes']);
+      expect(report.stdout).toContain('offline');
+      expect(await readlink(link)).toBe(target);
+      const saved = JSON.parse(await readFile(configFile, 'utf8'));
+      expect(saved.links).toEqual({ demo: ['claude'] });
+      expect(saved.sources).toHaveProperty('offline');
+    }
   });
 
   it('reports missing skill warning', async () => {
