@@ -3697,7 +3697,7 @@ export function createProgram(homeDir?: string): Command {
         || item.code === DiagnosticCode.AGENT_NOT_CONFIGURED
         || item.code === DiagnosticCode.AGENT_PATH_INVALID
         || item.code === DiagnosticCode.SOURCE_PATH_INVALID
-        || item.code === DiagnosticCode.LINK_DANGLING
+        || (item.code === DiagnosticCode.LINK_DANGLING && !report.unreadableSources?.length)
       );
       const manualItems = allItems.filter((item) => !autoFixableItems.includes(item));
 

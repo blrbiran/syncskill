@@ -1,6 +1,6 @@
 // tests/integration/doctor-cli.test.ts
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -106,6 +106,23 @@ describe('syncskill doctor', () => {
     const event = JSON.parse(lines[0]) as { ok: boolean; summary: { errors: Array<{ code: string }> } };
     expect(event.ok).toBe(false);
     expect(event.summary.errors[0].code).toBe('NO_VALID_AGENTS');
+  });
+
+  it('keeps a dangling managed link while a source is unreadable (#486)', async () => {
+    const agentDir = join(homeDir, '.claude', 'skills');
+    await mkdir(agentDir, { recursive: true });
+    const source = join(testDir, 'offline');
+    const target = join(source, 'demo');
+    const link = join(agentDir, 'demo');
+    await symlink(target, link, 'dir');
+    await writeFile(configFile, JSON.stringify({
+      version: 1, conflict_resolution: 'manual', agents: { claude: agentDir },
+      links: { demo: ['claude'] }, servers: {}, sources: { offline: { type: 'local', path: source } }
+    }));
+    const report = await runDoctor(['--fix', '--yes']);
+    expect(report.stdout).toContain('offline');
+    expect(await readlink(link)).toBe(target);
+    expect(JSON.parse(await readFile(configFile, 'utf8')).links).toEqual({ demo: ['claude'] });
   });
 
   it('reports missing skill warning', async () => {
