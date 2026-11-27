@@ -148,6 +148,30 @@ describe('syncskill doctor', () => {
     expect(repaired.links['src-skill']).toEqual(['claude']);
   });
 
+  it('keeps an existing unmanaged agent link under doctor --fix -y (#486)', async () => {
+    const { createProgram } = await import('../../src/index.js');
+    const agentDir = join(homeDir, '.claude', 'skills');
+    const externalSkill = join(testDir, 'external-skill');
+    await mkdir(agentDir, { recursive: true });
+    await mkdir(externalSkill, { recursive: true });
+    await writeFile(join(externalSkill, 'SKILL.md'), '# external skill');
+    await symlink(externalSkill, join(agentDir, 'src-skill'));
+    await writeFile(configFile, JSON.stringify({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: { 'src-skill': ['claude'] },
+      servers: {},
+      sources: {}
+    }));
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'doctor', '--fix', '-y']);
+
+    const repaired = JSON.parse(await readFile(configFile, 'utf8'));
+    expect(repaired.links['src-skill']).toEqual(['claude']);
+    await expect(readFile(join(agentDir, 'src-skill', 'SKILL.md'), 'utf8')).resolves.toBe('# external skill');
+  });
+
   it('rejects removed rebuild-registry flag', async () => {
     const { stderr, code } = await runDoctor(['--rebuild-registry']);
 

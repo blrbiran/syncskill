@@ -3685,9 +3685,14 @@ export function createProgram(homeDir?: string): Command {
       }
 
       const allItems = [...report.errors, ...report.warnings];
+      const unmanagedLinkedSkills = new Set(allItems
+        .filter((item) => item.code === DiagnosticCode.LINK_UNMANAGED)
+        .map((item) => item.path.slice(item.path.indexOf('/') + 1)));
       const autoFixableItems = allItems.filter((item) =>
         isRegistryDiagnostic(item.code)
-        || (item.code === DiagnosticCode.SKILL_NOT_FOUND && !report.unreadableSources?.length)
+        || (item.code === DiagnosticCode.SKILL_NOT_FOUND
+          && !report.unreadableSources?.length
+          && !unmanagedLinkedSkills.has(item.path.slice('links.'.length)))
         || item.code === DiagnosticCode.SKILL_NAME_INVALID
         || item.code === DiagnosticCode.AGENT_NOT_CONFIGURED
         || item.code === DiagnosticCode.AGENT_PATH_INVALID
