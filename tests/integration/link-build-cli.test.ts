@@ -136,6 +136,7 @@ describe('syncskill link build', () => {
 
     expect(run.code).toBe(4);
     expect(run.stdout + run.stderr).toContain('E_NEEDS_INPUT');
+    expect(run.stdout + run.stderr).toContain('run `syncskill link build` from a terminal');
     // The link is left alone rather than removed without consent.
     await expect(readlink(join(agentDir, 'orphan-skill'))).resolves.toBe(
       join(skillsDir, 'orphan-skill')

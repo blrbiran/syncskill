@@ -1348,24 +1348,28 @@ describe('reconciliation CLI', () => {
     });
   });
 
-  it('link set refuses stale cleanup before writes, including manifest refresh (#514)', async () => {
+  it.each(['set', 'add'] as const)('link %s refuses stale cleanup before writes, including manifest refresh (#514)', async (verb) => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-preflight-'));
     tempDirs.push(homeDir);
     const claudeDir = join(homeDir, '.claude', 'skills');
     const cursorDir = join(homeDir, '.cursor', 'skills');
+    const hermesDir = join(homeDir, '.hermes', 'skills');
     const skillDir = join(homeDir, '.syncskill', 'skills', 'demo');
     await mkdir(skillDir, { recursive: true });
     await writeFile(join(skillDir, 'SKILL.md'), '# demo\n', 'utf8');
     await mkdir(claudeDir, { recursive: true });
     await mkdir(cursorDir, { recursive: true });
+    await mkdir(hermesDir, { recursive: true });
     await saveConfig({
-      ...createDefaultConfig(homeDir, { claude: claudeDir, cursor: cursorDir }),
+      ...createDefaultConfig(homeDir, { claude: claudeDir, cursor: cursorDir, hermes: hermesDir }),
       private_agents: [],
       links: { demo: ['claude'] }
     }, homeDir);
-    const oldLink = join(claudeDir, 'demo');
+    const claudeLink = join(claudeDir, 'demo');
+    const oldLink = verb === 'set' ? claudeLink : join(hermesDir, 'demo');
     const cursorLink = join(cursorDir, 'demo');
-    await symlink(skillDir, oldLink);
+    await symlink(skillDir, claudeLink);
+    if (verb === 'add') await symlink(skillDir, oldLink);
     await saveServerManifest(homeDir, {
       version: 1,
       server: 'alpha',
@@ -1382,7 +1386,7 @@ describe('reconciliation CLI', () => {
     const exitMock = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
       throw new Error(`process.exit:${code}`);
     }) as never);
-    const command = ['node', 'syncskill', 'link', 'set', 'demo', 'cursor'];
+    const command = ['node', 'syncskill', '--no-interactive', 'link', verb, 'demo', 'cursor'];
 
     await expect(createProgram(homeDir).parseAsync(command, { from: 'node' })).rejects.toThrow(`process.exit:${ExitCode.NEEDS_INPUT}`);
     expect(exitMock).toHaveBeenCalledWith(ExitCode.NEEDS_INPUT);
@@ -1393,9 +1397,11 @@ describe('reconciliation CLI', () => {
     await expect(access(cursorLink)).rejects.toMatchObject({ code: 'ENOENT' });
 
     await createProgram(homeDir).parseAsync([...command, '-y'], { from: 'node' });
-    await expect(loadConfig(homeDir)).resolves.toMatchObject({ links: { demo: ['cursor'] } });
+    const targets = verb === 'set' ? ['cursor'] : ['claude', 'cursor'];
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({ links: { demo: targets } });
     await expect(readlink(cursorLink)).resolves.toBe(skillDir);
     await expect(access(oldLink)).rejects.toMatchObject({ code: 'ENOENT' });
+    if (verb === 'add') await expect(readlink(claudeLink)).resolves.toBe(skillDir);
   });
 
   it('link add uses proposed targets so an existing link being added is not treated as stale (#514)', async () => {

@@ -782,7 +782,8 @@ function summarizeSyncResults(results: SyncResult[]): Record<string, unknown> {
 }
 
 function isNoInteractive(program: Command): true | undefined {
-  return isNonInteractive(program.opts<{ noInteractive?: boolean; interactive?: boolean }>()) ? true : undefined;
+  const options = program.opts<{ noInteractive?: boolean; interactive?: boolean }>();
+  return options.noInteractive === true || options.interactive === false ? true : undefined;
 }
 
 function isStrictMode(): boolean {
@@ -1925,7 +1926,7 @@ export function createProgram(homeDir?: string): Command {
     if (agents.length > 0) {
       console.log(`✓ Linked ${skill} to: ${agents.join(', ')}`);
     }
-    await handleStaleLinksReconciliation(resolvedHomeDir, [skill], options);
+    await handleStaleLinksReconciliation(resolvedHomeDir, [skill], { ...options, targetChange: true });
   }
 
   const linkCommand = program
@@ -2418,15 +2419,14 @@ export function createProgram(homeDir?: string): Command {
     console.log(`\n[dry-run] Would remove ${allStale.length} link${allStale.length !== 1 ? 's' : ''}`);
   }
 
-  /**
-   * Handle stale links reconciliation after linking
-   */
-  /** Any missing terminal input or output blocks a prompt, as does the explicit environment/CLI switch. */
-  function cannotPromptInteractively(): boolean {
-    return !canPromptInteractively(isNoInteractive(program) === true, process.stdin.isTTY, process.stdout.isTTY);
+  function cannotPromptForTargetChange(): boolean {
+    const disabled = isNonInteractive(program.opts<{ noInteractive?: boolean; interactive?: boolean }>());
+    return !canPromptInteractively(disabled, process.stdin.isTTY, process.stdout.isTTY);
   }
 
   const STALE_LINK_INPUT_HINT =
+    'Re-run with `-y` to remove the stale links, or run `syncskill link build` from a terminal.';
+  const LINK_TARGET_INPUT_HINT =
     'Re-run the same `link set` or `link add` command with `-y` to remove the stale links.';
 
   async function preflightLinkTargetChange(
@@ -2434,10 +2434,10 @@ export function createProgram(homeDir?: string): Command {
     proposedConfig: SyncSkillConfig,
     options: { yes?: boolean }
   ): Promise<void> {
-    if (!options.yes && cannotPromptInteractively()) {
+    if (!options.yes && cannotPromptForTargetChange()) {
       const staleBySkill = await findStaleLinks(resolvedHomeDir, [skill], proposedConfig);
       if (Object.values(staleBySkill).some((links) => links.length > 0)) {
-        return failForNoInteractive(STALE_LINK_INPUT_HINT);
+        return failForNoInteractive(LINK_TARGET_INPUT_HINT);
       }
     }
 
@@ -2448,9 +2448,13 @@ export function createProgram(homeDir?: string): Command {
   async function handleStaleLinksReconciliation(
     homeDir: string,
     skillNames: string[] | undefined,
-    options: { dryRun?: boolean; yes?: boolean }
+    options: { dryRun?: boolean; yes?: boolean; targetChange?: boolean }
   ): Promise<StaleLinkCleanupSummary> {
     const output = getGlobalOutput();
+    const cannotPrompt = () => options.targetChange
+      ? cannotPromptForTargetChange()
+      : isNoInteractive(program) === true || !process.stdout.isTTY;
+    const inputHint = options.targetChange ? LINK_TARGET_INPUT_HINT : STALE_LINK_INPUT_HINT;
     const staleBySkill = await findStaleLinks(homeDir, skillNames);
     const allStale = Object.values(staleBySkill).flat();
 
@@ -2476,8 +2480,8 @@ export function createProgram(homeDir?: string): Command {
 
       let shouldRemove = options.yes;
       if (!shouldRemove) {
-        if (cannotPromptInteractively()) {
-          return failForNoInteractive(STALE_LINK_INPUT_HINT);
+        if (cannotPrompt()) {
+          return failForNoInteractive(inputHint);
         }
 
         shouldRemove = await confirm({
@@ -2518,8 +2522,8 @@ export function createProgram(homeDir?: string): Command {
 
     let shouldRemove = options.yes;
     if (!shouldRemove) {
-      if (cannotPromptInteractively()) {
-        return failForNoInteractive(STALE_LINK_INPUT_HINT);
+      if (cannotPrompt()) {
+        return failForNoInteractive(inputHint);
       }
 
       shouldRemove = await confirm({
