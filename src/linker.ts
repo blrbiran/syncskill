@@ -676,9 +676,10 @@ export async function findUnmanagedSkills(homeDir: string): Promise<UnmanagedSki
  */
 export async function findStaleLinks(
   homeDir: string,
-  skillNames?: string[]
+  skillNames?: string[],
+  configOverride?: SyncSkillConfig
 ): Promise<StaleLinksBySkill> {
-  const config = await loadConfig(homeDir);
+  const config = configOverride ?? await loadConfig(homeDir);
   const staleBySkill: StaleLinksBySkill = {};
   const { agentCanonicalPaths, directories } = await buildMaterializedAgentDirectoryIndex(config, homeDir);
   const validPairs = buildValidDirectoryPairs(config, agentCanonicalPaths);

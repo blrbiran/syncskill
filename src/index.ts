@@ -2027,6 +2027,7 @@ export function createProgram(homeDir?: string): Command {
       }
 
       config.links[skill] = nextTargets;
+      await preflightLinkTargetChange(skill, config, options);
       await saveConfig(config, resolvedHomeDir);
       await applySkillLinks(skill, options);
     });
@@ -2053,6 +2054,7 @@ export function createProgram(homeDir?: string): Command {
       }
 
       config.links[skill] = nextTargets;
+      await preflightLinkTargetChange(skill, config, options);
       await saveConfig(config, resolvedHomeDir);
       await applySkillLinks(skill, options);
     });
@@ -2434,6 +2436,19 @@ export function createProgram(homeDir?: string): Command {
 
   const STALE_LINK_INPUT_HINT =
     'Re-run with `-y` to remove the stale links, or run `syncskill link build` from a terminal.';
+
+  async function preflightLinkTargetChange(
+    skill: string,
+    proposedConfig: SyncSkillConfig,
+    options: { yes?: boolean }
+  ): Promise<void> {
+    if (options.yes || !cannotPromptInteractively()) return;
+
+    const staleBySkill = await findStaleLinks(resolvedHomeDir, [skill], proposedConfig);
+    if (Object.values(staleBySkill).some((links) => links.length > 0)) {
+      return failForNoInteractive(STALE_LINK_INPUT_HINT);
+    }
+  }
 
   async function handleStaleLinksReconciliation(
     homeDir: string,
