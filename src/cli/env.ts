@@ -49,6 +49,18 @@ function parseLogLevel(value: string | undefined): EnvConfig['logLevel'] {
  * Merge CLI flags with environment config.
  * CLI flags take precedence.
  */
+export function isNonInteractive(flags: { noInteractive?: boolean; interactive?: boolean }): boolean {
+  return flags.noInteractive === true || flags.interactive === false || loadEnvConfig().noInteractive;
+}
+
+export function canPromptInteractively(
+  noInteractive: boolean,
+  stdinIsTTY: boolean | undefined,
+  stdoutIsTTY: boolean | undefined
+): boolean {
+  return !noInteractive && stdinIsTTY === true && stdoutIsTTY === true;
+}
+
 export function mergeWithFlags(
   envConfig: EnvConfig,
   flags: Partial<EnvConfig>

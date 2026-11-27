@@ -680,7 +680,7 @@ export async function findStaleLinks(
   configOverride?: SyncSkillConfig
 ): Promise<StaleLinksBySkill> {
   const config = configOverride ?? await loadConfig(homeDir);
-  const staleBySkill: StaleLinksBySkill = {};
+  const staleBySkill: StaleLinksBySkill = Object.create(null) as StaleLinksBySkill;
   const { agentCanonicalPaths, directories } = await buildMaterializedAgentDirectoryIndex(config, homeDir);
   const validPairs = buildValidDirectoryPairs(config, agentCanonicalPaths);
 

@@ -1222,12 +1222,15 @@ describe('reconciliation CLI', () => {
 
     const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const originalIsTTY = process.stdout.isTTY;
+    const originalStdinIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdout, 'isTTY', { value: true, writable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
 
     try {
       await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'edit', 'my-skill'], { from: 'node' });
     } finally {
       Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, writable: true });
     }
 
     expect(mockCheckbox).toHaveBeenCalledWith({
@@ -1275,12 +1278,15 @@ describe('reconciliation CLI', () => {
 
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const originalIsTTY = process.stdout.isTTY;
+    const originalStdinIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdout, 'isTTY', { value: true, writable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
 
     try {
       await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'edit', 'my-skill'], { from: 'node' });
     } finally {
       Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, writable: true });
     }
 
     expect(mockCheckbox).toHaveBeenCalledWith({
@@ -1319,12 +1325,15 @@ describe('reconciliation CLI', () => {
 
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const originalIsTTY = process.stdout.isTTY;
+    const originalStdinIsTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdout, 'isTTY', { value: true, writable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true });
 
     try {
       await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'edit', 'my-skill'], { from: 'node' });
     } finally {
       Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, writable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, writable: true });
     }
 
     expect(mockCheckbox).toHaveBeenCalledWith({
@@ -1339,52 +1348,109 @@ describe('reconciliation CLI', () => {
     });
   });
 
-  it.each(['set', 'add'] as const)('link %s refuses stale cleanup before writing in non-interactive mode (#514)', async (verb) => {
+  it('link set refuses stale cleanup before writes, including manifest refresh (#514)', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-preflight-'));
     tempDirs.push(homeDir);
     const claudeDir = join(homeDir, '.claude', 'skills');
     const cursorDir = join(homeDir, '.cursor', 'skills');
-    const hermesDir = join(homeDir, '.hermes', 'skills');
     const skillDir = join(homeDir, '.syncskill', 'skills', 'demo');
     await mkdir(skillDir, { recursive: true });
     await writeFile(join(skillDir, 'SKILL.md'), '# demo\n', 'utf8');
     await mkdir(claudeDir, { recursive: true });
     await mkdir(cursorDir, { recursive: true });
-    await mkdir(hermesDir, { recursive: true });
     await saveConfig({
-      ...createDefaultConfig(homeDir, { claude: claudeDir, cursor: cursorDir, hermes: hermesDir }),
+      ...createDefaultConfig(homeDir, { claude: claudeDir, cursor: cursorDir }),
       private_agents: [],
       links: { demo: ['claude'] }
     }, homeDir);
-    const oldLink = join(hermesDir, 'demo');
-    const claudeLink = join(claudeDir, 'demo');
+    const oldLink = join(claudeDir, 'demo');
     const cursorLink = join(cursorDir, 'demo');
     await symlink(skillDir, oldLink);
-    await symlink(skillDir, claudeLink);
-    const configPath = getSyncPaths(homeDir).configFile;
-    const before = await readFile(configPath, 'utf8');
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'alpha',
+      updated_at: '2026-05-02T00:00:00.000Z',
+      skills: {
+        demo: { local_hash: 'old-hash', remote_hash: null, recorded_hash: null, direction: 'skip', status: 'new' }
+      }
+    });
+    const paths = getSyncPaths(homeDir);
+    const configBefore = await readFile(paths.configFile, 'utf8');
+    const manifestPath = join(paths.manifestsDir, 'alpha.json');
+    const manifestBefore = await readFile(manifestPath, 'utf8');
+    const historyPath = paths.historyFile;
     const exitMock = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
       throw new Error(`process.exit:${code}`);
     }) as never);
-    const command = ['node', 'syncskill', '--no-interactive', 'link', verb, 'demo', 'cursor'];
+    const command = ['node', 'syncskill', 'link', 'set', 'demo', 'cursor'];
 
     await expect(createProgram(homeDir).parseAsync(command, { from: 'node' })).rejects.toThrow(`process.exit:${ExitCode.NEEDS_INPUT}`);
     expect(exitMock).toHaveBeenCalledWith(ExitCode.NEEDS_INPUT);
-    expect(await readFile(configPath, 'utf8')).toBe(before);
+    expect(await readFile(paths.configFile, 'utf8')).toBe(configBefore);
+    expect(await readFile(manifestPath, 'utf8')).toBe(manifestBefore);
+    await expect(access(historyPath)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(readlink(oldLink)).resolves.toBe(skillDir);
-    await expect(readlink(claudeLink)).resolves.toBe(skillDir);
     await expect(access(cursorLink)).rejects.toMatchObject({ code: 'ENOENT' });
 
     await createProgram(homeDir).parseAsync([...command, '-y'], { from: 'node' });
-    const expected = verb === 'set' ? ['cursor'] : ['claude', 'cursor'];
-    await expect(loadConfig(homeDir)).resolves.toMatchObject({ links: { demo: expected } });
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({ links: { demo: ['cursor'] } });
     await expect(readlink(cursorLink)).resolves.toBe(skillDir);
     await expect(access(oldLink)).rejects.toMatchObject({ code: 'ENOENT' });
-    if (verb === 'set') {
-      await expect(access(claudeLink)).rejects.toMatchObject({ code: 'ENOENT' });
-    } else {
-      await expect(readlink(claudeLink)).resolves.toBe(skillDir);
-    }
+  });
+
+  it('link add uses proposed targets so an existing link being added is not treated as stale (#514)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-add-preflight-'));
+    tempDirs.push(homeDir);
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const cursorDir = join(homeDir, '.cursor', 'skills');
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'demo');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# demo\n', 'utf8');
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(cursorDir, { recursive: true });
+    await saveConfig({
+      ...createDefaultConfig(homeDir, { claude: claudeDir, cursor: cursorDir }),
+      private_agents: [],
+      links: { demo: ['claude'] }
+    }, homeDir);
+    const claudeLink = join(claudeDir, 'demo');
+    const cursorLink = join(cursorDir, 'demo');
+    await symlink(skillDir, claudeLink);
+    await symlink(skillDir, cursorLink);
+
+    await createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'add', 'demo', 'cursor'], { from: 'node' });
+
+    await expect(loadConfig(homeDir)).resolves.toMatchObject({ links: { demo: ['claude', 'cursor'] } });
+    await expect(readlink(claudeLink)).resolves.toBe(skillDir);
+    await expect(readlink(cursorLink)).resolves.toBe(skillDir);
+  });
+
+  it('link set treats constructor as a normal skill name during stale-link preflight (#514)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-link-constructor-preflight-'));
+    tempDirs.push(homeDir);
+    const claudeDir = join(homeDir, '.claude', 'skills');
+    const cursorDir = join(homeDir, '.cursor', 'skills');
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'constructor');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# constructor\n', 'utf8');
+    await mkdir(claudeDir, { recursive: true });
+    await mkdir(cursorDir, { recursive: true });
+    await saveConfig({
+      ...createDefaultConfig(homeDir, { claude: claudeDir, cursor: cursorDir }),
+      private_agents: [],
+      links: { constructor: ['claude'] }
+    }, homeDir);
+    const oldLink = join(claudeDir, 'constructor');
+    await symlink(skillDir, oldLink);
+    const exitMock = vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit:${code}`);
+    }) as never);
+
+    await expect(createProgram(homeDir).parseAsync(['node', 'syncskill', 'link', 'set', 'constructor', 'cursor'], { from: 'node' }))
+      .rejects.toThrow(`process.exit:${ExitCode.NEEDS_INPUT}`);
+    expect(exitMock).toHaveBeenCalledWith(ExitCode.NEEDS_INPUT);
+    await expect(readlink(oldLink)).resolves.toBe(skillDir);
+    await expect(access(join(cursorDir, 'constructor'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('link add <skill> <agent>... appends multiple agents and creates symlinks', async () => {

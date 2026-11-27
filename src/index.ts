@@ -7,7 +7,7 @@ import { checkbox, select, confirm } from '@inquirer/prompts';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { createRequire } from 'node:module';
 import { createOutput, setGlobalOutput, getGlobalOutput } from './cli/index.js';
-import { loadEnvConfig, mergeWithFlags } from './cli/env.js';
+import { canPromptInteractively, isNonInteractive, loadEnvConfig, mergeWithFlags } from './cli/env.js';
 import { ExitCode, errorCodeToExitCode } from './cli/exit-codes.js';
 import { createPlan, addAction, serializePlan, type Plan } from './cli/plan.js';
 import { withPlanExecute, type PlanExecuteOptions } from './cli/plan-execute.js';
@@ -782,8 +782,7 @@ function summarizeSyncResults(results: SyncResult[]): Record<string, unknown> {
 }
 
 function isNoInteractive(program: Command): true | undefined {
-  const options = program.opts<{ noInteractive?: boolean; interactive?: boolean }>();
-  return options.noInteractive === true || options.interactive === false ? true : undefined;
+  return isNonInteractive(program.opts<{ noInteractive?: boolean; interactive?: boolean }>()) ? true : undefined;
 }
 
 function isStrictMode(): boolean {
@@ -1524,7 +1523,9 @@ export function createProgram(homeDir?: string): Command {
         return failWithOutputError('E_USAGE_GLOBAL_FLAG', '--quiet is not supported', 'Use --json for machine output, or redirect stdout');
       }
 
-      if (shouldSkipCommandPreflight(actionCommand) || shouldSkipInstallPreflight(actionCommand)) {
+      const linkTargetChange = (commandName === 'link set' || commandName === 'link add')
+        && actionCommand.opts<{ dryRun?: boolean }>().dryRun !== true;
+      if (linkTargetChange || shouldSkipCommandPreflight(actionCommand) || shouldSkipInstallPreflight(actionCommand)) {
         return;
       }
 
@@ -2420,34 +2421,28 @@ export function createProgram(homeDir?: string): Command {
   /**
    * Handle stale links reconciliation after linking
    */
-  /**
-   * `--no-interactive` is an explicit flag, but a missing TTY blocks a prompt
-   * just as hard. Without this check the stale-link confirm crashed with
-   * ExitPromptError when stdout was a pipe, and hung forever when stdout was
-   * redirected to a file — in both cases still exiting 0.
-   *
-   * Interactivity is keyed on stdout to match `link` and `link edit`. A
-   * terminal session that closes only stdin (`link build < /dev/null`) is not
-   * covered.
-   */
+  /** Any missing terminal input or output blocks a prompt, as does the explicit environment/CLI switch. */
   function cannotPromptInteractively(): boolean {
-    return isNoInteractive(program) || !process.stdout.isTTY;
+    return !canPromptInteractively(isNoInteractive(program) === true, process.stdin.isTTY, process.stdout.isTTY);
   }
 
   const STALE_LINK_INPUT_HINT =
-    'Re-run with `-y` to remove the stale links, or run `syncskill link build` from a terminal.';
+    'Re-run the same `link set` or `link add` command with `-y` to remove the stale links.';
 
   async function preflightLinkTargetChange(
     skill: string,
     proposedConfig: SyncSkillConfig,
     options: { yes?: boolean }
   ): Promise<void> {
-    if (options.yes || !cannotPromptInteractively()) return;
-
-    const staleBySkill = await findStaleLinks(resolvedHomeDir, [skill], proposedConfig);
-    if (Object.values(staleBySkill).some((links) => links.length > 0)) {
-      return failForNoInteractive(STALE_LINK_INPUT_HINT);
+    if (!options.yes && cannotPromptInteractively()) {
+      const staleBySkill = await findStaleLinks(resolvedHomeDir, [skill], proposedConfig);
+      if (Object.values(staleBySkill).some((links) => links.length > 0)) {
+        return failForNoInteractive(STALE_LINK_INPUT_HINT);
+      }
     }
+
+    await runCommandPreflight(resolvedHomeDir);
+    await autoRefreshManifests(resolvedHomeDir, program.opts<{ refresh?: boolean }>().refresh !== false);
   }
 
   async function handleStaleLinksReconciliation(

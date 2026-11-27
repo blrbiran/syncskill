@@ -1,6 +1,6 @@
 // tests/unit/cli-env.test.ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { loadEnvConfig, mergeWithFlags } from '../../src/cli/env.js';
+import { canPromptInteractively, isNonInteractive, loadEnvConfig, mergeWithFlags } from '../../src/cli/env.js';
 
 describe('cli/env', () => {
   const originalEnv = process.env;
@@ -100,6 +100,19 @@ describe('cli/env', () => {
       process.env.SYNCSKILL_LOG_LEVEL = 'invalid';
       const config = loadEnvConfig();
       expect(config.logLevel).toBe('info');
+    });
+  });
+
+  describe('interactive gates', () => {
+    it('SYNCSKILL_NO_INTERACTIVE blocks prompts even when both streams are TTYs', () => {
+      process.env.SYNCSKILL_NO_INTERACTIVE = '1';
+      expect(canPromptInteractively(isNonInteractive({}), true, true)).toBe(false);
+    });
+
+    it('requires both stdin and stdout to be TTYs before prompting', () => {
+      expect(canPromptInteractively(false, false, true)).toBe(false);
+      expect(canPromptInteractively(false, true, false)).toBe(false);
+      expect(canPromptInteractively(false, true, true)).toBe(true);
     });
   });
 
