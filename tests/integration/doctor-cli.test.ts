@@ -291,7 +291,7 @@ describe('syncskill doctor', () => {
       await writeFile(configFile, JSON.stringify(config, null, 2));
 
       try {
-        await execFileAsync('node', [cliPath, 'link', 'list'], {
+        await execFileAsync('node', [cliPath, 'link', 'build'], {
           env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir }
         });
         expect.fail('Should have thrown');
@@ -301,5 +301,64 @@ describe('syncskill doctor', () => {
         expect(err.stderr).toContain('doctor --fix');
       }
     });
+  });
+
+  it('keeps recovery commands usable while blocking writes for a dangling link (#533)', async () => {
+    const agentDir = join(homeDir, '.claude', 'skills');
+    await mkdir(agentDir, { recursive: true });
+    await symlink(join(testDir, 'missing-skill'), join(agentDir, 'demo'));
+    await mkdir(join(syncDir, 'manifests'), { recursive: true });
+    await writeFile(configFile, JSON.stringify({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: agentDir },
+      links: { demo: ['claude'] },
+      servers: { lab: { host: 'lab.example.invalid', remote_agents: { claude: '~/.claude/skills' }, skills: { include: ['demo'] } } },
+      sources: {}
+    }));
+    await writeFile(join(syncDir, 'manifests', 'lab.json'), JSON.stringify({
+      version: 1,
+      server: 'lab',
+      updated_at: '2026-11-28T00:00:00.000Z',
+      skills: { demo: { local_hash: null, remote_hash: 'abc', recorded_hash: null, direction: 'pull', status: 'remote-changed' } }
+    }));
+
+    const runCli = async (args: string[]): Promise<{ stdout: string; stderr: string; code: number }> => {
+      try {
+        const result = await execFileAsync('node', [cliPath, ...args], {
+          env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir }
+        });
+        return { stdout: result.stdout, stderr: result.stderr, code: 0 };
+      } catch (error: unknown) {
+        const execError = error as { stdout: string; stderr: string; code: number };
+        return { stdout: execError.stdout || '', stderr: execError.stderr || '', code: execError.code || 1 };
+      }
+    };
+
+    const jsonStatus = await runCli(['--json', 'status']);
+    expect(jsonStatus.code).toBe(0);
+    const statusLines = jsonStatus.stdout.trim().split('\n');
+    expect(statusLines).toHaveLength(1);
+    expect(() => JSON.parse(statusLines[0])).not.toThrow();
+
+    for (const args of [['scan'], ['scan', '--dry-run'], ['update']]) {
+      const result = await runCli(args);
+      expect(result.code, args.join(' ')).toBe(0);
+    }
+
+    const jsonLinks = await runCli(['--json', 'link', 'list']);
+    expect(jsonLinks.code).toBe(0);
+    const linkLines = jsonLinks.stdout.trim().split('\n');
+    expect(linkLines).toHaveLength(1);
+    expect(() => JSON.parse(linkLines[0])).not.toThrow();
+
+    const textStatus = await runCli(['status']);
+    expect(textStatus.code).toBe(0);
+    expect(textStatus.stdout.trim()).not.toBe('');
+    expect(textStatus.stdout).toContain('demo\tlab');
+
+    const push = await runCli(['push', 'lab']);
+    expect(push.code).toBe(3);
+    expect(push.stderr).toContain('doctor --fix');
   });
 });

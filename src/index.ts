@@ -193,10 +193,34 @@ function shouldSkipCommandPreflight(command: Command): boolean {
   return skipCommands.includes(commandPath);
 }
 
-async function runCommandPreflight(homeDir: string): Promise<void> {
+const UNHEALTHY_CONFIG_READ_COMMANDS = new Set([
+  'status',
+  'scan',
+  'update',
+  'diff',
+  'dashboard',
+  'profile list',
+  'source list',
+  'remote list',
+  'remote show',
+  'remote agent ls',
+  'remote link ls',
+  'link list',
+  'link ls'
+]);
+
+function canRunWithUnhealthyConfig(command: Command, planMode: boolean): boolean {
+  if (planMode || command.opts<{ dryRun?: boolean }>().dryRun === true) {
+    return true;
+  }
+
+  return UNHEALTHY_CONFIG_READ_COMMANDS.has(getCommandPath(command));
+}
+
+async function runCommandPreflight(homeDir: string): Promise<{ healthy: boolean; canProceed: boolean }> {
   const config = await loadConfig(homeDir);
   const { skillsDir } = getSyncPaths(homeDir);
-  await autoDiagnoseConfig(config, skillsDir, homeDir);
+  return autoDiagnoseConfig(config, skillsDir, homeDir);
 }
 
 function failForNeedsInput(message: string, hint: string): never {
@@ -1530,7 +1554,11 @@ export function createProgram(homeDir?: string): Command {
         return;
       }
 
-      await runCommandPreflight(resolvedHomeDir);
+      const diagnosis = await runCommandPreflight(resolvedHomeDir);
+      if (!diagnosis.canProceed && !canRunWithUnhealthyConfig(actionCommand, globalFlags.plan === true)) {
+        process.exit(ExitCode.CONFIG_ERROR);
+        return;
+      }
       // inject copies a snapshot and must not rewrite stored manifests (spec 5.6); many run in parallel.
       // Tester #474: status and every --dry-run are read-only -- they refresh in memory and write nothing.
       // Tester #491: the JSON read-only entry points are read-only in the same way.

@@ -556,21 +556,20 @@ export async function autoDiagnoseConfig(
   config: SyncSkillConfig | null,
   skillsDir: string,
   homeDir: string
-): Promise<void> {
+): Promise<{ healthy: boolean; canProceed: boolean }> {
   if (!config) {
-    return;
+    return { healthy: true, canProceed: true };
   }
 
   const report = await diagnoseConfig(config, skillsDir, homeDir);
 
-  if (report.isHealthy) {
-    return;
+  if (!report.isHealthy) {
+    console.error(formatDiagnosticSummary(report));
+
+    if (!report.canProceed) {
+      console.error('Run `syncskill doctor --fix` to repair.');
+    }
   }
 
-  console.error(formatDiagnosticSummary(report));
-
-  if (!report.canProceed) {
-    console.error('Run `syncskill doctor --fix` to repair.');
-    process.exit(1);
-  }
+  return { healthy: report.isHealthy, canProceed: report.canProceed };
 }
