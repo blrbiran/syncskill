@@ -10,7 +10,7 @@ import { useTempDirs } from '../helpers/temp-dir.js';
 import { saveConfig, setSyncDirOverride } from '../../src/config/config.js';
 import { loadManifestHistory, loadServerManifest, saveServerManifest, type ManifestSkillState } from '../../src/core/manifest.js';
 import { loadReceiverBackup, saveReceiverBackup } from '../../src/core/server.js';
-import { pullFromServer, pushToServers, syncServer } from '../../src/core/sync_engine.js';
+import { pullFromServer, pullFromServers, pushToServers, syncServer, syncServers } from '../../src/core/sync_engine.js';
 import { type TransportRuntime } from '../../src/core/transport.js';
 
 function createRuntime(options: {
@@ -1799,5 +1799,39 @@ describe('sync engine orchestration', () => {
     expect(backupPlan.deleted_skills).toEqual(['cached-orphan']);
     expect(backupPlan.warnings ?? []).not.toContainEqual(expect.objectContaining({ code: 'receiver-backup-missing' }));
     expect(backupRuntime.calls).toHaveLength(0);
+  });
+
+  it('keeps multi-server pull and sync dry-runs on cached manifests before conflict resolution (#555)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+    await saveConfig({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: {},
+      servers: {
+        alpha: { host: '192.0.2.1', remote_agents: {} },
+        beta: { host: '192.0.2.2', remote_agents: {} }
+      },
+      sources: {}
+    }, homeDir);
+    const runtime = createRuntime();
+
+    const pulls = await pullFromServers(homeDir, ['alpha', 'beta'], {
+      runtime,
+      dryRun: true,
+      yes: true,
+      crossServerPolicy: 'first-wins'
+    });
+    expect(pulls.map((result) => result.server)).toEqual(['alpha', 'beta']);
+    expect(runtime.calls).toHaveLength(0);
+
+    await syncServers(homeDir, ['alpha', 'beta'], {
+      runtime,
+      dryRun: true,
+      yes: true,
+      crossServerPolicy: 'first-wins'
+    });
+    expect(runtime.calls).toHaveLength(0);
   });
 });

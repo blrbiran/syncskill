@@ -82,8 +82,9 @@ describe('push --dry-run: human output and --json report the same plan (#477)', 
     const humanDeleted = human.filter((line) => / \(deleted\)$/.test(line)).map((line) => line.trim().replace(/^- /, '').replace(/ \(deleted\)$/, ''));
     const humanWarnings = human.map((line) => line.trim()).filter((line) => line.startsWith('warning: '));
 
-    // The plan itself (an equality of two zeros would prove nothing).
-    expect(humanDeleted.sort()).toEqual(['delta', 'gamma', 'old-one']);
+    // Tester #555 (session 1cdb9811): a dry run no longer lists the remote, so the remote-only orphan
+    // `old-one` is not in the plan; the manifest's own local deletions (delta, gamma) still are.
+    expect(humanDeleted.sort()).toEqual(['delta', 'gamma']);
     expect(humanPushed).toBe(1);
 
     // mutation: dry-run returns pushed_skills: [] again -> JSON pushed 0 vs human 1 modified, red
@@ -91,12 +92,14 @@ describe('push --dry-run: human output and --json report the same plan (#477)', 
     // mutation: report only the orphan set as deleted -> delta missing on one side, red
     expect(summary.deleted).toBe(humanDeleted.length);
     expect(summary.data.deleted.map((entry: { skill: string }) => entry.skill).sort()).toEqual(humanDeleted.sort());
-    expect(human).toContain('Summary: 4 skill(s), 1 modified, 3 deleted');
+    expect(human).toContain('Summary: 3 skill(s), 1 modified, 2 deleted');
 
-    // mutation: drop data.warnings from the JSON summary -> only a count reaches a script, red
-    expect(summary.data.warnings).toEqual([{ code: 'included-not-local', server: 'lab', detail: 'elsewhere' }]);
-    // mutation: stop printing warnings in the human plan -> the person never sees why `elsewhere` is kept, red
-    expect(humanWarnings).toEqual(['warning: included-not-local: elsewhere']);
+    // Tester #555 (session 1cdb9811): the dry run cannot see the remote listing, so `elsewhere` is not
+    // known to be remote-only; it warns instead that no receiver backup constrains this plan.
+    expect(summary.data.warnings).toEqual([{ code: 'receiver-backup-missing', server: 'lab',
+      detail: 'This dry-run is not constrained by the receiver link matrix; a first push may push fewer skills.' }]);
+    // mutation: stop printing warnings in the human plan -> the person never sees why this plan may be partial, red
+    expect(humanWarnings).toEqual(['warning: receiver-backup-missing: This dry-run is not constrained by the receiver link matrix; a first push may push fewer skills.']);
     expect(summary.warnings).toBe(humanWarnings.length);
   });
 

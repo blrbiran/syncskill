@@ -1550,7 +1550,17 @@ export function createProgram(homeDir?: string): Command {
 
       const linkTargetChange = (commandName === 'link set' || commandName === 'link add')
         && actionCommand.opts<{ dryRun?: boolean }>().dryRun !== true;
-      if (linkTargetChange || shouldSkipCommandPreflight(actionCommand) || shouldSkipInstallPreflight(actionCommand)) {
+      if (linkTargetChange) {
+        // Tester #533: link set/add are writes, so a config the diagnosis says cannot proceed refuses
+        // them before any link is written; they keep skipping the manifest auto-refresh they always skipped.
+        const diagnosis = await runCommandPreflight(resolvedHomeDir);
+        if (!diagnosis.canProceed) {
+          process.exit(ExitCode.CONFIG_ERROR);
+          return;
+        }
+        return;
+      }
+      if (shouldSkipCommandPreflight(actionCommand) || shouldSkipInstallPreflight(actionCommand)) {
         return;
       }
 

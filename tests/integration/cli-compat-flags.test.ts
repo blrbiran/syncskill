@@ -190,8 +190,9 @@ describe('--plan (#484)', () => {
     const result = await run(home, ['--plan', command, 'lab']);
     // mutation: drop the --plan tuple in the preAction loop -> a real push/pull/sync sends write verbs, red
     expect(await writeCalls()).toEqual([]);
-    // the remote was reached, so an empty write list is a measurement, not a skipped command
-    expect(await readFile(sshLog, 'utf8')).toContain('manifest');
+    // Tester #555 (session 1cdb9811): --plan is a dry run, so it sends no SSH at all; an empty log is
+    // a measurement of that, not a skipped command.
+    expect((await readFile(sshLog, 'utf8').catch(() => '')).trim()).toBe('');
     expect(result.thrown).toBeUndefined();
     expect(result.exitCode ?? 0, result.lines.join('\n')).toBe(0);
   });

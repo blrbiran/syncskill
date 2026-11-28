@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useTempDirs } from '../helpers/temp-dir.js';
 import { saveConfig } from '../../src/config/config.js';
+import { saveServerManifest, type ManifestSkillState } from '../../src/core/manifest.js';
 import { pullFromServer, pushToServers } from '../../src/core/sync_engine.js';
 import type { TransportRuntime } from '../../src/core/transport.js';
 
@@ -39,6 +40,15 @@ async function localSkill(home: string, name: string): Promise<void> {
   await writeFile(join(dir, 'SKILL.md'), `# ${name}\n`, 'utf8');
 }
 
+/** A prior push's record of what the remote held: the only remote state a #555 dry run may read. */
+async function cachedRemote(home: string, names: string[]): Promise<void> {
+  const state = (): ManifestSkillState => ({ local_hash: 'r', remote_hash: 'r', recorded_hash: 'r', direction: 'skip', status: 'in-sync' });
+  await saveServerManifest(home, {
+    version: 1, server: 'alpha', updated_at: '2026-01-01T00:00:00Z',
+    skills: Object.fromEntries(names.map((name) => [name, state()])),
+  });
+}
+
 const config = (include: string[] | undefined) => ({
   version: 1 as const, conflict_resolution: 'manual' as const, agents: {},
   links: { keepme: ['claude'] },
@@ -55,6 +65,8 @@ describe('push discloses the remote deletions it would make (#449)', () => {
     tempDirs.push(home);
     await saveConfig(config(['keepme']), home);
     await localSkill(home, 'keepme');
+    // Tester #555 (session 1cdb9811): a dry run reads the cached remote state, not the remote itself.
+    await cachedRemote(home, ['keepme', 'stale-a']);
     const runtime = createRuntime(['keepme', 'stale-a']);
     const [result] = await pushToServers(home, ['alpha'], { runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' });
     // mutation: leave the dry-run branch returning before orphan computation -> deleted_skills absent, red
@@ -86,15 +98,16 @@ describe('push discloses the remote deletions it would make (#449)', () => {
     return runtime;
   };
 
-  it('a dry run fails loudly when the remote listing is unavailable', async () => {
+  it('a dry run never lists the remote, so an unavailable listing cannot fail it', async () => {
     const home = await mkdtemp(join(tmpdir(), 'syncskill-del-'));
     tempDirs.push(home);
     await saveConfig(config(['keepme']), home);
     await localSkill(home, 'keepme');
     const runtime = failingListingRuntime('ssh exited with code 255: Connection reset by peer');
-    // mutation: restore `catch { return [] }` -> this resolves with deleted_skills [] instead of rejecting, red
-    await expect(pushToServers(home, ['alpha'], { runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' }))
-      .rejects.toThrow('E_REMOTE_TRANSPORT');
+    // Tester #555 (session 1cdb9811): the dry run plans from cache and sends no SSH, so this listing
+    // failure is never reached; the authorised push below still fails loudly on it.
+    const [result] = await pushToServers(home, ['alpha'], { runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' });
+    expect(result.deleted_skills ?? []).toEqual([]);
     expect(runtime.deletes).toHaveLength(0);
   });
 
@@ -185,14 +198,18 @@ describe('push discloses the remote deletions it would make (#449)', () => {
     tempDirs.push(home);
     await saveConfig(config(['keepme']), home);
     await localSkill(home, 'keepme');
+    // Tester #555 (session 1cdb9811): remote state comes from the cache; no SSH is sent at all.
+    await cachedRemote(home, ['keepme', 'stale-a']);
     const push = recordingRuntime(['keepme', 'stale-a']);
     const [result] = await pushToServers(home, ['alpha'], { runtime: push.runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' });
     // mutation: deploy the receiver in a dry run again -> mkdir/bootstrap/cat > calls, red
     expect(writes(push.calls)).toEqual([]);
+    expect(push.calls).toEqual([]);
     expect(result.deleted_skills).toEqual(['stale-a']);
     const pull = recordingRuntime(['keepme']);
     await pullFromServer(home, 'alpha', { runtime: pull.runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' });
     expect(writes(pull.calls)).toEqual([]);
+    expect(pull.calls).toEqual([]);
   });
 
   it('a dry run against a remote with no receiver installs none and says the plan is unknown', async () => {
@@ -203,9 +220,13 @@ describe('push discloses the remote deletions it would make (#449)', () => {
     const { runtime, calls } = recordingRuntime([], false);
     const [result] = await pushToServers(home, ['alpha'], { runtime, dryRun: true, now: '2026-05-01T00:00:00.000Z' });
     expect(writes(calls)).toEqual([]);
-    // mutation: treat a missing receiver as an empty remote silently -> no warning, red
-    // Ruling (tester #477, session 5d3d0c09): warnings are {code, detail} now (code split from prose); same code, same fact.
-    expect(result.warnings).toContainEqual({ code: 'remote-state-unknown', detail: 'no syncskill receiver on alpha; a dry run does not install one' });
+    // Tester #555 (session 1cdb9811): the dry run no longer probes the receiver at all, so the plan
+    // cannot silently claim the remote is empty; it says instead that no receiver backup constrains it.
+    // Ruling (tester #477, session 5d3d0c09): warnings are {code, detail} now (code split from prose).
+    expect(result.warnings).toContainEqual({
+      code: 'receiver-backup-missing',
+      detail: 'This dry-run is not constrained by the receiver link matrix; a first push may push fewer skills.',
+    });
   });
 
   it('an absent remote skills directory is still an empty list, not an error', async () => {

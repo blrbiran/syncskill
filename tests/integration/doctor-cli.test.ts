@@ -361,4 +361,36 @@ describe('syncskill doctor', () => {
     expect(push.code).toBe(3);
     expect(push.stderr).toContain('doctor --fix');
   });
+
+  it.each([
+    [['link', 'set', 'demo', 'claude']],
+    [['link', 'add', 'demo', 'claude']]
+  ])('blocks %j before writing when config diagnosis cannot proceed', async (args) => {
+    const invalidAgentDir = join(homeDir, 'missing-agent', 'skills');
+    await writeFile(configFile, JSON.stringify({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: { claude: invalidAgentDir },
+      links: {},
+      servers: {},
+      sources: {}
+    }));
+    const before = await readFile(configFile, 'utf8');
+
+    let code = 0;
+    let stderr = '';
+    try {
+      await execFileAsync('node', [cliPath, ...args], {
+        env: { ...process.env, HOME: homeDir, USERPROFILE: homeDir }
+      });
+    } catch (error: unknown) {
+      const execError = error as { stderr?: string; code?: number };
+      code = execError.code ?? 1;
+      stderr = execError.stderr ?? '';
+    }
+
+    expect(code).toBe(3);
+    expect(stderr).toContain('doctor --fix');
+    await expect(readFile(configFile, 'utf8')).resolves.toBe(before);
+  });
 });

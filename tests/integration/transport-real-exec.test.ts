@@ -156,24 +156,26 @@ describe('transport failures in the real execFile error shape (#456)', () => {
     it('fails with E_REMOTE_TRANSPORT when reading the manifest hits an ssh failure', async () => {
       process.env.FAKE_SSH_MANIFEST = 'reset';
       process.env.FAKE_SSH_LS = 'listing';
-      // mutation: classify by message text only -> the reset reads as "no receiver" and the plan resolves, red
-      await expect(pushToServers(await home(), ['lab'], { dryRun: true, now: '2026-05-01T00:00:00.000Z' }))
-        .rejects.toThrow('E_REMOTE_TRANSPORT');
+      // Tester #555 (session 1cdb9811): a dry run sends no SSH, so the manifest read cannot fail the
+      // plan; the transport classification stays covered by the non-dry-run criteria above.
+      const [result] = await pushToServers(await home(), ['lab'], { dryRun: true, now: '2026-05-01T00:00:00.000Z' });
+      expect(result.pushed_skills).toEqual(['keepme']);
+      expect((result.warnings ?? []).map((w) => w.code)).toContain('receiver-backup-missing');
     });
 
-    it('fails with E_REMOTE_TRANSPORT when the listing hits an ssh failure', async () => {
+    it('does not list the remote: an ssh failure in the listing cannot fail the plan', async () => {
       process.env.FAKE_SSH_LS = 'identity';
-      await expect(pushToServers(await home(), ['lab'], { dryRun: true, now: '2026-05-01T00:00:00.000Z' }))
-        .rejects.toThrow('E_REMOTE_TRANSPORT');
+      const [result] = await pushToServers(await home(), ['lab'], { dryRun: true, now: '2026-05-01T00:00:00.000Z' });
+      expect(result.pushed_skills).toEqual(['keepme']);
     });
 
-    it('a remote without a receiver is still "state unknown", and the orphan plan still comes from the listing', async () => {
+    it('plans from cached state without a receiver backup and says the plan is unconstrained', async () => {
       process.env.FAKE_SSH_MANIFEST = 'nomodule';
       process.env.FAKE_SSH_LS = 'listing';
       const [result] = await pushToServers(await home(), ['lab'], { dryRun: true, now: '2026-05-01T00:00:00.000Z' });
-      expect(result.deleted_skills).toEqual(['stale-a']);
+      expect(result.deleted_skills).toEqual([]);
       // Ruling (tester #477, session 5d3d0c09): warnings are {code, detail} since #477.
-      expect((result.warnings ?? []).map((w) => w.code)).toContain('remote-state-unknown');
+      expect((result.warnings ?? []).map((w) => w.code)).toContain('receiver-backup-missing');
     });
   });
 });

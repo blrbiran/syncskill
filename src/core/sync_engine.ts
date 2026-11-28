@@ -453,7 +453,7 @@ async function planCrossServerResolution(
 
   for (const serverName of targetServers) {
     const server = getConfiguredServer(config, serverName);
-    const updated = await prepareManifest(homeDir, server, runtime, options.now);
+    const updated = await prepareManifest(homeDir, server, runtime, options.now, options.dryRun === true);
     manifests.push({ server: serverName, manifest: updated.manifest });
   }
 
