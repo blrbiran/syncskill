@@ -45,6 +45,7 @@
 - **[2026-10-03]** `--sync-dir` / `SYNCSKILL_DIR` (absolute path, flag wins) relocate the whole sync dir: the CLI `preAction` calls `setSyncDirOverride`, and `getSyncDir` returns it; library code never reads the env, so direct callers (and unit tests) still get `<homeDir>/.syncskill`. Agent dirs still resolve under HOME. `--config` / `SYNCSKILL_CONFIG` are rejected with `E_USAGE_CONFIG_PATH` (exit 2). Never join `.syncskill` onto a home dir by hand — go through `getSyncPaths`. `src/receiver/sync_receiver.mjs` runs on the remote and keeps the remote HOME.
 - **[2026-10-03]** `validateConfig` rebuilds the config from known keys only, so any new top-level config key must be added to `SyncSkillConfig`, `validateConfig` and `createDefaultConfig` together, or the next save silently drops it. `normalizeSourceState` behaves the same for `state.json`.
 - **[2026-10-03]** `inject` (profiles/inject/resolved-commit round, spec `2026-10-03-profile-inject-version-design.md`): copies a dereferenced snapshot via a `mkdtemp` staging dir created before the try (rollback only removes what this call made), places the lock with `link()` (EEXIST ⇒ exit 7), skips the manifest auto-refresh, and looks profiles up with `Object.hasOwn` (`__proto__` is refused as a profile name).
+- **[2026-11-28]** push/pull/sync dry-runs derive remote state from the local manifest and receiver backup without transport; a missing receiver backup means the push preview cannot use the remote link matrix and must say so.
 
 ## Do-Not-Repeat
 

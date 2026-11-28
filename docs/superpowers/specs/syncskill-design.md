@@ -162,8 +162,9 @@ syncskill/
 
 | 项 | 定义 |
 |---|---|
-| 含义 | 不修改任何外部状态：不写 fs、不发起任何**写** SSH/rsync 请求、不修改远端 |
-| 允许例外 | 只读探查 — 包括只读网络请求（`git ls-remote`、`ssh <host> "cat manifest"`、HTTP HEAD 探针）和本地只读操作（`git status --porcelain`、`stat`、`ls`、本地 hash 计算）—— 用于产出 plan |
+| 含义 | 不修改任何外部状态：不写 fs、不发起任何 SSH/rsync 请求、不修改远端 |
+| 允许操作 | 本地只读操作（`git status --porcelain`、`stat`、`ls`、本地 hash 计算）；push/pull/sync 使用本地 manifest 与 receiver backup 中最后已知状态生成 plan |
+| 远端状态 | dry-run 不探测远端。manifest 或 receiver backup 未记录的远端状态视为未知；首次 push 没有 receiver backup 时在 plan 中明确警告该预览不受远端 link matrix 约束 |
 | 输出（text 模式） | 显示"将要发生的变更"，每行前缀 `[dry-run]` |
 | 输出（json 模式） | 完整 plan JSON，等价 `--plan` |
 | 与 `--plan` 关系 | **等价**：`--dry-run` ≡ `--plan` + text 渲染；`--json --dry-run` ≡ `--json --plan`。人类用 `--dry-run`（直觉名）；AI agent 用 `--json --plan`（精确语义）。两者共享同一份 plan-builder 函数，输出内容完全一致 |
@@ -648,7 +649,7 @@ syncskill refresh <server>
 - `--resolutions <path|->`：携带决议绕过 prompt(`-` = stdin;旧 `--resolutions-stdin` 为 alias)
 - `--config <path>`：覆盖 config 文件路径
 - `--sync-dir <path>`：覆盖 `~/.syncskill/` 目录
-所有命令（除 `init`、`config`、`refresh`、`doctor`、`restore`）执行前在同一个 `preAction` 钩子里自动调用 `autoDiagnoseConfig()` + `autoRefreshManifests()`。两个钩子排除集相同（详见 §10.5）。`restore` 是纯本地 backup 恢复操作，不需要网络刷新。
+除 `init`、`config`、`refresh`、`doctor`、`restore` 外，命令执行前在同一个 `preAction` 钩子里调用 `autoDiagnoseConfig()` + `autoRefreshManifests()`；`canProceed === false` 的阻断范围见 §10.5。
 
 **3+ 服务器提示**：当服务器数量 ≥ 3 时，以下场景打印提示：
 
@@ -2694,34 +2695,34 @@ Fixed 2 of 3 issues. Config saved.
   → 命令主逻辑
 ```
 
-**触发范围**：所有命令（除 `init`、`config`、`refresh`、`doctor` 外）。`autoDiagnoseConfig()` 与 `autoRefreshManifests()` 共用同一个 `preAction` 钩子，排除集相同（与 §3.1 一致）。
+**触发范围**：所有命令（除 `init`、`config`、`refresh`、`doctor`、`restore` 外）。`autoDiagnoseConfig()` 与 `autoRefreshManifests()` 共用同一个 `preAction` 钩子。
+
+当诊断返回 `canProceed === false` 时，`status`、`scan`、`update`、已知只读命令和任何 dry-run 仍执行；其余写命令由 CLI 层以 config 错误退出码 3 阻断。`scan` 与 `update` 是配置不健康时的恢复入口，保留此例外，即使它们可能写入本地数据。
 
 排除原因：
 - `init`：尚未创建 config，钩子无配置可读
 - `config`：用户正在修配置，刷新没有意义
 - `refresh`：命令本身就是手动刷新，避免重复
-- `doctor`：需要在配置不健康时仍能运行（autoDiagnose 会因配置坏掉先崩溃）
+- `doctor`：需要在配置不健康时仍能运行
+- `restore`：纯本地 backup 恢复操作，不需要自动刷新
 
 **autoDiagnoseConfig() 行为**：
 
 ```typescript
-async function autoDiagnoseConfig(config: SyncSkillConfig, paths: SyncPaths): Promise<void> {
-  const report = await diagnoseConfig(config, paths);
-
-  if (report.isHealthy) return;  // 无问题，静默通过
-
-  // 打印警告摘要（精简为一行）
-  console.error(formatDiagnosticSummary(report));
-
-  if (!report.canProceed) {
-    // 严重问题，阻断
-    console.error('Run `syncskill doctor --fix` to repair.');
-    process.exit(1);
+async function autoDiagnoseConfig(config: SyncSkillConfig, skillsDir: string, homeDir: string): Promise<{
+  healthy: boolean;
+  canProceed: boolean;
+}> {
+  const report = await diagnoseConfig(config, skillsDir, homeDir);
+  if (!report.isHealthy) {
+    console.error(formatDiagnosticSummary(report));
+    if (!report.canProceed) console.error('Run `syncskill doctor --fix` to repair.');
   }
-
-  // 轻微问题，继续执行（警告已打印）
+  return { healthy: report.isHealthy, canProceed: report.canProceed };
 }
 ```
+
+该 helper 只负责诊断、打印 stderr 摘要并返回结果，不得结束进程。`preAction` 根据 `canProceed`、命令是否只读/恢复命令及 dry-run 状态决定是否阻断；阻断必须发生在 action 前，且 JSON 模式下不得把诊断摘要写入 stdout。
 
 **自动检查输出示例**：
 

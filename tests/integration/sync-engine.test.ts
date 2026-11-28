@@ -10,7 +10,7 @@ import { useTempDirs } from '../helpers/temp-dir.js';
 import { saveConfig, setSyncDirOverride } from '../../src/config/config.js';
 import { loadManifestHistory, loadServerManifest, saveServerManifest, type ManifestSkillState } from '../../src/core/manifest.js';
 import { loadReceiverBackup, saveReceiverBackup } from '../../src/core/server.js';
-import { pullFromServer, pushToServers } from '../../src/core/sync_engine.js';
+import { pullFromServer, pushToServers, syncServer } from '../../src/core/sync_engine.js';
 import { type TransportRuntime } from '../../src/core/transport.js';
 
 function createRuntime(options: {
@@ -1374,10 +1374,16 @@ describe('sync engine orchestration', () => {
 
       // mutation: drop `|| includeState.kind === 'unset'` from orphansForCleanup -> deleted_skills is ['alpha','beta'], red
       expect(result.deleted_skills).toEqual([]);
-      expect(result.warnings).toEqual([{
-        code: 'no-skills-configured',
-        detail: 'skills.include is not set and no links are configured. Local skills can still be uploaded. Push will not remove remote skills.'
-      }]);
+      expect(result.warnings).toEqual([
+        {
+          code: 'no-skills-configured',
+          detail: 'skills.include is not set and no links are configured. Local skills can still be uploaded. Push will not remove remote skills.'
+        },
+        {
+          code: 'receiver-backup-missing',
+          detail: 'This dry-run is not constrained by the receiver link matrix; a first push may push fewer skills.'
+        }
+      ]);
       expect(runtime.calls.some((call) => call.file === 'ssh' && call.args.includes('rm'))).toBe(false);
     });
 
@@ -1720,5 +1726,78 @@ describe('sync engine orchestration', () => {
       );
       expect(hasRmCall).toBe(false);
     });
+  });
+
+  it('plans push, pull, and sync from cached state without transport (#555)', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'syncskill-sync-engine-'));
+    tempDirs.push(homeDir);
+    await saveConfig({
+      version: 1,
+      conflict_resolution: 'manual',
+      agents: {},
+      links: { demo: ['claude'] },
+      servers: {
+        lab: {
+          host: '192.0.2.1',
+          remote_agents: { claude: '~/.claude/skills' },
+          skills: { include: ['demo'] }
+        }
+      },
+      sources: {}
+    }, homeDir);
+    const skillDir = join(homeDir, '.syncskill', 'skills', 'demo');
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, 'SKILL.md'), '# demo changed\n', 'utf8');
+    await saveServerManifest(homeDir, {
+      version: 1,
+      server: 'lab',
+      updated_at: '2026-11-28T00:00:00.000Z',
+      skills: {
+        demo: {
+          local_hash: 'old-local',
+          remote_hash: 'baseline',
+          recorded_hash: 'baseline',
+          direction: 'skip',
+          status: 'in-sync'
+        }
+      }
+    });
+
+    const pushRuntime = createRuntime();
+    const [push] = await pushToServers(homeDir, ['lab'], { runtime: pushRuntime, dryRun: true });
+    expect(pushRuntime.calls).toHaveLength(0);
+    expect(push.pushed_skills).toEqual(['demo']);
+    expect(push.manifest.skills.demo?.remote_hash).toBe('baseline');
+    expect(push.warnings).toContainEqual({
+      code: 'receiver-backup-missing',
+      detail: 'This dry-run is not constrained by the receiver link matrix; a first push may push fewer skills.'
+    });
+
+    const noRefreshRuntime = createRuntime();
+    await pushToServers(homeDir, ['lab'], { runtime: noRefreshRuntime, dryRun: true, noRefresh: true });
+    expect(noRefreshRuntime.calls).toHaveLength(0);
+
+    const pullRuntime = createRuntime();
+    const pull = await pullFromServer(homeDir, 'lab', { runtime: pullRuntime, dryRun: true });
+    expect(pull.manifest.skills.demo?.remote_hash).toBe('baseline');
+    expect(pullRuntime.calls).toHaveLength(0);
+
+    const syncRuntime = createRuntime();
+    const sync = await syncServer(homeDir, 'lab', { runtime: syncRuntime, dryRun: true });
+    expect(sync.push.manifest.skills.demo?.remote_hash).toBe('baseline');
+    expect(syncRuntime.calls).toHaveLength(0);
+
+    await saveReceiverBackup(homeDir, {
+      version: 1,
+      server: 'lab',
+      updated_at: '2026-11-28T00:00:00.000Z',
+      remote_agents: { claude: '~/.claude/skills' },
+      links: { demo: ['claude'], 'cached-orphan': ['claude'] }
+    });
+    const backupRuntime = createRuntime();
+    const [backupPlan] = await pushToServers(homeDir, ['lab'], { runtime: backupRuntime, dryRun: true });
+    expect(backupPlan.deleted_skills).toEqual(['cached-orphan']);
+    expect(backupPlan.warnings ?? []).not.toContainEqual(expect.objectContaining({ code: 'receiver-backup-missing' }));
+    expect(backupRuntime.calls).toHaveLength(0);
   });
 });

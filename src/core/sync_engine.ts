@@ -6,7 +6,6 @@ import type { SyncSkillConfig } from '../config/types.js';
 import { buildSkillsRegistry } from '../source.js';
 import { applyResolution, reconcileManifest } from './conflict.js';
 import {
-  createEmptyManifest,
   applyRemoteSnapshot,
   buildLocalSkillHashes,
   collectRemoteHistoryEntries,
@@ -27,7 +26,6 @@ import {
   deleteRemoteSkills,
   deployReceiver,
   fetchRemoteManifest,
-  isTransportFailure,
   listRemoteSkills,
   pullSkillDirectory,
   pushManifest,
@@ -129,7 +127,7 @@ export interface PushResult {
 }
 
 export interface PushWarning {
-  code: 'no-skills-configured' | 'included-not-local' | 'remote-state-unknown' | 'direction-pull';
+  code: 'no-skills-configured' | 'included-not-local' | 'remote-state-unknown' | 'direction-pull' | 'receiver-backup-missing';
   detail: string;
 }
 
@@ -522,7 +520,14 @@ async function pushToServer(
         ? [{ code: 'no-skills-configured', detail: 'skills.include is not set and no links are configured. Local skills can still be uploaded. Push will not remove remote skills.' }]
         : [];
     if (directionSkipped.size > 0) includeWarnings.push(...[...directionSkipped].sort().map((skill) => ({ code: 'direction-pull' as const, detail: skill })));
-    let receiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
+    const savedReceiverBackup = await loadReceiverBackupIfExists(homeDir, serverName);
+    let receiverBackup = savedReceiverBackup;
+    if (!savedReceiverBackup && options.dryRun) {
+      includeWarnings.push({
+        code: 'receiver-backup-missing',
+        detail: 'This dry-run is not constrained by the receiver link matrix; a first push may push fewer skills.'
+      });
+    }
     if (receiverBackup) {
       const mergedBackup = mergeConfiguredLinksIntoReceiverBackup(
         receiverBackup,
@@ -577,7 +582,7 @@ async function pushToServer(
     // Safety net: verify remote skills exist when --no-refresh is used
     let finalPushedSkills = pushedSkills;
     let remoteSkillListForCleanup: string[] | null = null;
-    if (options.noRefresh) {
+    if (options.noRefresh && !options.dryRun) {
       const remoteSkillList = await listRemoteSkills(server, runtime);
       remoteSkillListForCleanup = remoteSkillList;
       const remoteSkillSet = new Set(remoteSkillList);
@@ -613,7 +618,13 @@ async function pushToServer(
     if (options.dryRun) {
       // Tester #449: the cleanup below deletes remote skills, and this branch used to return before it ran, so a plan
       // that would remove half the remote skills printed `(no changes)`. The orphan set is computed here the same way.
-      const wouldDelete = orphansForCleanup(remoteSkillListForCleanup ?? await listRemoteSkills(server, runtime), manifest, included, includeState, includeWarnings, (skill) => direction(skill) === 'pull');
+      const cachedRemoteSkills = uniqueSorted([
+        ...Object.entries(updated.previousManifest.skills)
+          .filter(([, state]) => state.remote_hash !== null)
+          .map(([skill]) => skill),
+        ...Object.keys(savedReceiverBackup?.links ?? {})
+      ]);
+      const wouldDelete = orphansForCleanup(remoteSkillListForCleanup ?? cachedRemoteSkills, manifest, included, includeState, includeWarnings, (skill) => direction(skill) === 'pull');
       // Tester #477: the plan is the result. The human lines below and the --json summary are both rendered from it, so
       // they cannot disagree: planned pushes (content), and ONE deletion set -- skills deleted locally (manifest) and
       // remote skills no longer in local config (orphans), deduplicated.
@@ -950,7 +961,10 @@ async function prepareManifest(
   const updatedAt = now ?? new Date().toISOString();
   const previousManifest = await loadServerManifest(homeDir, server.name);
   const localHashes = await buildLocalSkillHashes(homeDir, !readOnly);
-  const { manifest: remoteManifest, unknown: remoteUnknown } = await fetchRemoteState(server, runtime, readOnly);
+  const remoteState = readOnly
+    ? { manifest: previousManifest, unknown: false }
+    : await fetchRemoteState(server, runtime);
+  const { manifest: remoteManifest, unknown: remoteUnknown } = remoteState;
   const nextManifest = reconcileManifest({
     ...applyRemoteSnapshot(
       {
@@ -987,23 +1001,9 @@ async function prepareManifest(
   };
 }
 
-async function fetchRemoteState(server: ConfiguredServer, runtime: TransportRuntime, readOnly = false): Promise<{ manifest: ServerManifest; unknown: boolean }> {
-  if (!readOnly) {
-    await deployReceiver(server, runtime);
-    return { manifest: await fetchRemoteManifest(server, runtime), unknown: false };
-  }
-  // Tester #471: a dry run only reads -- the installed receiver's manifest. No mkdir, no bootstrap, no receiver upload
-  // and no receiver_config.json write. A transport failure still fails; a remote with no (working) receiver has no
-  // state to read, and the plan says so instead of installing one.
-  try {
-    return { manifest: await fetchRemoteManifest(server, runtime), unknown: false };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (isTransportFailure(error)) {
-      throw new Error(`E_REMOTE_TRANSPORT: cannot reach ${server.name} to read its manifest: ${message}`);
-    }
-    return { manifest: createEmptyManifest(server.name), unknown: true };
-  }
+async function fetchRemoteState(server: ConfiguredServer, runtime: TransportRuntime): Promise<{ manifest: ServerManifest; unknown: boolean }> {
+  await deployReceiver(server, runtime);
+  return { manifest: await fetchRemoteManifest(server, runtime), unknown: false };
 }
 
 function applyConflictPolicy(
